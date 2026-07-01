@@ -49,10 +49,26 @@ describe("tool registry", () => {
     for (const t of P1_TOOLS) expect(p0Names.has(t.name)).toBe(false);
   });
 
-  it("serves the four Phase-0 tools plus track_site (its cadence job has shipped)", () => {
+  it("serves the Phase-0 tools plus the scheduled-monitoring surface", () => {
     expect(SERVED_TOOLS.map((t) => t.name).sort()).toEqual(
-      ["compare_competitors", "get_ai_visibility", "get_changes", "run_audit", "track_site"].sort(),
+      [
+        "compare_competitors",
+        "get_ai_visibility",
+        "get_changes",
+        "get_monitoring_status",
+        "list_tracked_sites",
+        "run_audit",
+        "track_site",
+        "untrack_site",
+      ].sort(),
     );
+  });
+
+  it("the monitoring management tools are all Pro-gated", () => {
+    const gate = Object.fromEntries(ALL_TOOL_SPECS.map((t) => [t.name, t.tier]));
+    expect(gate.untrack_site).toBe("pro");
+    expect(gate.list_tracked_sites).toBe("pro");
+    expect(gate.get_monitoring_status).toBe("pro");
   });
 
   it("track_site is weekly-only in v1 (rejects 'daily', defaults to 'weekly')", () => {

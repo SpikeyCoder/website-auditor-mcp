@@ -336,3 +336,43 @@ describe("WaApiClient tracked-domains (track_site enrollment)", () => {
     expect(res.tracked[0]!.domain).toBe("a.com");
   });
 });
+
+describe("WaApiClient monitoring-status + idempotent untrack", () => {
+  it("getMonitoringStatus GETs /api/monitoring-status and returns the per-site shape", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      limit: 5,
+      used: 1,
+      remaining: 4,
+      sites: [
+        {
+          domain: "example.com",
+          cadence: "weekly",
+          active: true,
+          last_audited_at: "2026-06-29T00:00:00Z",
+          next_run_at: "2026-07-06T00:00:00Z",
+          snapshots_count: 2,
+          latest: { score: 70, by_engine: { chatgpt: 75, perplexity: 65, claude: 70, gemini: 60 }, captured_at: "2026-06-29T00:00:00Z", is_simulated: false },
+          previous: { score: 50, by_engine: { chatgpt: 40, perplexity: 50, claude: 55, gemini: 45 }, captured_at: "2026-06-22T00:00:00Z", is_simulated: false },
+        },
+      ],
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getMonitoringStatus();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/monitoring-status");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(res.used).toBe(1);
+    expect(res.sites[0]!.latest!.score).toBe(70);
+    expect(res.sites[0]!.previous!.score).toBe(50);
+  });
+
+  it("untrackSite parses the idempotent response incl. slot accounting", async () => {
+    const fetchMock = makeFetch(200, { success: true, removed: false, limit: 5, used: 2, remaining: 3 });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.untrackSite({ domain: "example.com" });
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("DELETE");
+    expect(res).toMatchObject({ domain: "example.com", removed: false, limit: 5, used: 2, remaining: 3 });
+  });
+});

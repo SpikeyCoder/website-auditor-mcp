@@ -14,6 +14,9 @@ import { runAudit } from "../tools/runAudit.js";
 import { getChanges } from "../tools/getChanges.js";
 import { compareCompetitors } from "../tools/compareCompetitors.js";
 import { trackSite } from "../tools/trackSite.js";
+import { untrackSite } from "../tools/untrackSite.js";
+import { listTrackedSites } from "../tools/listTrackedSites.js";
+import { getMonitoringStatus } from "../tools/getMonitoringStatus.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
@@ -26,7 +29,13 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   get_changes: (a, d) => getChanges(a as { domain: string; since?: string }, d),
   compare_competitors: (a, d) => compareCompetitors(a as { domain: string; competitors: string[] }, d),
   track_site: (a, d) => trackSite(a as { domain: string; cadence?: "weekly"; enabled?: boolean }, d),
+  untrack_site: (a, d) => untrackSite(a as { domain: string }, d),
+  list_tracked_sites: (_a, d) => listTrackedSites({}, d),
+  get_monitoring_status: (_a, d) => getMonitoringStatus({}, d),
 };
+
+// Tools that MUTATE server state (not read-only). Everything else only reads.
+const MUTATING_TOOLS = new Set(["track_site", "untrack_site"]);
 
 /** Format a normalized ToolResult as an MCP tool result. */
 export function toCallResult(result: ToolResult<unknown>): CallToolResult {
@@ -87,9 +96,9 @@ export function createServer(deps: ToolDeps): McpServer {
   for (const spec of SERVED_TOOLS) {
     const handler = HANDLERS[spec.name];
     if (!handler) continue;
-    // track_site enrolls/removes a tracking — it mutates server state, so it is
-    // NOT read-only. Every other served tool only reads.
-    const readOnlyHint = spec.name !== "track_site";
+    // track_site / untrack_site mutate server state (enroll/remove a tracking),
+    // so they are NOT read-only. Every other served tool only reads.
+    const readOnlyHint = !MUTATING_TOOLS.has(spec.name);
     server.registerTool(
       spec.name,
       {

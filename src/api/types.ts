@@ -154,7 +154,40 @@ export interface TrackResult {
 
 export interface UntrackResult {
   domain: string;
+  /** True if a tracking was removed; false if it wasn't tracked (idempotent). */
   removed: boolean;
+  /** Slot accounting after removal, when the API reports it. */
+  limit?: number;
+  used?: number;
+  remaining?: number;
+}
+
+/** One AI-visibility snapshot as returned by monitoring-status (read shape). */
+export interface MonitoringSnapshot {
+  score: number | null;
+  by_engine: { chatgpt: number | null; perplexity: number | null; claude: number | null; gemini: number | null };
+  captured_at: string;
+  is_simulated: boolean | null;
+}
+
+/** Per-domain monitoring status: tracking metadata + latest/previous snapshots. */
+export interface MonitoringSite {
+  domain: string;
+  cadence: string;
+  active: boolean;
+  last_audited_at: string | null;
+  next_run_at: string | null;
+  snapshots_count: number;
+  latest: MonitoringSnapshot | null;
+  previous: MonitoringSnapshot | null;
+}
+
+/** The user's whole monitoring picture, with cap accounting. */
+export interface MonitoringStatus {
+  limit: number;
+  used: number;
+  remaining: number;
+  sites: MonitoringSite[];
 }
 
 export interface CompetitorRank {

@@ -23,6 +23,7 @@ import type {
   TrackResult,
   TrackedDomainsList,
   UntrackResult,
+  MonitoringStatus,
 } from "./types.js";
 import { WaApiError } from "./errors.js";
 import { computeChanges } from "./mappers.js";
@@ -80,8 +81,10 @@ export interface WaApiClientLike {
   trackSite(params: TrackSiteParams): Promise<TrackResult>;
   /** List the caller's tracked domains with cap accounting (Pro). */
   listTrackedDomains(): Promise<TrackedDomainsList>;
-  /** Stop monitoring a domain (Pro). */
+  /** Stop monitoring a domain (Pro). Idempotent. */
   untrackSite(params: { domain: string }): Promise<UntrackResult>;
+  /** Per-domain monitoring status (latest score, runs, recent change) (Pro). */
+  getMonitoringStatus(): Promise<MonitoringStatus>;
 }
 
 interface ClientDeps {
@@ -262,8 +265,28 @@ export class WaApiClient implements WaApiClientLike {
   async untrackSite(params: { domain: string }): Promise<UntrackResult> {
     const host = normalizeDomain(params.domain); // throws INVALID_INPUT
     const url = new URL(`${this.cfg.apiBaseUrl}/api/tracked-domains`);
-    await this.requestJson("DELETE", url, { domain: host });
-    return { domain: host, removed: true };
+    const body = (await this.requestJson("DELETE", url, { domain: host })) as {
+      removed?: boolean;
+      limit?: number;
+      used?: number;
+      remaining?: number;
+    };
+    const result: UntrackResult = { domain: host, removed: Boolean(body.removed) };
+    if (typeof body.limit === "number") result.limit = body.limit;
+    if (typeof body.used === "number") result.used = body.used;
+    if (typeof body.remaining === "number") result.remaining = body.remaining;
+    return result;
+  }
+
+  async getMonitoringStatus(): Promise<MonitoringStatus> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/monitoring-status`);
+    const body = (await this.requestJson("GET", url)) as Partial<MonitoringStatus>;
+    return {
+      limit: body.limit ?? 0,
+      used: body.used ?? 0,
+      remaining: body.remaining ?? 0,
+      sites: body.sites ?? [],
+    };
   }
 
   async compareCompetitors(_params: { domain: string; competitors: string[] }): Promise<never> {

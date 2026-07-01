@@ -134,14 +134,48 @@ export const P1_TOOLS: ToolSpec[] = [
   },
 ];
 
-export const ALL_TOOL_SPECS: ToolSpec[] = [...P0_TOOLS, ...P1_TOOLS];
+// ─── Scheduled-monitoring management tools ─────────────────────────────────
+// The user-drivable START/STOP/LIST/STATUS surface for the weekly cadence job,
+// all backed by website-auditor-api's tracked-domains + monitoring-status
+// endpoints. track_site (declared in P1_TOOLS) is the START tool; these are its
+// companions. Trigger-first descriptions, consistent with the listing doc.
+
+export const MONITORING_TOOLS: ToolSpec[] = [
+  {
+    name: "untrack_site",
+    tier: "pro",
+    title: "Stop monitoring",
+    description:
+      'Stop ongoing monitoring of a website\'s AI visibility. Use this when someone wants to "stop tracking," "unmonitor," "stop watching," or "remove" a site from scheduled monitoring, or to free up a monitoring slot. Idempotent — safe to call even if the site isn\'t currently tracked. Returns how many monitoring slots are now free.',
+    inputSchema: { domain: domainArg },
+  },
+  {
+    name: "list_tracked_sites",
+    tier: "pro",
+    title: "List monitored sites",
+    description:
+      'List the websites currently being monitored for AI visibility on a schedule. Use this when someone asks "what am I tracking," "which sites am I monitoring," "how many monitoring slots am I using," or wants to see their tracked domains. Returns each tracked domain with its cadence and active state, plus slots used and remaining (out of 5).',
+    inputSchema: {},
+  },
+  {
+    name: "get_monitoring_status",
+    tier: "pro",
+    title: "Monitoring status summary",
+    description:
+      'Get a glanceable summary of monitoring status across all tracked websites. Use this when someone asks "how are my tracked sites doing," "what\'s my current AI visibility across everything I monitor," "when were my sites last checked or when do they run next," or wants a dashboard of their monitored domains. Returns, per domain, the latest AI-visibility score, when it was last audited and next runs, and the most recent change since the prior check.',
+    inputSchema: {},
+  },
+];
+
+export const ALL_TOOL_SPECS: ToolSpec[] = [...P0_TOOLS, ...P1_TOOLS, ...MONITORING_TOOLS];
 
 const TRACK_SITE_TOOL: ToolSpec = P1_TOOLS.find((t) => t.name === "track_site")!;
 
 /**
  * The tools actually registered on the running server: the four Phase-0 tools
- * plus `track_site`, whose server-side weekly cadence job (enrollment +
- * scheduler + digest in website-auditor-api) has shipped. The remaining P1
- * tools are declared above but not served until their backends land.
+ * plus the scheduled-monitoring surface — track_site (start), untrack_site
+ * (stop), list_tracked_sites (list), get_monitoring_status (per-user view) —
+ * whose server-side cadence job in website-auditor-api has shipped. The
+ * remaining P1 tools are declared above but not served until their backends land.
  */
-export const SERVED_TOOLS: ToolSpec[] = [...P0_TOOLS, TRACK_SITE_TOOL];
+export const SERVED_TOOLS: ToolSpec[] = [...P0_TOOLS, TRACK_SITE_TOOL, ...MONITORING_TOOLS];

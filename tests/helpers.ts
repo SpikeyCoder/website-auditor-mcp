@@ -73,7 +73,8 @@ export function makeClient(over: Partial<WaApiClientLike> = {}): WaApiClientLike
       already_tracked: false,
     })),
     listTrackedDomains: vi.fn(async () => ({ limit: 5, used: 0, remaining: 5, tracked: [] })),
-    untrackSite: vi.fn(async ({ domain }) => ({ domain, removed: true })),
+    untrackSite: vi.fn(async ({ domain }) => ({ domain, removed: true, limit: 5, used: 0, remaining: 5 })),
+    getMonitoringStatus: vi.fn(async () => ({ limit: 5, used: 0, remaining: 5, sites: [] })),
   };
   return { ...base, ...over };
 }

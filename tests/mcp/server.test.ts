@@ -13,23 +13,34 @@ async function connect(deps = makeDeps({ tier: "free" })) {
 }
 
 describe("MCP server (end-to-end over in-memory transport)", () => {
-  it("lists the served tools (Phase-0 + track_site) with their verbatim names", async () => {
+  it("lists the served tools (Phase-0 + the scheduled-monitoring surface) with verbatim names", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
-      ["compare_competitors", "get_ai_visibility", "get_changes", "run_audit", "track_site"].sort(),
+      [
+        "compare_competitors",
+        "get_ai_visibility",
+        "get_changes",
+        "get_monitoring_status",
+        "list_tracked_sites",
+        "run_audit",
+        "track_site",
+        "untrack_site",
+      ].sort(),
     );
     const av = tools.find((t) => t.name === "get_ai_visibility")!;
     expect(av.description).toContain("does ChatGPT/Perplexity/Claude/Gemini recommend");
   });
 
-  it("marks track_site as a mutating tool (readOnlyHint false); reads stay read-only", async () => {
+  it("marks track_site + untrack_site as mutating (readOnlyHint false); reads stay read-only", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
-    const track = tools.find((t) => t.name === "track_site")!;
-    expect(track.annotations?.readOnlyHint).toBe(false);
-    const read = tools.find((t) => t.name === "get_ai_visibility")!;
-    expect(read.annotations?.readOnlyHint).toBe(true);
+    for (const name of ["track_site", "untrack_site"]) {
+      expect(tools.find((t) => t.name === name)!.annotations?.readOnlyHint).toBe(false);
+    }
+    for (const name of ["get_ai_visibility", "list_tracked_sites", "get_monitoring_status"]) {
+      expect(tools.find((t) => t.name === name)!.annotations?.readOnlyHint).toBe(true);
+    }
   });
 
   it("calls get_ai_visibility and returns structured content on success", async () => {
