@@ -1,0 +1,59 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.SpikeyCoder/website-auditor-mcp",
+  "title": "Website Auditor",
+  "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
+  "version": "1.0.2",
+  "websiteUrl": "https://website-auditor.io",
+  "repository": {
+    "url": "https://github.com/SpikeyCoder/website-auditor-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@spikeycoder/website-auditor-mcp",
+      "version": "1.0.2",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "WA_API_KEY",
+          "description": "Per-user API key (starts with 'wa_') minted from a Website Auditor account at https://website-auditor.io. Free tools work with any valid key; Pro tools require an active subscription.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "WA_API_BASE_URL",
+          "description": "Base URL of the Website Auditor API this server wraps. Defaults to the public production host.",
+          "default": "https://api.website-auditor.io",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.website-auditor/tools": {
+      "free": [
+        "get_ai_visibility",
+        "run_audit"
+      ],
+      "pro": [
+        "get_changes",
+        "compare_competitors",
+        "track_site",
+        "untrack_site",
+        "list_tracked_sites",
+        "get_monitoring_status",
+        "get_benchmark",
+        "get_recommendations",
+        "generate_schema",
+        "get_report"
+      ]
+    }
+  }
+}

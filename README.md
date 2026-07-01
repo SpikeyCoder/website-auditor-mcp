@@ -1,170 +1,157 @@
 # Website Auditor MCP
 
-An MCP (Model Context Protocol) server for [website-auditor.io](https://website-auditor.io) —
-**AI-visibility & site-audit tools, callable from any MCP client** (Claude, Cursor, ChatGPT connectors).
+An [MCP](https://modelcontextprotocol.io) server for **[website-auditor.io](https://website-auditor.io)** —
+AI-visibility (GEO) and site-audit tools you can call from any MCP client
+(Claude Desktop, Claude Code, Cursor, and other agents).
 
-It is a **thin, authenticated wrapper** over the existing Website Auditor Pro API
-(`SpikeyCoder/website-auditor-api`). The moat — the audit data, AI-visibility
-scoring, and monitoring — lives in that service; this server just distributes it
-to agents. Built test-first with [vitest](https://vitest.dev).
+Ask an agent *"does ChatGPT recommend my business?"*, *"what's my AI-visibility
+score?"*, *"audit example.com"*, or *"how do I stack up against my competitors?"*
+and it answers with real data — an overall AI-visibility score (0–100), a
+per-engine breakdown across **ChatGPT, Perplexity, Claude and Gemini**, a full
+site audit (SEO, security, performance), competitor comparisons, and ongoing
+monitoring.
 
-> **Scope: Phase 0 (MVP).** Four read tools + per-key auth + free/Pro gating +
-> metering. Phase-1 tools are declared and ready to wire (see below).
+The server is a thin, authenticated wrapper over the Website Auditor API — the
+audit engine, AI-visibility scoring and monitoring live in that service; this
+server just makes them available to agents.
 
 ---
 
 ## Tools
 
-| Tool | Gate | What it does |
+| Tool | Tier | What it does |
 |---|---|---|
-| `get_ai_visibility` | **Free** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + top competitor. |
-| `run_audit` | **Free**, rate-limited | Full audit → category scores (AI visibility, SEO, security, performance) + top issues + shareable report URL. |
-| `get_changes` | **Pro** | Deltas since the last check (score movement, engines gained/lost, competitor moves, new/resolved issues). |
-| `compare_competitors` | **Pro** | Head-to-head AI-visibility ranking against named competitor domains + per-engine gaps. Quota-aware: caps the audit fan-out to the remaining daily quota, reuses recent cached audits, and reports any competitors skipped for quota rather than dropping them. |
-
-Tool **names and descriptions are verbatim** from the agent-discovery listing doc
-and must stay stable — agents bind to them (`src/tools/registry.ts`).
-
-Phase-1 tools (`track_site`, `get_benchmark`, `get_recommendations`,
-`generate_schema`, `get_report`) are already declared with full metadata and
-input schemas in `P1_TOOLS`; adding them is a wiring change, not a rewrite.
+| `get_ai_visibility` | **Free** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + the top competitor appearing in your place. |
+| `run_audit` | **Free**, rate-limited | Full one-time audit → category scores (AI visibility, SEO, security, performance) + top issues + a shareable report URL. |
+| `get_changes` | **Pro** | What changed since the last check — score movement, engines gained/lost, competitor moves, new/resolved issues. Requires the domain to be tracked. |
+| `compare_competitors` | **Pro** | Head-to-head AI-visibility ranking against named competitor domains + where each appears that you don't. Quota-aware: caps the audit fan-out to your remaining daily quota, reuses recent cached audits, and reports any competitors it had to skip rather than dropping them silently. |
+| `track_site` | **Pro** | Start (or stop) weekly monitoring of a site's AI visibility. Establishes the history `get_changes` reads from. |
+| `untrack_site` | **Pro** | Stop monitoring a site and free up a monitoring slot. Idempotent. |
+| `list_tracked_sites` | **Pro** | List the sites you're monitoring, with cadence, active state, and slots used/remaining. |
+| `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score, when each was last checked and next runs, and the most recent change. |
 
 ---
 
-## Run it
+## Install & configure
 
-```bash
-npm install
-npm run build       # compile TypeScript → dist/
-npm start           # serve over stdio
-# or, without building:
-npm run dev
-```
+The server runs directly via `npx` — no clone or build required. Add it to your
+MCP client's config with your API key.
 
-### Configure in an MCP client
+**Claude Desktop** (`claude_desktop_config.json`), **Cursor**
+(`~/.cursor/mcp.json`), and most other clients use the same `mcpServers` shape:
 
 ```jsonc
 {
   "mcpServers": {
     "website-auditor": {
-      "command": "node",
-      "args": ["/absolute/path/to/website-auditor-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@spikeycoder/website-auditor-mcp"],
       "env": {
-        "WA_API_KEY": "wa_your_key_here",
-        "WA_API_BASE_URL": "https://api.website-auditor.io"
+        "WA_API_KEY": "wa_your_key_here"
       }
     }
   }
 }
 ```
 
-### Configuration (env)
+**Claude Code** — add it from the CLI:
+
+```bash
+claude mcp add website-auditor -e WA_API_KEY=wa_your_key_here -- npx -y @spikeycoder/website-auditor-mcp
+```
+
+Restart the client and the tools appear.
+
+### Getting an API key
+
+`WA_API_KEY` is a per-user key (it starts with `wa_`) minted from a Website
+Auditor account at **[website-auditor.io](https://website-auditor.io)**. Free
+tools work with any valid key; **Pro** tools require an account with an active
+subscription. Treat the key like a password — set it only in your MCP client's
+`env` and never commit it.
+
+### Configuration (environment variables)
 
 | Var | Default | Purpose |
 |---|---|---|
-| `WA_API_KEY` | _(none)_ | Per-user API key (starts with `wa_`), minted from a Website Auditor Pro account. |
-| `WA_API_BASE_URL` | `https://api.website-auditor.io` | The website-auditor-api portal this server wraps. |
+| `WA_API_KEY` | _(required)_ | Per-user API key (starts with `wa_`). |
+| `WA_API_BASE_URL` | `https://api.website-auditor.io` | The Website Auditor API this server wraps. |
 | `WA_SITE_URL` | `https://website-auditor.io` | Used to build shareable report links. |
 | `WA_UPGRADE_URL` | `https://website-auditor.io/admin_portal` | Surfaced in auth/quota errors. |
-| `WA_FREE_DAILY_AUDIT_LIMIT` | `3` | Free-tier audits per key per UTC day (MCP-side guard). |
+| `WA_FREE_DAILY_AUDIT_LIMIT` | `3` | Free-tier audits per key per UTC day. |
 | `WA_FREE_MAX_DOMAINS` | `1` | Free-tier distinct-domain cap per key. |
 | `WA_REQUEST_TIMEOUT_MS` | `120000` | Timeout for API calls. |
 | `WA_AUDIT_CACHE_TTL_MS` | `86400000` | Reuse a domain's audit within this window instead of spending quota (used by `compare_competitors`). Defaults to 24h. |
-| `WA_DEV_TIER` | _(none)_ | Local/testing override (`free`/`pro`) — see auth model. |
+| `WA_SUBSCRIPTION_CACHE_TTL_MS` | `60000` | How long a resolved Pro/free tier is cached per key before re-checking the subscription. |
+| `WA_METRICS_DISABLED` | _(unset → metrics on)_ | Set to `1`/`true` to disable anonymous usage telemetry. |
 
-See `.env.example`. **Never commit `.env` or any `wa_` key** (`.gitignore` excludes them).
+Only `WA_API_KEY` is normally needed; the rest have sensible defaults. See
+[`.env.example`](.env.example) for the full list.
 
 ---
 
-## Auth & gating model
+## Auth & tiers
 
-The key is supplied via MCP server config (`WA_API_KEY`) and validated on every
-call against the real API. Tiers:
+Your key is validated on every call. The Pro/free tier is resolved live from the
+API and cached briefly, so upgrades and downgrades take effect within about a
+minute:
 
-- **`none`** (no key): free tools return `AUTH_REQUIRED` (the backend requires a
-  key), Pro tools return `PRO_REQUIRED`. Both include the upgrade URL.
-- **`free`** (valid key, no confirmed subscription): free tools work, subject to
-  MCP-side metering (`WA_FREE_DAILY_AUDIT_LIMIT` audits/day, `WA_FREE_MAX_DOMAINS`
-  domains) on top of the API's own per-key daily rate limit. Pro tools return
-  `PRO_REQUIRED` + upgrade URL.
-- **`pro`** (active subscription): all tools, metering bypassed.
+- **No key** → free tools return `AUTH_REQUIRED`, Pro tools return
+  `PRO_REQUIRED`. Both include an upgrade link.
+- **Free** (valid key, no active subscription) → free tools work, subject to
+  per-day metering; Pro tools return `PRO_REQUIRED`.
+- **Pro** (active or trialing subscription) → all tools, metering bypassed.
 
-Errors are normalized to stable codes so agents can branch on them:
+Errors are normalized to stable codes agents can branch on — e.g.
 `AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `OVER_QUOTA`,
-`UNREACHABLE_DOMAIN`, `INVALID_INPUT`, `UPSTREAM_ERROR`, `TIMEOUT`,
-`NOT_YET_AVAILABLE`. Failures come back as MCP error results (`isError: true`)
-with a JSON body carrying the `code`, `message`, and `upgrade_url` where relevant.
-
-> **How is the tier resolved?** `SubscriptionProvider` (`src/auth/entitlements.ts`)
-> is the seam. website-auditor-api does **not yet expose an API-key-authed way to
-> read subscription state** (PRD open question #1), so the default provider is
-> conservative: a valid key is `free` unless `WA_DEV_TIER=pro` is set for local
-> testing. When the endpoint ships, swap in a provider that calls
-> `client.getSubscription()` — no tool changes needed.
+`UNREACHABLE_DOMAIN`, `INVALID_INPUT`, `TIMEOUT`. A domain that can't be reached
+returns `UNREACHABLE_DOMAIN` — never a fabricated score.
 
 ---
 
-## Architecture
-
-```
-src/
-  config.ts              env → WaConfig
-  api/
-    client.ts            WaApiClient — thin adapter over the REAL endpoints (injectable fetch)
-    mappers.ts           pure report → tool-shape mappers (+ unreachable detection, delta logic)
-    domain.ts            domain normalization/validation
-    errors.ts            WaApiError + normalized ErrorCode
-    types.ts             upstream report shapes + tool return shapes
-  auth/
-    entitlements.ts      tier resolution (SubscriptionProvider seam)
-    meter.ts             free-tier metering (Meter seam; in-memory default)
-  tools/
-    context.ts           ToolDeps, ToolResult, gating helpers
-    getAiVisibility.ts   run_audit.ts  getChanges.ts  compareCompetitors.ts
-    registry.ts          verbatim P0 + P1 tool metadata
-  mcp/server.ts          McpServer wiring + result formatting
-  index.ts               stdio entrypoint
-```
-
-Tools are pure `(args, deps) => ToolResult` functions — the client, subscription
-provider and meter are all injected, which is what makes the suite hermetic (no
-network; HTTP is mocked at the `fetch` boundary).
-
-## Test
+## Develop
 
 ```bash
-npm test            # vitest run (62 tests)
+npm install
+npm run build      # compile TypeScript → dist/
+npm start          # serve over stdio
+npm run dev        # run from source without building
+npm test           # vitest
 npm run typecheck
 ```
 
-The P0 acceptance criteria from the PRD are encoded as tests: auth-required
-errors with the upgrade URL, over-quota errors + upgrade path, unreachable-domain
-specific errors (never a fabricated score), and valid-key happy paths.
+The suite is hermetic — the API client, subscription provider and meter are
+injected, and HTTP is mocked at the `fetch` boundary, so no network is touched.
 
 ---
 
-## Mapping to the real API (and what's missing)
+## Privacy Policy
 
-This server wraps `SpikeyCoder/website-auditor-api`. Only one endpoint is live
-today: `GET /api/audit` (`X-API-Key` auth, per-key daily rate limit → 429). Both
-free tools map onto it; `compare_competitors` fans out one audit per domain,
-capped to the remaining daily quota (learned from the `X-RateLimit-*` headers)
-and served from a short-lived audit cache where possible.
+This connector talks to a single external service: the **Website Auditor API**
+at **[website-auditor.io](https://website-auditor.io)**. When you invoke a tool
+it sends only two things to that API:
 
-The following are **declared on the client interface but not yet available
-upstream** — they throw `NOT_YET_AVAILABLE` rather than fabricating data, and the
-tools are wired to light up the moment the endpoints ship:
+- the **target domain** you asked to audit or monitor, and
+- your **API key** (`WA_API_KEY`), used to authenticate the request and resolve
+  your plan tier.
 
-- **Subscription check by API key** (blocks true Pro gating) — PRD open question #1.
-- **AI-visibility deltas / history by API key** (`get_changes`) — PRD open question #2.
-- **A dedicated competitor-comparison endpoint** (`compare_competitors` uses
-  fan-out audits in the meantime, which consumes audit quota).
+That's the full extent of what leaves your machine. The connector does **not**
+collect, store, or transmit your files, prompts, conversation content, or any
+other personal data, and it does not send data to any third party beyond the
+Website Auditor API. Your API key is held only in your MCP client's
+configuration (in Claude Desktop it is stored in the OS keychain and injected as
+an environment variable); it is never written to the bundle or logged.
 
-See `docs/API-GAPS.md` for the full list, including the smaller mismatches
-(`/api/audit` requiring `businessName`/`businessCity`; no dedicated SEO score).
+Anonymous, aggregate usage telemetry (which tool ran, success/failure, latency —
+no domains, no keys, no personal data) may be emitted to improve the service, and
+can be disabled entirely by setting `WA_METRICS_DISABLED=1`.
 
-## Guardrails
+Full privacy policy: **https://website-auditor.io/privacy**
 
-Keep the wrapper thin — the MCP distributes the moat (data + monitoring +
-outcomes), it isn't the moat. Every Pro tool should return something an agent can
-act on or re-call over time.
+---
+
+## License
+
+[Elastic License 2.0](LICENSE) — © 2026 Kevin Armstrong / SpikeyCoder.
+
+Learn more at **[website-auditor.io](https://website-auditor.io)**.

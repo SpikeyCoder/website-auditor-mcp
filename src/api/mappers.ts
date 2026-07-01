@@ -44,6 +44,19 @@ function engineScore(av: AiVisibilityBlock, key: EngineKey): number {
   return av.platform_scores?.[key]?.score ?? 0;
 }
 
+/**
+ * Whether the site appeared on an engine at all. Upstream aggregates the
+ * per-query `client_appears` flags into `appearances` (count of appearing
+ * queries), so `appearances > 0` is the faithful per-engine appearance signal;
+ * when that count is absent we fall back to the raw per-result `client_appears`.
+ */
+function engineAppears(av: AiVisibilityBlock, key: EngineKey): boolean {
+  const ps = av.platform_scores?.[key];
+  if (!ps) return false;
+  if (typeof ps.appearances === "number") return ps.appearances > 0;
+  return (ps.results ?? []).some((r) => r.client_appears === true);
+}
+
 /** Most frequently-cited competitor across all engines, or null if none. */
 export function topCompetitor(av: AiVisibilityBlock): string | null {
   const counts = new Map<string, number>();
@@ -76,6 +89,12 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     claude: engineScore(av, "Claude"),
     gemini: engineScore(av, "Gemini"),
   };
+  const appears_by_engine = {
+    chatgpt: engineAppears(av, "ChatGPT"),
+    perplexity: engineAppears(av, "Perplexity"),
+    claude: engineAppears(av, "Claude"),
+    gemini: engineAppears(av, "Gemini"),
+  };
   const competitor = topCompetitor(av);
   const name = av.business_info?.business_name ?? report.base_url;
   const simulatedNote = av.is_simulated ? " (estimated — live AI queries were unavailable)" : "";
@@ -84,7 +103,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
       ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}`
       : `${name} scores ${score}/100 for AI visibility across ChatGPT, Perplexity, Claude and Gemini.${simulatedNote}`;
 
-  return { score, by_engine, top_competitor: competitor, summary };
+  return { score, by_engine, appears_by_engine, top_competitor: competitor, summary };
 }
 
 /** Pass-rate (0–100) of results for a given module, or null if none ran. */

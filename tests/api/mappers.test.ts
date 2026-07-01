@@ -46,6 +46,25 @@ describe("toAiVisibility", () => {
     expect(typeof av.summary).toBe("string");
     expect(av.summary.length).toBeGreaterThan(0);
   });
+
+  it("marks each engine's appearance from the per-engine client_appears signal", () => {
+    // reachableReport: every engine has appearances > 0.
+    const av = toAiVisibility(reachableReport());
+    expect(av.appears_by_engine).toEqual({ chatgpt: true, perplexity: true, claude: true, gemini: true });
+  });
+
+  it("reports an engine as not appearing when the site was recommended zero times", () => {
+    const r = reachableReport();
+    r.ai_visibility.platform_scores!.Claude!.appearances = 0;
+    expect(toAiVisibility(r).appears_by_engine.claude).toBe(false);
+  });
+
+  it("falls back to results' client_appears when the appearances count is absent", () => {
+    const r = reachableReport();
+    // Gemini's only result has client_appears: true.
+    delete (r.ai_visibility.platform_scores!.Gemini as { appearances?: number }).appearances;
+    expect(toAiVisibility(r).appears_by_engine.gemini).toBe(true);
+  });
 });
 
 describe("topCompetitor", () => {

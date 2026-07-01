@@ -70,7 +70,10 @@ export const P0_TOOLS: ToolSpec[] = [
   },
 ];
 
-// ─── Phase 1 (fast follow) — declared, not yet registered ──────────────────
+// ─── Phase 1 (fast follow) ─────────────────────────────────────────────────
+// Declared with full metadata. `track_site` is now SERVED (its server-side
+// cadence job shipped — see SERVED_TOOLS); the rest stay declared-but-unserved
+// until their backends land, so adding them is a wiring change, not a rewrite.
 
 export const P1_TOOLS: ToolSpec[] = [
   {
@@ -81,7 +84,9 @@ export const P1_TOOLS: ToolSpec[] = [
       'Start (or stop) ongoing monitoring of a website\'s AI visibility on a schedule. Use this when someone wants to "monitor," "track," "watch," or "get alerted about" a site\'s AI visibility over time, rather than a one-off check. Establishes the history that get_changes reads from.',
     inputSchema: {
       domain: domainArg,
-      cadence: z.enum(["daily", "weekly"]).default("weekly").describe("Monitoring cadence."),
+      // Weekly-only in v1 (the server enforces this too). Kept as a single-value
+      // enum rather than a free string so agents don't try daily and get an error.
+      cadence: z.enum(["weekly"]).default("weekly").describe("Monitoring cadence (weekly)."),
       enabled: z.boolean().default(true).describe("Set false to stop monitoring."),
     },
   },
@@ -129,4 +134,55 @@ export const P1_TOOLS: ToolSpec[] = [
   },
 ];
 
-export const ALL_TOOL_SPECS: ToolSpec[] = [...P0_TOOLS, ...P1_TOOLS];
+// ─── Scheduled-monitoring management tools ─────────────────────────────────
+// The user-drivable START/STOP/LIST/STATUS surface for the weekly cadence job,
+// all backed by website-auditor-api's tracked-domains + monitoring-status
+// endpoints. track_site (declared in P1_TOOLS) is the START tool; these are its
+// companions. Trigger-first descriptions, consistent with the listing doc.
+
+export const MONITORING_TOOLS: ToolSpec[] = [
+  {
+    name: "untrack_site",
+    tier: "pro",
+    title: "Stop monitoring",
+    description:
+      'Stop ongoing monitoring of a website\'s AI visibility. Use this when someone wants to "stop tracking," "unmonitor," "stop watching," or "remove" a site from scheduled monitoring, or to free up a monitoring slot. Idempotent — safe to call even if the site isn\'t currently tracked. Returns how many monitoring slots are now free.',
+    inputSchema: { domain: domainArg },
+  },
+  {
+    name: "list_tracked_sites",
+    tier: "pro",
+    title: "List monitored sites",
+    description:
+      'List the websites currently being monitored for AI visibility on a schedule. Use this when someone asks "what am I tracking," "which sites am I monitoring," "how many monitoring slots am I using," or wants to see their tracked domains. Returns each tracked domain with its cadence and active state, plus slots used and remaining (out of 5).',
+    inputSchema: {},
+  },
+  {
+    name: "get_monitoring_status",
+    tier: "pro",
+    title: "Monitoring status summary",
+    description:
+      'Get a glanceable summary of monitoring status across all tracked websites. Use this when someone asks "how are my tracked sites doing," "what\'s my current AI visibility across everything I monitor," "when were my sites last checked or when do they run next," or wants a dashboard of their monitored domains. Returns, per domain, the latest AI-visibility score, when it was last audited and next runs, and the most recent change since the prior check.',
+    inputSchema: {},
+  },
+];
+
+export const ALL_TOOL_SPECS: ToolSpec[] = [...P0_TOOLS, ...P1_TOOLS, ...MONITORING_TOOLS];
+
+const TRACK_SITE_TOOL: ToolSpec = P1_TOOLS.find((t) => t.name === "track_site")!;
+
+// The four Pro-gated read tools whose backends landed in website-auditor-api
+// PR #10 (benchmark / recommendations / schema / report). Declared in P1_TOOLS
+// with full metadata; now wired to their endpoints and served.
+const PHASE1_READ_TOOL_NAMES = ["get_benchmark", "get_recommendations", "generate_schema", "get_report"] as const;
+const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TOOLS.find((t) => t.name === name)!);
+
+/**
+ * The tools actually registered on the running server: the four Phase-0 tools,
+ * the scheduled-monitoring surface — track_site (start), untrack_site (stop),
+ * list_tracked_sites (list), get_monitoring_status (per-user view) — and the
+ * four Pro-gated read tools (get_benchmark, get_recommendations,
+ * generate_schema, get_report) now that their website-auditor-api endpoints have
+ * shipped. Twelve tools in total.
+ */
+export const SERVED_TOOLS: ToolSpec[] = [...P0_TOOLS, TRACK_SITE_TOOL, ...PHASE1_READ_TOOLS, ...MONITORING_TOOLS];

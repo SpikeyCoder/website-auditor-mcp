@@ -133,7 +133,7 @@ describe("WaApiClient.runAudit — rate-limit headers", () => {
 });
 
 describe("WaApiClient.getRemainingQuota", () => {
-  it("returns null today because the subscription endpoint is not yet available", async () => {
+  it("returns null because /api/subscription carries no audit-quota block (quota is learned from runAudit headers)", async () => {
     const client = new WaApiClient(baseCfg, { fetch: makeFetch(200, {}) as unknown as typeof fetch });
     await expect(client.getRemainingQuota()).resolves.toBeNull();
   });
@@ -146,8 +146,347 @@ describe("WaApiClient — endpoints not yet available in website-auditor-api", (
     await expect(client.getChanges({ domain: "example.com" })).rejects.toBeInstanceOf(WaApiError);
     await expect(client.getChanges({ domain: "example.com" })).rejects.toMatchObject({ code: "NOT_YET_AVAILABLE" });
   });
+});
 
-  it("getSubscription throws NOT_YET_AVAILABLE (no API-key-authed subscription endpoint)", async () => {
-    await expect(client.getSubscription()).rejects.toMatchObject({ code: "NOT_YET_AVAILABLE" });
+describe("WaApiClient.getSubscription — wired to GET /api/subscription", () => {
+  it("GETs /api/subscription with the X-API-Key header and maps an active sub to Pro", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      tier: "pro",
+      status: "active",
+      current_period_end: "2026-12-31T00:00:00Z",
+      cancel_at_period_end: false,
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const sub = await client.getSubscription();
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("https://api.website-auditor.io/api/subscription");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(sub).toMatchObject({ tier: "pro", status: "active", current_period_end: "2026-12-31T00:00:00Z" });
+  });
+
+  it("maps a trialing subscription to Pro (active/trialing => pro)", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "pro", status: "trialing" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).resolves.toMatchObject({ tier: "pro", status: "trialing" });
+  });
+
+  it("maps 'no subscription' (status none) to free", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "free", status: "none", current_period_end: null });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).resolves.toMatchObject({ tier: "free", status: "none" });
+  });
+
+  it("maps a lapsed (canceled) subscription to free while surfacing the real status", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "free", status: "canceled" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).resolves.toMatchObject({ tier: "free", status: "canceled" });
+  });
+
+  it("derives tier from status even if the body's tier field disagrees (status is the source of truth)", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "pro", status: "canceled" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).resolves.toMatchObject({ tier: "free", status: "canceled" });
+  });
+
+  it("maps HTTP 401 (revoked/invalid key) to INVALID_KEY", async () => {
+    const fetchMock = makeFetch(401, { success: false, error: "This API key has been revoked." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).rejects.toMatchObject({ code: "INVALID_KEY" });
+  });
+
+  it("maps HTTP 500 (lookup failure) to UPSTREAM_ERROR — the transient path callers fall back on", async () => {
+    const fetchMock = makeFetch(500, { success: false, error: "Failed to look up subscription." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
+  });
+
+  it("wraps a network failure as UPSTREAM_ERROR (transient)", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("network down");
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
+  });
+});
+
+describe("WaApiClient.getChanges — wired to /api/ai-visibility-history", () => {
+  const history = (snapshots: unknown[]) => ({
+    success: true,
+    domain: "example.com",
+    count: snapshots.length,
+    insufficient_history: snapshots.length < 2,
+    snapshots,
+  });
+
+  it("calls the history endpoint with the API key and computes the latest delta", async () => {
+    const fetchMock = makeFetch(
+      200,
+      history([
+        { captured_at: "2026-06-01T00:00:00Z", score: 50, by_engine: { chatgpt: 40, perplexity: 50, claude: 55, gemini: 45 } },
+        { captured_at: "2026-06-08T00:00:00Z", score: 70, by_engine: { chatgpt: 75, perplexity: 60, claude: 70, gemini: 65 } },
+      ]),
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const changes = await client.getChanges({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/ai-visibility-history");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    // Latest move: 50 -> 70.
+    expect(changes.score_delta).toBe(20);
+    const chatgpt = changes.engine_changes.find((e) => e.engine === "chatgpt");
+    expect(chatgpt).toMatchObject({ from: 40, to: 75, delta: 35 });
+  });
+
+  it("with a `since` cursor, spans the window (first-in-range vs latest)", async () => {
+    const fetchMock = makeFetch(
+      200,
+      history([
+        { captured_at: "2026-05-01T00:00:00Z", score: 30, by_engine: { chatgpt: 30, perplexity: 30, claude: 30, gemini: 30 } },
+        { captured_at: "2026-06-01T00:00:00Z", score: 50, by_engine: { chatgpt: 50, perplexity: 50, claude: 50, gemini: 50 } },
+        { captured_at: "2026-06-20T00:00:00Z", score: 60, by_engine: { chatgpt: 60, perplexity: 60, claude: 60, gemini: 60 } },
+      ]),
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const changes = await client.getChanges({ domain: "example.com", since: "2026-05-01T00:00:00Z" });
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("since=");
+    // Window: 30 -> 60 across the whole returned range.
+    expect(changes.score_delta).toBe(30);
+  });
+
+  it("throws NOT_YET_AVAILABLE (not a fabricated delta) when there is only one snapshot", async () => {
+    const fetchMock = makeFetch(
+      200,
+      history([{ captured_at: "2026-06-01T00:00:00Z", score: 50, by_engine: { chatgpt: 50, perplexity: 50, claude: 50, gemini: 50 } }]),
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getChanges({ domain: "example.com" })).rejects.toMatchObject({ code: "NOT_YET_AVAILABLE" });
+  });
+
+  it("does NOT forward the 'last_check' sentinel as a since param", async () => {
+    const fetchMock = makeFetch(
+      200,
+      history([
+        { captured_at: "2026-06-01T00:00:00Z", score: 50, by_engine: { chatgpt: 50, perplexity: 50, claude: 50, gemini: 50 } },
+        { captured_at: "2026-06-08T00:00:00Z", score: 55, by_engine: { chatgpt: 55, perplexity: 55, claude: 55, gemini: 55 } },
+      ]),
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await client.getChanges({ domain: "example.com", since: "last_check" });
+    expect(String(fetchMock.mock.calls[0]![0])).not.toContain("since=");
+  });
+});
+
+describe("WaApiClient tracked-domains (track_site enrollment)", () => {
+  it("trackSite POSTs to /api/tracked-domains with the normalized domain + weekly cadence", async () => {
+    const fetchMock = makeFetch(201, {
+      success: true,
+      created: true,
+      already_tracked: false,
+      tracked: { domain: "example.com", cadence: "weekly", active: true },
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.trackSite({ domain: "https://WWW.Example.com/pricing" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/tracked-domains");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((init as RequestInit).body))).toMatchObject({ domain: "example.com", cadence: "weekly" });
+    expect(res).toMatchObject({ domain: "example.com", created: true, already_tracked: false });
+  });
+
+  it("maps HTTP 409 (cap reached) to LIMIT_REACHED", async () => {
+    const fetchMock = makeFetch(409, { success: false, code: "LIMIT_REACHED", error: "You can track up to 5 domains. Untrack one before adding another." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.trackSite({ domain: "sixth.com" })).rejects.toMatchObject({ code: "LIMIT_REACHED" });
+  });
+
+  it("maps HTTP 403 (free key) to PRO_REQUIRED", async () => {
+    const fetchMock = makeFetch(403, { success: false, error: "This endpoint requires a Website Auditor Pro subscription." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.trackSite({ domain: "example.com" })).rejects.toMatchObject({ code: "PRO_REQUIRED" });
+  });
+
+  it("untrackSite DELETEs /api/tracked-domains with the domain", async () => {
+    const fetchMock = makeFetch(200, { success: true, removed: true });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.untrackSite({ domain: "example.com" });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/tracked-domains");
+    expect((init as RequestInit).method).toBe("DELETE");
+    expect(res).toEqual({ domain: "example.com", removed: true });
+  });
+
+  it("listTrackedDomains GETs the endpoint and returns cap accounting", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      limit: 5,
+      used: 2,
+      remaining: 3,
+      tracked: [{ domain: "a.com", cadence: "weekly", active: true, digest_enabled: true, last_audited_at: null, next_run_at: null }],
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.listTrackedDomains();
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("GET");
+    expect(res).toMatchObject({ limit: 5, used: 2, remaining: 3 });
+    expect(res.tracked[0]!.domain).toBe("a.com");
+  });
+});
+
+describe("WaApiClient monitoring-status + idempotent untrack", () => {
+  it("getMonitoringStatus GETs /api/monitoring-status and returns the per-site shape", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      limit: 5,
+      used: 1,
+      remaining: 4,
+      sites: [
+        {
+          domain: "example.com",
+          cadence: "weekly",
+          active: true,
+          last_audited_at: "2026-06-29T00:00:00Z",
+          next_run_at: "2026-07-06T00:00:00Z",
+          snapshots_count: 2,
+          latest: { score: 70, by_engine: { chatgpt: 75, perplexity: 65, claude: 70, gemini: 60 }, captured_at: "2026-06-29T00:00:00Z", is_simulated: false },
+          previous: { score: 50, by_engine: { chatgpt: 40, perplexity: 50, claude: 55, gemini: 45 }, captured_at: "2026-06-22T00:00:00Z", is_simulated: false },
+        },
+      ],
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getMonitoringStatus();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/monitoring-status");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(res.used).toBe(1);
+    expect(res.sites[0]!.latest!.score).toBe(70);
+    expect(res.sites[0]!.previous!.score).toBe(50);
+  });
+
+  it("untrackSite parses the idempotent response incl. slot accounting", async () => {
+    const fetchMock = makeFetch(200, { success: true, removed: false, limit: 5, used: 2, remaining: 3 });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.untrackSite({ domain: "example.com" });
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("DELETE");
+    expect(res).toMatchObject({ domain: "example.com", removed: false, limit: 5, used: 2, remaining: 3 });
+  });
+});
+
+describe("WaApiClient.getBenchmark — wired to GET /api/benchmark", () => {
+  it("GETs the endpoint with the API key and strips the success envelope", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      percentile: 82,
+      peer_median: 54,
+      sample_size: 137,
+      position_summary: "Top 18% for legal services in TX.",
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getBenchmark({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/benchmark");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(res).toEqual({ percentile: 82, peer_median: 54, sample_size: 137, position_summary: "Top 18% for legal services in TX." });
+    expect(res).not.toHaveProperty("success");
+  });
+
+  it("forwards optional industry/geo when provided, omits them otherwise", async () => {
+    const fetchMock = makeFetch(200, { success: true, percentile: 50, peer_median: 50, sample_size: 10, position_summary: "" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+
+    await client.getBenchmark({ domain: "example.com", industry: "legal", geo: "TX" });
+    const url = new URL(String(fetchMock.mock.calls[0]![0]));
+    expect(url.searchParams.get("industry")).toBe("legal");
+    expect(url.searchParams.get("geo")).toBe("TX");
+
+    await client.getBenchmark({ domain: "example.com" });
+    const url2 = new URL(String(fetchMock.mock.calls[1]![0]));
+    expect(url2.searchParams.has("industry")).toBe(false);
+    expect(url2.searchParams.has("geo")).toBe(false);
+  });
+
+  it("maps HTTP 403 (free key) to PRO_REQUIRED", async () => {
+    const fetchMock = makeFetch(403, { success: false, error: "This endpoint requires a Website Auditor Pro subscription." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getBenchmark({ domain: "example.com" })).rejects.toMatchObject({ code: "PRO_REQUIRED" });
+  });
+});
+
+describe("WaApiClient.getRecommendations — wired to GET /api/recommendations", () => {
+  it("GETs the endpoint and returns the ranked recommendations, envelope stripped", async () => {
+    const recommendations = [
+      { action: "Add Organization JSON-LD", why: "AI reads structured data", expected_impact: "+8 AI visibility", effort: "low" },
+    ];
+    const fetchMock = makeFetch(200, { success: true, recommendations });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getRecommendations({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/recommendations");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(res).toEqual({ recommendations });
+    expect(res).not.toHaveProperty("success");
+  });
+
+  it("defaults to an empty list when the API omits recommendations", async () => {
+    const fetchMock = makeFetch(200, { success: true });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getRecommendations({ domain: "example.com" });
+    expect(res).toEqual({ recommendations: [] });
+  });
+});
+
+describe("WaApiClient.generateSchema — wired to GET /api/schema", () => {
+  it("GETs the endpoint with the type param and returns { jsonld, placement_notes }", async () => {
+    const jsonld = { "@context": "https://schema.org", "@type": "Organization", name: "Example" };
+    const fetchMock = makeFetch(200, { success: true, jsonld, placement_notes: "Paste into <head>." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.generateSchema({ domain: "example.com", type: "Organization" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/schema");
+    expect(String(url)).toContain("domain=example.com");
+    expect(new URL(String(url)).searchParams.get("type")).toBe("Organization");
+    expect((init as RequestInit).method).toBe("GET");
+    expect(res).toEqual({ jsonld, placement_notes: "Paste into <head>." });
+    expect(res).not.toHaveProperty("success");
+  });
+
+  it("omits the type param when not provided", async () => {
+    const fetchMock = makeFetch(200, { success: true, jsonld: {}, placement_notes: "" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await client.generateSchema({ domain: "example.com" });
+    expect(new URL(String(fetchMock.mock.calls[0]![0])).searchParams.has("type")).toBe(false);
+  });
+});
+
+describe("WaApiClient.getReport — wired to GET /api/report", () => {
+  it("GETs the endpoint and returns { report_url, badge_html }, envelope stripped", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      report_url: "https://website-auditor.io/r/abc123",
+      badge_html: '<a href="https://website-auditor.io/r/abc123">Audited by Website Auditor</a>',
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getReport({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/report");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(res.report_url).toBe("https://website-auditor.io/r/abc123");
+    expect(res.badge_html).toContain("Audited by Website Auditor");
+    expect(res).not.toHaveProperty("success");
   });
 });

@@ -1,23 +1,54 @@
 {
-  "name": "website-auditor-mcp",
-  "version": "0.1.0",
-  "description": "MCP server for website-auditor.io — AI-visibility & site audit tools (thin wrapper over the Website Auditor Pro API).",
+  "name": "@spikeycoder/website-auditor-mcp",
+  "version": "1.0.2",
+  "mcpName": "io.github.SpikeyCoder/website-auditor-mcp",
+  "description": "MCP server for website-auditor.io — AI-visibility (GEO) and site-audit tools for ChatGPT, Perplexity, Claude and Gemini, callable from any MCP client.",
   "type": "module",
-  "license": "UNLICENSED",
-  "private": true,
+  "license": "Elastic-2.0",
+  "author": "Kevin Armstrong / SpikeyCoder",
+  "homepage": "https://website-auditor.io",
+  "repository": "github:SpikeyCoder/website-auditor-mcp",
+  "bugs": {
+    "url": "https://github.com/SpikeyCoder/website-auditor-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-visibility",
+    "geo",
+    "generative-engine-optimization",
+    "seo",
+    "website-audit",
+    "chatgpt",
+    "perplexity",
+    "claude",
+    "gemini",
+    "ai-search",
+    "website-auditor"
+  ],
   "bin": {
     "website-auditor-mcp": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
@@ -28,8 +59,5 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
-  },
-  "engines": {
-    "node": ">=20"
   }
 }

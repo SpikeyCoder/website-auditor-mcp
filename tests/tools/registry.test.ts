@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { P0_TOOLS, P1_TOOLS, ALL_TOOL_SPECS } from "../../src/tools/registry.js";
+import { z } from "zod";
+import { P0_TOOLS, P1_TOOLS, ALL_TOOL_SPECS, SERVED_TOOLS } from "../../src/tools/registry.js";
 
 describe("tool registry", () => {
   it("registers exactly the four Phase-0 tools with the exact names agents bind to", () => {
@@ -46,5 +47,51 @@ describe("tool registry", () => {
     );
     const p0Names = new Set(P0_TOOLS.map((t) => t.name));
     for (const t of P1_TOOLS) expect(p0Names.has(t.name)).toBe(false);
+  });
+
+  it("serves all 12 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools", () => {
+    expect(SERVED_TOOLS).toHaveLength(12);
+    expect(SERVED_TOOLS.map((t) => t.name).sort()).toEqual(
+      [
+        "compare_competitors",
+        "generate_schema",
+        "get_ai_visibility",
+        "get_benchmark",
+        "get_changes",
+        "get_monitoring_status",
+        "get_recommendations",
+        "get_report",
+        "list_tracked_sites",
+        "run_audit",
+        "track_site",
+        "untrack_site",
+      ].sort(),
+    );
+  });
+
+  it("the four Phase-1 read tools are served and Pro-gated", () => {
+    const gate = Object.fromEntries(ALL_TOOL_SPECS.map((t) => [t.name, t.tier]));
+    for (const name of ["get_benchmark", "get_recommendations", "generate_schema", "get_report"]) {
+      expect(SERVED_TOOLS.some((t) => t.name === name)).toBe(true);
+      expect(gate[name]).toBe("pro");
+    }
+  });
+
+  it("the monitoring management tools are all Pro-gated", () => {
+    const gate = Object.fromEntries(ALL_TOOL_SPECS.map((t) => [t.name, t.tier]));
+    expect(gate.untrack_site).toBe("pro");
+    expect(gate.list_tracked_sites).toBe("pro");
+    expect(gate.get_monitoring_status).toBe("pro");
+  });
+
+  it("track_site is weekly-only in v1 (rejects 'daily', defaults to 'weekly')", () => {
+    const track = P1_TOOLS.find((t) => t.name === "track_site")!;
+    const schema = z.object(track.inputSchema);
+    // 'daily' is no longer accepted.
+    expect(schema.safeParse({ domain: "example.com", cadence: "daily" }).success).toBe(false);
+    // 'weekly' parses, and it's the default when omitted.
+    expect(schema.safeParse({ domain: "example.com", cadence: "weekly" }).success).toBe(true);
+    const parsed = schema.parse({ domain: "example.com" });
+    expect(parsed.cadence).toBe("weekly");
   });
 });

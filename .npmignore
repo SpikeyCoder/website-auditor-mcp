@@ -1,0 +1,24 @@
+# The `files` whitelist in package.json is the primary allowlist (dist + README +
+# LICENSE). This file further trims what ships inside dist/ so the published
+# tarball carries no source maps and no stray dev artifacts.
+
+# Source maps — not needed by consumers, and they reference local source paths.
+*.map
+
+# Never publish env, secrets, tests, or tooling (belt-and-suspenders on top of `files`).
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+monitor-secrets/
+tests/
+src/
+coverage/
+.vitest/
+*.tsbuildinfo
+tsconfig.json
+vitest.config.ts
+docs/
+.DS_Store

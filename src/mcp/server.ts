@@ -6,16 +6,25 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { P0_TOOLS } from "../tools/registry.js";
+import { SERVED_TOOLS } from "../tools/registry.js";
 import type { ToolResult } from "../tools/context.js";
 import type { ToolDeps } from "../tools/context.js";
 import { getAiVisibility } from "../tools/getAiVisibility.js";
 import { runAudit } from "../tools/runAudit.js";
 import { getChanges } from "../tools/getChanges.js";
 import { compareCompetitors } from "../tools/compareCompetitors.js";
+import { trackSite } from "../tools/trackSite.js";
+import { untrackSite } from "../tools/untrackSite.js";
+import { listTrackedSites } from "../tools/listTrackedSites.js";
+import { getMonitoringStatus } from "../tools/getMonitoringStatus.js";
+import { getBenchmark } from "../tools/getBenchmark.js";
+import { getRecommendations } from "../tools/getRecommendations.js";
+import { generateSchema } from "../tools/generateSchema.js";
+import { getReport } from "../tools/getReport.js";
+import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = "1.0.0";
 
 // Dispatch by tool name. Each handler receives the validated args + deps.
 const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) => Promise<ToolResult<unknown>>> = {
@@ -23,7 +32,19 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   run_audit: (a, d) => runAudit(a as { domain: string }, d),
   get_changes: (a, d) => getChanges(a as { domain: string; since?: string }, d),
   compare_competitors: (a, d) => compareCompetitors(a as { domain: string; competitors: string[] }, d),
+  track_site: (a, d) => trackSite(a as { domain: string; cadence?: "weekly"; enabled?: boolean }, d),
+  untrack_site: (a, d) => untrackSite(a as { domain: string }, d),
+  list_tracked_sites: (_a, d) => listTrackedSites({}, d),
+  get_monitoring_status: (_a, d) => getMonitoringStatus({}, d),
+  get_benchmark: (a, d) => getBenchmark(a as { domain: string; industry?: string; geo?: string }, d),
+  get_recommendations: (a, d) => getRecommendations(a as { domain: string }, d),
+  generate_schema: (a, d) =>
+    generateSchema(a as { domain: string; type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto" }, d),
+  get_report: (a, d) => getReport(a as { domain: string }, d),
 };
+
+// Tools that MUTATE server state (not read-only). Everything else only reads.
+const MUTATING_TOOLS = new Set(["track_site", "untrack_site"]);
 
 /** Format a normalized ToolResult as an MCP tool result. */
 export function toCallResult(result: ToolResult<unknown>): CallToolResult {
@@ -40,6 +61,24 @@ export function toCallResult(result: ToolResult<unknown>): CallToolResult {
   };
 }
 
+/** Pull the normalized error code off a failed ToolResult, for tool_call telemetry. */
+function errorCodeOf(result: ToolResult<unknown>): string | undefined {
+  return result.ok ? undefined : result.error.code;
+}
+
+/**
+ * Belt-and-braces guard around emission. EventSink.emit is fire-and-forget by
+ * contract, but we also defend against a sink that throws synchronously so a
+ * broken telemetry path can NEVER fail a tool call.
+ */
+function safeEmit(events: EventSink, event: McpEvent): void {
+  try {
+    events.emit(event);
+  } catch {
+    /* swallow: telemetry must not affect the tool path */
+  }
+}
+
 export function createServer(deps: ToolDeps): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -49,18 +88,57 @@ export function createServer(deps: ToolDeps): McpServer {
     },
   );
 
-  for (const spec of P0_TOOLS) {
+  // clientInfo is only known after the `initialize` handshake. Capture it once
+  // and reuse it to stamp every tool_call, and to emit the session_init event
+  // (installs / agent-origin / first-call latency are all derived from it).
+  let clientInfo: ClientInfo | undefined;
+  server.server.oninitialized = () => {
+    clientInfo = server.server.getClientVersion();
+    safeEmit(deps.events, {
+      event_type: "session_init",
+      client_name: clientInfo?.name,
+      client_version: clientInfo?.version,
+      is_agent_originated: classifyAgentOrigin(clientInfo?.name),
+    });
+  };
+
+  for (const spec of SERVED_TOOLS) {
     const handler = HANDLERS[spec.name];
     if (!handler) continue;
+    // track_site / untrack_site mutate server state (enroll/remove a tracking),
+    // so they are NOT read-only — they carry destructiveHint. Every other served
+    // tool only reads and carries readOnlyHint. Every tool also carries a human
+    // `title` and openWorldHint (all tools reach the external Website Auditor API).
+    // These annotations are required for the Claude connector directory.
+    const isMutating = MUTATING_TOOLS.has(spec.name);
+    const annotations = isMutating
+      ? { title: spec.title, readOnlyHint: false, destructiveHint: true, openWorldHint: true }
+      : { title: spec.title, readOnlyHint: true, openWorldHint: true };
     server.registerTool(
       spec.name,
       {
         title: spec.title,
         description: spec.description,
         inputSchema: spec.inputSchema,
-        annotations: { readOnlyHint: true, openWorldHint: true },
+        annotations,
       },
-      async (args: Record<string, unknown>) => toCallResult(await handler(args ?? {}, deps)),
+      async (args: Record<string, unknown>) => {
+        const startedAt = Date.now();
+        const result = await handler(args ?? {}, deps);
+        // Fire-and-forget: emit() never throws, and telemetry is not awaited, so
+        // a metrics failure cannot affect the tool response.
+        safeEmit(deps.events, {
+          event_type: "tool_call",
+          tool_name: spec.name,
+          client_name: clientInfo?.name,
+          client_version: clientInfo?.version,
+          is_agent_originated: classifyAgentOrigin(clientInfo?.name),
+          success: result.ok,
+          error_code: errorCodeOf(result),
+          duration_ms: Date.now() - startedAt,
+        });
+        return toCallResult(result);
+      },
     );
   }
 
