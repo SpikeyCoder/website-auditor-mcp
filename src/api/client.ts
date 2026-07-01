@@ -8,6 +8,10 @@
  *   - trackSite          → POST /api/tracked-domains        (enroll for weekly monitoring)
  *   - listTrackedDomains → GET  /api/tracked-domains
  *   - untrackSite        → DELETE /api/tracked-domains
+ *   - getBenchmark       → GET  /api/benchmark?domain=&industry=&geo=
+ *   - getRecommendations → GET  /api/recommendations?domain=
+ *   - generateSchema     → GET  /api/schema?domain=&type=
+ *   - getReport          → GET  /api/report?domain=
  *
  * Declared but NOT yet available upstream (PRD open questions). These methods
  * exist so the tools can be wired against the interface and light up the moment
@@ -24,6 +28,10 @@ import type {
   TrackedDomainsList,
   UntrackResult,
   MonitoringStatus,
+  Benchmark,
+  Recommendations,
+  SchemaResult,
+  ReportLinks,
 } from "./types.js";
 import { WaApiError } from "./errors.js";
 import { computeChanges } from "./mappers.js";
@@ -57,6 +65,20 @@ export interface TrackSiteParams {
   cadence?: "weekly";
 }
 
+export interface BenchmarkParams {
+  domain: string;
+  /** Optional industry override; the endpoint infers it from the site otherwise. */
+  industry?: string;
+  /** Optional location override; the endpoint infers it from the site otherwise. */
+  geo?: string;
+}
+
+export interface SchemaParams {
+  domain: string;
+  /** Schema.org type, or "auto" to let the endpoint pick. */
+  type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto";
+}
+
 export interface SubscriptionInfo {
   tier: "free" | "pro";
   status: string;
@@ -85,6 +107,14 @@ export interface WaApiClientLike {
   untrackSite(params: { domain: string }): Promise<UntrackResult>;
   /** Per-domain monitoring status (latest score, runs, recent change) (Pro). */
   getMonitoringStatus(): Promise<MonitoringStatus>;
+  /** Benchmark a domain's AI visibility vs its industry/geo peers (Pro). */
+  getBenchmark(params: BenchmarkParams): Promise<Benchmark>;
+  /** Prioritized fixes to raise a domain's AI-visibility/audit scores (Pro). */
+  getRecommendations(params: { domain: string }): Promise<Recommendations>;
+  /** Ready-to-paste JSON-LD structured data for a domain (Pro). */
+  generateSchema(params: SchemaParams): Promise<SchemaResult>;
+  /** Shareable report URL + embeddable badge snippet for a domain (Pro). */
+  getReport(params: { domain: string }): Promise<ReportLinks>;
 }
 
 interface ClientDeps {
@@ -289,6 +319,75 @@ export class WaApiClient implements WaApiClientLike {
     };
   }
 
+  /**
+   * Benchmark a domain against its industry/geo peer set. Wired to
+   * `GET /api/benchmark?domain=&industry=&geo=` (website-auditor-api PR #10).
+   * Strips the `success` envelope and returns the documented Benchmark shape.
+   * Optional industry/geo are only sent when provided (the endpoint infers them
+   * from the site otherwise).
+   */
+  async getBenchmark(params: BenchmarkParams): Promise<Benchmark> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/benchmark`);
+    url.searchParams.set("domain", params.domain);
+    if (params.industry?.trim()) url.searchParams.set("industry", params.industry.trim());
+    if (params.geo?.trim()) url.searchParams.set("geo", params.geo.trim());
+
+    const body = (await this.requestJson("GET", url)) as Partial<Benchmark>;
+    return {
+      percentile: num(body.percentile),
+      peer_median: num(body.peer_median),
+      sample_size: num(body.sample_size),
+      position_summary: typeof body.position_summary === "string" ? body.position_summary : "",
+    };
+  }
+
+  /**
+   * Prioritized fixes for a domain. Wired to
+   * `GET /api/recommendations?domain=` (website-auditor-api PR #10). Strips the
+   * `success` envelope and returns `{ recommendations }`.
+   */
+  async getRecommendations(params: { domain: string }): Promise<Recommendations> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/recommendations`);
+    url.searchParams.set("domain", params.domain);
+
+    const body = (await this.requestJson("GET", url)) as { recommendations?: Recommendations["recommendations"] };
+    return { recommendations: Array.isArray(body.recommendations) ? body.recommendations : [] };
+  }
+
+  /**
+   * Generate ready-to-paste JSON-LD for a domain. Wired to
+   * `GET /api/schema?domain=&type=` (website-auditor-api PR #10). Strips the
+   * `success` envelope and returns `{ jsonld, placement_notes }`. `type` is only
+   * sent when provided.
+   */
+  async generateSchema(params: SchemaParams): Promise<SchemaResult> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/schema`);
+    url.searchParams.set("domain", params.domain);
+    if (params.type) url.searchParams.set("type", params.type);
+
+    const body = (await this.requestJson("GET", url)) as Partial<SchemaResult>;
+    return {
+      jsonld: body.jsonld ?? null,
+      placement_notes: typeof body.placement_notes === "string" ? body.placement_notes : "",
+    };
+  }
+
+  /**
+   * Shareable report URL + embeddable badge snippet for a domain. Wired to
+   * `GET /api/report?domain=` (website-auditor-api PR #10). Strips the `success`
+   * envelope and returns `{ report_url, badge_html }`.
+   */
+  async getReport(params: { domain: string }): Promise<ReportLinks> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/report`);
+    url.searchParams.set("domain", params.domain);
+
+    const body = (await this.requestJson("GET", url)) as Partial<ReportLinks>;
+    return {
+      report_url: typeof body.report_url === "string" ? body.report_url : "",
+      badge_html: typeof body.badge_html === "string" ? body.badge_html : "",
+    };
+  }
+
   async compareCompetitors(_params: { domain: string; competitors: string[] }): Promise<never> {
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
@@ -367,6 +466,11 @@ export class WaApiClient implements WaApiClientLike {
         return new WaApiError("UPSTREAM_ERROR", message, { status, details: b.details });
     }
   }
+}
+
+/** Coerce a value to a finite number, defaulting to 0 (used for numeric fields). */
+function num(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
 function toIntOrNull(value: string | null): number | null {

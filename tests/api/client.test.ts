@@ -376,3 +376,117 @@ describe("WaApiClient monitoring-status + idempotent untrack", () => {
     expect(res).toMatchObject({ domain: "example.com", removed: false, limit: 5, used: 2, remaining: 3 });
   });
 });
+
+describe("WaApiClient.getBenchmark — wired to GET /api/benchmark", () => {
+  it("GETs the endpoint with the API key and strips the success envelope", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      percentile: 82,
+      peer_median: 54,
+      sample_size: 137,
+      position_summary: "Top 18% for legal services in TX.",
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getBenchmark({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/benchmark");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(res).toEqual({ percentile: 82, peer_median: 54, sample_size: 137, position_summary: "Top 18% for legal services in TX." });
+    expect(res).not.toHaveProperty("success");
+  });
+
+  it("forwards optional industry/geo when provided, omits them otherwise", async () => {
+    const fetchMock = makeFetch(200, { success: true, percentile: 50, peer_median: 50, sample_size: 10, position_summary: "" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+
+    await client.getBenchmark({ domain: "example.com", industry: "legal", geo: "TX" });
+    const url = new URL(String(fetchMock.mock.calls[0]![0]));
+    expect(url.searchParams.get("industry")).toBe("legal");
+    expect(url.searchParams.get("geo")).toBe("TX");
+
+    await client.getBenchmark({ domain: "example.com" });
+    const url2 = new URL(String(fetchMock.mock.calls[1]![0]));
+    expect(url2.searchParams.has("industry")).toBe(false);
+    expect(url2.searchParams.has("geo")).toBe(false);
+  });
+
+  it("maps HTTP 403 (free key) to PRO_REQUIRED", async () => {
+    const fetchMock = makeFetch(403, { success: false, error: "This endpoint requires a Website Auditor Pro subscription." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getBenchmark({ domain: "example.com" })).rejects.toMatchObject({ code: "PRO_REQUIRED" });
+  });
+});
+
+describe("WaApiClient.getRecommendations — wired to GET /api/recommendations", () => {
+  it("GETs the endpoint and returns the ranked recommendations, envelope stripped", async () => {
+    const recommendations = [
+      { action: "Add Organization JSON-LD", why: "AI reads structured data", expected_impact: "+8 AI visibility", effort: "low" },
+    ];
+    const fetchMock = makeFetch(200, { success: true, recommendations });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getRecommendations({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/recommendations");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(res).toEqual({ recommendations });
+    expect(res).not.toHaveProperty("success");
+  });
+
+  it("defaults to an empty list when the API omits recommendations", async () => {
+    const fetchMock = makeFetch(200, { success: true });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getRecommendations({ domain: "example.com" });
+    expect(res).toEqual({ recommendations: [] });
+  });
+});
+
+describe("WaApiClient.generateSchema — wired to GET /api/schema", () => {
+  it("GETs the endpoint with the type param and returns { jsonld, placement_notes }", async () => {
+    const jsonld = { "@context": "https://schema.org", "@type": "Organization", name: "Example" };
+    const fetchMock = makeFetch(200, { success: true, jsonld, placement_notes: "Paste into <head>." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.generateSchema({ domain: "example.com", type: "Organization" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/schema");
+    expect(String(url)).toContain("domain=example.com");
+    expect(new URL(String(url)).searchParams.get("type")).toBe("Organization");
+    expect((init as RequestInit).method).toBe("GET");
+    expect(res).toEqual({ jsonld, placement_notes: "Paste into <head>." });
+    expect(res).not.toHaveProperty("success");
+  });
+
+  it("omits the type param when not provided", async () => {
+    const fetchMock = makeFetch(200, { success: true, jsonld: {}, placement_notes: "" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await client.generateSchema({ domain: "example.com" });
+    expect(new URL(String(fetchMock.mock.calls[0]![0])).searchParams.has("type")).toBe(false);
+  });
+});
+
+describe("WaApiClient.getReport — wired to GET /api/report", () => {
+  it("GETs the endpoint and returns { report_url, badge_html }, envelope stripped", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      report_url: "https://website-auditor.io/r/abc123",
+      badge_html: '<a href="https://website-auditor.io/r/abc123">Audited by Website Auditor</a>',
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getReport({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/report");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(res.report_url).toBe("https://website-auditor.io/r/abc123");
+    expect(res.badge_html).toContain("Audited by Website Auditor");
+    expect(res).not.toHaveProperty("success");
+  });
+});

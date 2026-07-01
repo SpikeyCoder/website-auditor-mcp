@@ -261,3 +261,47 @@ export interface Comparison {
   /** Human/agent-readable summary of what was compared vs. skipped and why. */
   summary: string;
 }
+
+// ─── Phase-1 read tools (benchmark / recommendations / schema / report) ────
+// Tool return shapes from the listing-and-tools doc, wired to the new
+// website-auditor-api endpoints (PR #10). The client strips each endpoint's
+// `success` envelope and returns exactly these shapes.
+
+/** `get_benchmark` — percentile/peer context for a domain's AI visibility. */
+export interface Benchmark {
+  /** The domain's percentile within its industry/geo peer set (0–100). */
+  percentile: number;
+  /** Median AI-visibility score across the peer set. */
+  peer_median: number;
+  /** How many peers the percentile/median are computed over. */
+  sample_size: number;
+  /** Human-readable position summary (e.g. "top 15% for legal services in TX"). */
+  position_summary: string;
+}
+
+/** One prioritized fix from `get_recommendations`. */
+export interface Recommendation {
+  action: string;
+  why: string;
+  expected_impact: string;
+  effort: string;
+}
+
+/** `get_recommendations` — ranked actions to raise AI-visibility/audit scores. */
+export interface Recommendations {
+  recommendations: Recommendation[];
+}
+
+/** `generate_schema` — ready-to-paste JSON-LD plus where to put it. */
+export interface SchemaResult {
+  /** The JSON-LD document (object or array), ready to paste into the site. */
+  jsonld: unknown;
+  /** Where/how to place the snippet (e.g. "in the <head> of every page"). */
+  placement_notes: string;
+}
+
+/** `get_report` — shareable report URL + embeddable badge snippet. */
+export interface ReportLinks {
+  report_url: string;
+  badge_html: string;
+}

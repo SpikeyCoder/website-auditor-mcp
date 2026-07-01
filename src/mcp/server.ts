@@ -17,6 +17,10 @@ import { trackSite } from "../tools/trackSite.js";
 import { untrackSite } from "../tools/untrackSite.js";
 import { listTrackedSites } from "../tools/listTrackedSites.js";
 import { getMonitoringStatus } from "../tools/getMonitoringStatus.js";
+import { getBenchmark } from "../tools/getBenchmark.js";
+import { getRecommendations } from "../tools/getRecommendations.js";
+import { generateSchema } from "../tools/generateSchema.js";
+import { getReport } from "../tools/getReport.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
@@ -32,6 +36,11 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   untrack_site: (a, d) => untrackSite(a as { domain: string }, d),
   list_tracked_sites: (_a, d) => listTrackedSites({}, d),
   get_monitoring_status: (_a, d) => getMonitoringStatus({}, d),
+  get_benchmark: (a, d) => getBenchmark(a as { domain: string; industry?: string; geo?: string }, d),
+  get_recommendations: (a, d) => getRecommendations(a as { domain: string }, d),
+  generate_schema: (a, d) =>
+    generateSchema(a as { domain: string; type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto" }, d),
+  get_report: (a, d) => getReport(a as { domain: string }, d),
 };
 
 // Tools that MUTATE server state (not read-only). Everything else only reads.

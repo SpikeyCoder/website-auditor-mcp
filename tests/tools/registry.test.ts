@@ -49,19 +49,32 @@ describe("tool registry", () => {
     for (const t of P1_TOOLS) expect(p0Names.has(t.name)).toBe(false);
   });
 
-  it("serves the Phase-0 tools plus the scheduled-monitoring surface", () => {
+  it("serves all 12 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools", () => {
+    expect(SERVED_TOOLS).toHaveLength(12);
     expect(SERVED_TOOLS.map((t) => t.name).sort()).toEqual(
       [
         "compare_competitors",
+        "generate_schema",
         "get_ai_visibility",
+        "get_benchmark",
         "get_changes",
         "get_monitoring_status",
+        "get_recommendations",
+        "get_report",
         "list_tracked_sites",
         "run_audit",
         "track_site",
         "untrack_site",
       ].sort(),
     );
+  });
+
+  it("the four Phase-1 read tools are served and Pro-gated", () => {
+    const gate = Object.fromEntries(ALL_TOOL_SPECS.map((t) => [t.name, t.tier]));
+    for (const name of ["get_benchmark", "get_recommendations", "generate_schema", "get_report"]) {
+      expect(SERVED_TOOLS.some((t) => t.name === name)).toBe(true);
+      expect(gate[name]).toBe("pro");
+    }
   });
 
   it("the monitoring management tools are all Pro-gated", () => {

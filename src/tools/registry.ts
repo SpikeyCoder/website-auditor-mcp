@@ -171,11 +171,18 @@ export const ALL_TOOL_SPECS: ToolSpec[] = [...P0_TOOLS, ...P1_TOOLS, ...MONITORI
 
 const TRACK_SITE_TOOL: ToolSpec = P1_TOOLS.find((t) => t.name === "track_site")!;
 
+// The four Pro-gated read tools whose backends landed in website-auditor-api
+// PR #10 (benchmark / recommendations / schema / report). Declared in P1_TOOLS
+// with full metadata; now wired to their endpoints and served.
+const PHASE1_READ_TOOL_NAMES = ["get_benchmark", "get_recommendations", "generate_schema", "get_report"] as const;
+const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TOOLS.find((t) => t.name === name)!);
+
 /**
- * The tools actually registered on the running server: the four Phase-0 tools
- * plus the scheduled-monitoring surface — track_site (start), untrack_site
- * (stop), list_tracked_sites (list), get_monitoring_status (per-user view) —
- * whose server-side cadence job in website-auditor-api has shipped. The
- * remaining P1 tools are declared above but not served until their backends land.
+ * The tools actually registered on the running server: the four Phase-0 tools,
+ * the scheduled-monitoring surface — track_site (start), untrack_site (stop),
+ * list_tracked_sites (list), get_monitoring_status (per-user view) — and the
+ * four Pro-gated read tools (get_benchmark, get_recommendations,
+ * generate_schema, get_report) now that their website-auditor-api endpoints have
+ * shipped. Twelve tools in total.
  */
-export const SERVED_TOOLS: ToolSpec[] = [...P0_TOOLS, TRACK_SITE_TOOL, ...MONITORING_TOOLS];
+export const SERVED_TOOLS: ToolSpec[] = [...P0_TOOLS, TRACK_SITE_TOOL, ...PHASE1_READ_TOOLS, ...MONITORING_TOOLS];

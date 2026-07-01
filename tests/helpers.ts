@@ -75,6 +75,10 @@ export function makeClient(over: Partial<WaApiClientLike> = {}): WaApiClientLike
     listTrackedDomains: vi.fn(async () => ({ limit: 5, used: 0, remaining: 5, tracked: [] })),
     untrackSite: vi.fn(async ({ domain }) => ({ domain, removed: true, limit: 5, used: 0, remaining: 5 })),
     getMonitoringStatus: vi.fn(async () => ({ limit: 5, used: 0, remaining: 5, sites: [] })),
+    getBenchmark: vi.fn(async () => ({ percentile: 50, peer_median: 50, sample_size: 0, position_summary: "" })),
+    getRecommendations: vi.fn(async () => ({ recommendations: [] })),
+    generateSchema: vi.fn(async () => ({ jsonld: {}, placement_notes: "" })),
+    getReport: vi.fn(async () => ({ report_url: "", badge_html: "" })),
   };
   return { ...base, ...over };
 }

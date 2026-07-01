@@ -88,6 +88,22 @@
     {
       "name": "get_monitoring_status",
       "description": "Monitoring status summary [read-only]. Get a glanceable summary of monitoring status across all tracked websites — latest AI-visibility score, when each was last audited and next runs, and the most recent change since the prior check."
+    },
+    {
+      "name": "get_benchmark",
+      "description": "Benchmark vs industry/geo [read-only]. Benchmark a website's AI visibility against its industry and location. Returns percentile, peer median, sample size, and a position summary rather than an absolute number. Requires Pro."
+    },
+    {
+      "name": "get_recommendations",
+      "description": "Prioritized fixes [read-only]. Get specific, prioritized fixes to raise a website's AI-visibility and audit scores. Returns ranked actions, each with why it matters, expected impact, and effort. Requires Pro."
+    },
+    {
+      "name": "generate_schema",
+      "description": "Generate JSON-LD schema [read-only]. Generate ready-to-paste structured data (JSON-LD) tailored to a website, to improve how AI assistants and search engines understand it. Returns valid JSON-LD plus placement notes. Requires Pro."
+    },
+    {
+      "name": "get_report",
+      "description": "Shareable report + badge [read-only]. Get a shareable report URL and the embeddable \"Audited by Website Auditor\" badge snippet for a website. Returns a link and an HTML badge snippet. Requires Pro."
     }
   ]
 }
