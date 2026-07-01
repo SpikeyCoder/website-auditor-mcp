@@ -69,7 +69,9 @@ describe("compare_competitors [Pro] — gating & basics", () => {
     if (!res.ok) return;
     expect(res.data.ranking.map((r) => r.domain)).toEqual(["rival.com", "example.com"]);
     expect(res.data.ranking[0]).toMatchObject({ domain: "rival.com", score: 80 });
-    expect(res.data.gaps.find((g) => g.engine === "chatgpt" && g.competitor === "rival.com")).toBeTruthy();
+    // Gaps are APPEARANCE-based, not score-based: rival.com outscores example.com
+    // on ChatGPT (90 > 75) but both APPEAR there, so it is not a gap.
+    expect(res.data.gaps).toEqual([]);
     // No rate-limit headers -> remaining unknown, but both were audited.
     expect(res.data.quota.audits_used).toBe(2);
     expect(res.data.quota.remaining).toBeNull();
@@ -206,5 +208,115 @@ describe("compare_competitors [Pro] — cache reuse & dedup", () => {
     expect(res.data.quota.cached_reused).toBe(1);
     // Only the genuinely-uncached competitor is a quota skip.
     expect(res.data.skipped.filter((s) => s.reason === "quota").map((s) => s.domain)).toEqual(["c1.com"]);
+  });
+});
+
+describe("compare_competitors [Pro] — appearance-based gaps", () => {
+  type Presence = { chatgpt: boolean; perplexity: boolean; claude: boolean; gemini: boolean };
+
+  // Builds a report where each engine's per-query client_appears (and the
+  // appearances count) is set explicitly, so gap logic can be tested precisely.
+  function reportWithPresence(domain: string, p: Presence): AuditReport {
+    const report = reachableReport({ base_url: `https://${domain}` });
+    const ps = report.ai_visibility.platform_scores!;
+    const apply = (key: "ChatGPT" | "Perplexity" | "Claude" | "Gemini", appears: boolean) => {
+      const s = ps[key]!;
+      s.appearances = appears ? 3 : 0;
+      s.results = [
+        {
+          platform: key,
+          query: "best tech company in Seattle, WA",
+          recommended: appears ? [domain, "Rival Co"] : ["Rival Co"],
+          client_appears: appears,
+          position: appears ? 1 : 0,
+          competitors: ["Rival Co"],
+          is_simulated: false,
+        },
+      ];
+    };
+    apply("ChatGPT", p.chatgpt);
+    apply("Perplexity", p.perplexity);
+    apply("Claude", p.claude);
+    apply("Gemini", p.gemini);
+    return report;
+  }
+
+  function presenceDeps(map: Record<string, Presence>) {
+    const runAudit = vi.fn(async ({ domain }: { domain: string }): Promise<AuditResponse> => ({
+      runId: `run-${domain}`,
+      report: reportWithPresence(domain, map[domain]!),
+      raw: {},
+    }));
+    return makeDeps({ tier: "pro", client: { runAudit } });
+  }
+
+  it("flags a gap on an engine where the competitor appears and the site does not", async () => {
+    const res = await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"] },
+      presenceDeps({
+        "example.com": { chatgpt: false, perplexity: true, claude: true, gemini: true },
+        "rival.com": { chatgpt: true, perplexity: true, claude: true, gemini: true },
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.gaps).toEqual([{ engine: "chatgpt", competitor: "rival.com" }]);
+  });
+
+  it("no gap when both the site and the competitor appear on an engine", async () => {
+    const res = await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"] },
+      presenceDeps({
+        "example.com": { chatgpt: true, perplexity: true, claude: true, gemini: true },
+        "rival.com": { chatgpt: true, perplexity: true, claude: true, gemini: true },
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.gaps).toEqual([]);
+  });
+
+  it("no gap when neither the site nor the competitor appears on an engine", async () => {
+    const res = await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"] },
+      presenceDeps({
+        "example.com": { chatgpt: false, perplexity: true, claude: true, gemini: true },
+        "rival.com": { chatgpt: false, perplexity: true, claude: true, gemini: true },
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.gaps).toEqual([]);
+  });
+
+  it("mixed engines: lists only the engines missing for the site where the competitor appears", async () => {
+    const res = await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"] },
+      presenceDeps({
+        // site absent on chatgpt + perplexity; competitor present on chatgpt only.
+        "example.com": { chatgpt: false, perplexity: false, claude: true, gemini: true },
+        "rival.com": { chatgpt: true, perplexity: false, claude: true, gemini: true },
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // perplexity: competitor also absent -> no gap. claude/gemini: both present -> no gap.
+    expect(res.data.gaps).toEqual([{ engine: "chatgpt", competitor: "rival.com" }]);
+  });
+
+  it("attributes gaps to the right competitor across multiple competitors", async () => {
+    const res = await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com", "other.com"] },
+      presenceDeps({
+        "example.com": { chatgpt: false, perplexity: false, claude: true, gemini: true },
+        "rival.com": { chatgpt: true, perplexity: false, claude: true, gemini: true }, // gap: chatgpt
+        "other.com": { chatgpt: false, perplexity: true, claude: true, gemini: true }, // gap: perplexity
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.gaps).toContainEqual({ engine: "chatgpt", competitor: "rival.com" });
+    expect(res.data.gaps).toContainEqual({ engine: "perplexity", competitor: "other.com" });
+    expect(res.data.gaps).toHaveLength(2);
   });
 });

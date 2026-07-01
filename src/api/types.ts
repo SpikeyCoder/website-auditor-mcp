@@ -85,9 +85,23 @@ export interface AuditReport {
 
 // ─── Tool return shapes (from the listing-and-tools doc) ───────────────────
 
+/** Per-engine boolean map (does the site appear on this engine at all). */
+export interface EnginePresence {
+  chatgpt: boolean;
+  perplexity: boolean;
+  claude: boolean;
+  gemini: boolean;
+}
+
 export interface AiVisibility {
   score: number;
   by_engine: { chatgpt: number; perplexity: number; claude: number; gemini: number };
+  /**
+   * Whether the site appeared at all on each engine (derived from the per-query
+   * `client_appears` signal). Distinct from `by_engine` scores: an engine can
+   * have appearances (appears = true) yet a low score, or vice versa.
+   */
+  appears_by_engine: EnginePresence;
   top_competitor: string | null;
   summary: string;
 }
@@ -196,11 +210,14 @@ export interface CompetitorRank {
   note?: string;
 }
 
+/**
+ * An engine/surface where a competitor APPEARS in AI answers and the primary
+ * site does NOT — i.e. "where they appear that the site does not". This is an
+ * appearance (presence/absence) gap, not a score comparison.
+ */
 export interface CompetitorGap {
   engine: string;
   competitor: string;
-  competitor_score: number;
-  your_score: number;
 }
 
 /** Rate-limit state, from the API's `X-RateLimit-*` response headers. */

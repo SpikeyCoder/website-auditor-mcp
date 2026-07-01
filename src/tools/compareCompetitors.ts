@@ -159,13 +159,16 @@ export async function compareCompetitors(
     ...audited.map((a) => ({ domain: a.host, score: a.av.score })),
   ].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
 
+  // Gaps are appearance-based: an engine where the competitor APPEARS in AI
+  // answers and the primary site does NOT ("where they appear that the site does
+  // not"). This is presence/absence, not a score comparison — a competitor can
+  // outscore the site on an engine where both appear (no gap), and a gap can
+  // exist on an engine where neither has a high score.
   const gaps: CompetitorGap[] = [];
   for (const a of audited) {
     for (const engine of ENGINES) {
-      const theirs = a.av.by_engine[engine];
-      const yours = primaryAv.by_engine[engine];
-      if (theirs > yours) {
-        gaps.push({ engine, competitor: a.host, competitor_score: theirs, your_score: yours });
+      if (a.av.appears_by_engine[engine] && !primaryAv.appears_by_engine[engine]) {
+        gaps.push({ engine, competitor: a.host });
       }
     }
   }
