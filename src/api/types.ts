@@ -122,6 +122,41 @@ export interface Changes {
   resolved_issues: unknown[];
 }
 
+// ─── Scheduled monitoring (track_site / tracked domains) ───────────────────
+
+export interface TrackedDomain {
+  domain: string;
+  cadence: string;
+  active: boolean;
+  digest_enabled: boolean;
+  last_audited_at: string | null;
+  next_run_at: string | null;
+  created_at?: string | null;
+}
+
+/** Result of listing a user's tracked domains, with cap accounting. */
+export interface TrackedDomainsList {
+  limit: number;
+  used: number;
+  remaining: number;
+  tracked: TrackedDomain[];
+}
+
+/** Result of enrolling (or re-confirming) a domain for weekly monitoring. */
+export interface TrackResult {
+  domain: string;
+  cadence: string;
+  active: boolean;
+  /** True when this call created a new tracking; false when it already existed. */
+  created: boolean;
+  already_tracked: boolean;
+}
+
+export interface UntrackResult {
+  domain: string;
+  removed: boolean;
+}
+
 export interface CompetitorRank {
   domain: string;
   score: number | null;

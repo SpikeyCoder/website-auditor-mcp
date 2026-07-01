@@ -6,13 +6,14 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { P0_TOOLS } from "../tools/registry.js";
+import { SERVED_TOOLS } from "../tools/registry.js";
 import type { ToolResult } from "../tools/context.js";
 import type { ToolDeps } from "../tools/context.js";
 import { getAiVisibility } from "../tools/getAiVisibility.js";
 import { runAudit } from "../tools/runAudit.js";
 import { getChanges } from "../tools/getChanges.js";
 import { compareCompetitors } from "../tools/compareCompetitors.js";
+import { trackSite } from "../tools/trackSite.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
@@ -24,6 +25,7 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   run_audit: (a, d) => runAudit(a as { domain: string }, d),
   get_changes: (a, d) => getChanges(a as { domain: string; since?: string }, d),
   compare_competitors: (a, d) => compareCompetitors(a as { domain: string; competitors: string[] }, d),
+  track_site: (a, d) => trackSite(a as { domain: string; cadence?: "weekly"; enabled?: boolean }, d),
 };
 
 /** Format a normalized ToolResult as an MCP tool result. */
@@ -82,16 +84,19 @@ export function createServer(deps: ToolDeps): McpServer {
     });
   };
 
-  for (const spec of P0_TOOLS) {
+  for (const spec of SERVED_TOOLS) {
     const handler = HANDLERS[spec.name];
     if (!handler) continue;
+    // track_site enrolls/removes a tracking — it mutates server state, so it is
+    // NOT read-only. Every other served tool only reads.
+    const readOnlyHint = spec.name !== "track_site";
     server.registerTool(
       spec.name,
       {
         title: spec.title,
         description: spec.description,
         inputSchema: spec.inputSchema,
-        annotations: { readOnlyHint: true, openWorldHint: true },
+        annotations: { readOnlyHint, openWorldHint: true },
       },
       async (args: Record<string, unknown>) => {
         const startedAt = Date.now();

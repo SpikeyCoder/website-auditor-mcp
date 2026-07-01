@@ -70,7 +70,10 @@ export const P0_TOOLS: ToolSpec[] = [
   },
 ];
 
-// ─── Phase 1 (fast follow) — declared, not yet registered ──────────────────
+// ─── Phase 1 (fast follow) ─────────────────────────────────────────────────
+// Declared with full metadata. `track_site` is now SERVED (its server-side
+// cadence job shipped — see SERVED_TOOLS); the rest stay declared-but-unserved
+// until their backends land, so adding them is a wiring change, not a rewrite.
 
 export const P1_TOOLS: ToolSpec[] = [
   {
@@ -81,7 +84,9 @@ export const P1_TOOLS: ToolSpec[] = [
       'Start (or stop) ongoing monitoring of a website\'s AI visibility on a schedule. Use this when someone wants to "monitor," "track," "watch," or "get alerted about" a site\'s AI visibility over time, rather than a one-off check. Establishes the history that get_changes reads from.',
     inputSchema: {
       domain: domainArg,
-      cadence: z.enum(["daily", "weekly"]).default("weekly").describe("Monitoring cadence."),
+      // Weekly-only in v1 (the server enforces this too). Kept as a single-value
+      // enum rather than a free string so agents don't try daily and get an error.
+      cadence: z.enum(["weekly"]).default("weekly").describe("Monitoring cadence (weekly)."),
       enabled: z.boolean().default(true).describe("Set false to stop monitoring."),
     },
   },
@@ -130,3 +135,13 @@ export const P1_TOOLS: ToolSpec[] = [
 ];
 
 export const ALL_TOOL_SPECS: ToolSpec[] = [...P0_TOOLS, ...P1_TOOLS];
+
+const TRACK_SITE_TOOL: ToolSpec = P1_TOOLS.find((t) => t.name === "track_site")!;
+
+/**
+ * The tools actually registered on the running server: the four Phase-0 tools
+ * plus `track_site`, whose server-side weekly cadence job (enrollment +
+ * scheduler + digest in website-auditor-api) has shipped. The remaining P1
+ * tools are declared above but not served until their backends land.
+ */
+export const SERVED_TOOLS: ToolSpec[] = [...P0_TOOLS, TRACK_SITE_TOOL];

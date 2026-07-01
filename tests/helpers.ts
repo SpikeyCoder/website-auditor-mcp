@@ -60,6 +60,15 @@ export function makeClient(over: Partial<WaApiClientLike> = {}): WaApiClientLike
     compareCompetitors: vi.fn(async () => {
       throw new WaApiError("NOT_YET_AVAILABLE", "no compare endpoint");
     }),
+    trackSite: vi.fn(async ({ domain }) => ({
+      domain,
+      cadence: "weekly",
+      active: true,
+      created: true,
+      already_tracked: false,
+    })),
+    listTrackedDomains: vi.fn(async () => ({ limit: 5, used: 0, remaining: 5, tracked: [] })),
+    untrackSite: vi.fn(async ({ domain }) => ({ domain, removed: true })),
   };
   return { ...base, ...over };
 }

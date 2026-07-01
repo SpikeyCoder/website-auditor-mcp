@@ -8,6 +8,7 @@ export type ErrorCode =
   | "INVALID_KEY" // key present but rejected by the API (401)
   | "PRO_REQUIRED" // a Pro tool was called without an active subscription
   | "OVER_QUOTA" // free-tier daily/domain cap or API rate limit hit (429)
+  | "LIMIT_REACHED" // tracked-domain cap reached (5 domains) — untrack one first (409)
   | "UNREACHABLE_DOMAIN" // the audited site could not be reached
   | "INVALID_INPUT" // bad domain / missing required argument (400)
   | "UPSTREAM_ERROR" // the API or audit service errored (5xx / network)

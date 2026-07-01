@@ -151,3 +151,128 @@ describe("WaApiClient — endpoints not yet available in website-auditor-api", (
     await expect(client.getSubscription()).rejects.toMatchObject({ code: "NOT_YET_AVAILABLE" });
   });
 });
+
+describe("WaApiClient.getChanges — wired to /api/ai-visibility-history", () => {
+  const history = (snapshots: unknown[]) => ({
+    success: true,
+    domain: "example.com",
+    count: snapshots.length,
+    insufficient_history: snapshots.length < 2,
+    snapshots,
+  });
+
+  it("calls the history endpoint with the API key and computes the latest delta", async () => {
+    const fetchMock = makeFetch(
+      200,
+      history([
+        { captured_at: "2026-06-01T00:00:00Z", score: 50, by_engine: { chatgpt: 40, perplexity: 50, claude: 55, gemini: 45 } },
+        { captured_at: "2026-06-08T00:00:00Z", score: 70, by_engine: { chatgpt: 75, perplexity: 60, claude: 70, gemini: 65 } },
+      ]),
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const changes = await client.getChanges({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/ai-visibility-history");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    // Latest move: 50 -> 70.
+    expect(changes.score_delta).toBe(20);
+    const chatgpt = changes.engine_changes.find((e) => e.engine === "chatgpt");
+    expect(chatgpt).toMatchObject({ from: 40, to: 75, delta: 35 });
+  });
+
+  it("with a `since` cursor, spans the window (first-in-range vs latest)", async () => {
+    const fetchMock = makeFetch(
+      200,
+      history([
+        { captured_at: "2026-05-01T00:00:00Z", score: 30, by_engine: { chatgpt: 30, perplexity: 30, claude: 30, gemini: 30 } },
+        { captured_at: "2026-06-01T00:00:00Z", score: 50, by_engine: { chatgpt: 50, perplexity: 50, claude: 50, gemini: 50 } },
+        { captured_at: "2026-06-20T00:00:00Z", score: 60, by_engine: { chatgpt: 60, perplexity: 60, claude: 60, gemini: 60 } },
+      ]),
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const changes = await client.getChanges({ domain: "example.com", since: "2026-05-01T00:00:00Z" });
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("since=");
+    // Window: 30 -> 60 across the whole returned range.
+    expect(changes.score_delta).toBe(30);
+  });
+
+  it("throws NOT_YET_AVAILABLE (not a fabricated delta) when there is only one snapshot", async () => {
+    const fetchMock = makeFetch(
+      200,
+      history([{ captured_at: "2026-06-01T00:00:00Z", score: 50, by_engine: { chatgpt: 50, perplexity: 50, claude: 50, gemini: 50 } }]),
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getChanges({ domain: "example.com" })).rejects.toMatchObject({ code: "NOT_YET_AVAILABLE" });
+  });
+
+  it("does NOT forward the 'last_check' sentinel as a since param", async () => {
+    const fetchMock = makeFetch(
+      200,
+      history([
+        { captured_at: "2026-06-01T00:00:00Z", score: 50, by_engine: { chatgpt: 50, perplexity: 50, claude: 50, gemini: 50 } },
+        { captured_at: "2026-06-08T00:00:00Z", score: 55, by_engine: { chatgpt: 55, perplexity: 55, claude: 55, gemini: 55 } },
+      ]),
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await client.getChanges({ domain: "example.com", since: "last_check" });
+    expect(String(fetchMock.mock.calls[0]![0])).not.toContain("since=");
+  });
+});
+
+describe("WaApiClient tracked-domains (track_site enrollment)", () => {
+  it("trackSite POSTs to /api/tracked-domains with the normalized domain + weekly cadence", async () => {
+    const fetchMock = makeFetch(201, {
+      success: true,
+      created: true,
+      already_tracked: false,
+      tracked: { domain: "example.com", cadence: "weekly", active: true },
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.trackSite({ domain: "https://WWW.Example.com/pricing" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/tracked-domains");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((init as RequestInit).body))).toMatchObject({ domain: "example.com", cadence: "weekly" });
+    expect(res).toMatchObject({ domain: "example.com", created: true, already_tracked: false });
+  });
+
+  it("maps HTTP 409 (cap reached) to LIMIT_REACHED", async () => {
+    const fetchMock = makeFetch(409, { success: false, code: "LIMIT_REACHED", error: "You can track up to 5 domains. Untrack one before adding another." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.trackSite({ domain: "sixth.com" })).rejects.toMatchObject({ code: "LIMIT_REACHED" });
+  });
+
+  it("maps HTTP 403 (free key) to PRO_REQUIRED", async () => {
+    const fetchMock = makeFetch(403, { success: false, error: "This endpoint requires a Website Auditor Pro subscription." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.trackSite({ domain: "example.com" })).rejects.toMatchObject({ code: "PRO_REQUIRED" });
+  });
+
+  it("untrackSite DELETEs /api/tracked-domains with the domain", async () => {
+    const fetchMock = makeFetch(200, { success: true, removed: true });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.untrackSite({ domain: "example.com" });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/tracked-domains");
+    expect((init as RequestInit).method).toBe("DELETE");
+    expect(res).toEqual({ domain: "example.com", removed: true });
+  });
+
+  it("listTrackedDomains GETs the endpoint and returns cap accounting", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      limit: 5,
+      used: 2,
+      remaining: 3,
+      tracked: [{ domain: "a.com", cadence: "weekly", active: true, digest_enabled: true, last_audited_at: null, next_run_at: null }],
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.listTrackedDomains();
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("GET");
+    expect(res).toMatchObject({ limit: 5, used: 2, remaining: 3 });
+    expect(res.tracked[0]!.domain).toBe("a.com");
+  });
+});

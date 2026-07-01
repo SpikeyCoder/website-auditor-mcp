@@ -13,14 +13,23 @@ async function connect(deps = makeDeps({ tier: "free" })) {
 }
 
 describe("MCP server (end-to-end over in-memory transport)", () => {
-  it("lists exactly the four Phase-0 tools with their verbatim names", async () => {
+  it("lists the served tools (Phase-0 + track_site) with their verbatim names", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
-      ["compare_competitors", "get_ai_visibility", "get_changes", "run_audit"].sort(),
+      ["compare_competitors", "get_ai_visibility", "get_changes", "run_audit", "track_site"].sort(),
     );
     const av = tools.find((t) => t.name === "get_ai_visibility")!;
     expect(av.description).toContain("does ChatGPT/Perplexity/Claude/Gemini recommend");
+  });
+
+  it("marks track_site as a mutating tool (readOnlyHint false); reads stay read-only", async () => {
+    const { client } = await connect();
+    const { tools } = await client.listTools();
+    const track = tools.find((t) => t.name === "track_site")!;
+    expect(track.annotations?.readOnlyHint).toBe(false);
+    const read = tools.find((t) => t.name === "get_ai_visibility")!;
+    expect(read.annotations?.readOnlyHint).toBe(true);
   });
 
   it("calls get_ai_visibility and returns structured content on success", async () => {
