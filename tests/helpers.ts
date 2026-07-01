@@ -9,6 +9,15 @@ import type { ToolDeps } from "../src/tools/context.js";
 import type { AuditReport, RateLimit } from "../src/api/types.js";
 import { WaApiError } from "../src/api/errors.js";
 import { reachableReport } from "./fixtures/reports.js";
+import { NoopEventSink, type EventSink, type McpEvent } from "../src/telemetry/events.js";
+
+/** Captures emitted telemetry events so tests can assert their shape. */
+export class RecordingEventSink implements EventSink {
+  readonly events: McpEvent[] = [];
+  emit(event: McpEvent): void {
+    this.events.push(event);
+  }
+}
 
 export function testConfig(over: Partial<WaConfig> = {}): WaConfig {
   return {
@@ -20,6 +29,7 @@ export function testConfig(over: Partial<WaConfig> = {}): WaConfig {
     freeMaxDomains: 1,
     requestTimeoutMs: 120000,
     auditCacheTtlMs: 24 * 60 * 60 * 1000,
+    metricsEnabled: true,
     ...over,
   };
 }
@@ -60,6 +70,7 @@ export function makeDeps(over: {
   meter?: Meter;
   cache?: AuditCache;
   config?: Partial<WaConfig>;
+  events?: EventSink;
 } = {}): ToolDeps {
   return {
     client: makeClient(over.client ?? {}),
@@ -67,6 +78,7 @@ export function makeDeps(over: {
     meter: over.meter ?? openMeter(),
     cache: over.cache ?? new InMemoryAuditCache({ ttlMs: 24 * 60 * 60 * 1000 }),
     config: testConfig(over.config ?? {}),
+    events: over.events ?? new NoopEventSink(),
   };
 }
 

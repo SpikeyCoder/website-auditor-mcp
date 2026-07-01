@@ -13,6 +13,7 @@ import { getAiVisibility } from "../tools/getAiVisibility.js";
 import { runAudit } from "../tools/runAudit.js";
 import { getChanges } from "../tools/getChanges.js";
 import { compareCompetitors } from "../tools/compareCompetitors.js";
+import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
 export const SERVER_VERSION = "0.1.0";
@@ -40,6 +41,24 @@ export function toCallResult(result: ToolResult<unknown>): CallToolResult {
   };
 }
 
+/** Pull the normalized error code off a failed ToolResult, for tool_call telemetry. */
+function errorCodeOf(result: ToolResult<unknown>): string | undefined {
+  return result.ok ? undefined : result.error.code;
+}
+
+/**
+ * Belt-and-braces guard around emission. EventSink.emit is fire-and-forget by
+ * contract, but we also defend against a sink that throws synchronously so a
+ * broken telemetry path can NEVER fail a tool call.
+ */
+function safeEmit(events: EventSink, event: McpEvent): void {
+  try {
+    events.emit(event);
+  } catch {
+    /* swallow: telemetry must not affect the tool path */
+  }
+}
+
 export function createServer(deps: ToolDeps): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -48,6 +67,20 @@ export function createServer(deps: ToolDeps): McpServer {
         "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance. Free tools: get_ai_visibility, run_audit. Pro tools: get_changes, compare_competitors. Set WA_API_KEY to a Website Auditor Pro key.",
     },
   );
+
+  // clientInfo is only known after the `initialize` handshake. Capture it once
+  // and reuse it to stamp every tool_call, and to emit the session_init event
+  // (installs / agent-origin / first-call latency are all derived from it).
+  let clientInfo: ClientInfo | undefined;
+  server.server.oninitialized = () => {
+    clientInfo = server.server.getClientVersion();
+    safeEmit(deps.events, {
+      event_type: "session_init",
+      client_name: clientInfo?.name,
+      client_version: clientInfo?.version,
+      is_agent_originated: classifyAgentOrigin(clientInfo?.name),
+    });
+  };
 
   for (const spec of P0_TOOLS) {
     const handler = HANDLERS[spec.name];
@@ -60,7 +93,23 @@ export function createServer(deps: ToolDeps): McpServer {
         inputSchema: spec.inputSchema,
         annotations: { readOnlyHint: true, openWorldHint: true },
       },
-      async (args: Record<string, unknown>) => toCallResult(await handler(args ?? {}, deps)),
+      async (args: Record<string, unknown>) => {
+        const startedAt = Date.now();
+        const result = await handler(args ?? {}, deps);
+        // Fire-and-forget: emit() never throws, and telemetry is not awaited, so
+        // a metrics failure cannot affect the tool response.
+        safeEmit(deps.events, {
+          event_type: "tool_call",
+          tool_name: spec.name,
+          client_name: clientInfo?.name,
+          client_version: clientInfo?.version,
+          is_agent_originated: classifyAgentOrigin(clientInfo?.name),
+          success: result.ok,
+          error_code: errorCodeOf(result),
+          duration_ms: Date.now() - startedAt,
+        });
+        return toCallResult(result);
+      },
     );
   }
 

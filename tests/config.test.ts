@@ -44,4 +44,11 @@ describe("loadConfig", () => {
   it("ignores an invalid dev tier", () => {
     expect(loadConfig({ WA_DEV_TIER: "banana" }).devTier).toBeUndefined();
   });
+
+  it("enables metrics by default and lets WA_METRICS_DISABLED opt out", () => {
+    expect(loadConfig({}).metricsEnabled).toBe(true);
+    expect(loadConfig({ WA_METRICS_DISABLED: "1" }).metricsEnabled).toBe(false);
+    expect(loadConfig({ WA_METRICS_DISABLED: "true" }).metricsEnabled).toBe(false);
+    expect(loadConfig({ WA_METRICS_DISABLED: "0" }).metricsEnabled).toBe(true);
+  });
 });

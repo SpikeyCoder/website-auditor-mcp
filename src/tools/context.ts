@@ -10,6 +10,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
+import type { EventSink } from "../telemetry/events.js";
 
 export interface ToolDeps {
   client: WaApiClientLike;
@@ -17,6 +18,8 @@ export interface ToolDeps {
   meter: Meter;
   cache: AuditCache;
   config: WaConfig;
+  /** Telemetry sink for P0 success-metric events (fire-and-forget). */
+  events: EventSink;
 }
 
 export interface ToolError {

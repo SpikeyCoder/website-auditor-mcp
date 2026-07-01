@@ -37,6 +37,13 @@ export interface WaConfig {
    * absence of an API key.
    */
   devTier?: Tier;
+  /**
+   * Emit P0 success-metric telemetry (session_init + tool_call) to the API
+   * portal's /api/mcp-events endpoint. On by default; set WA_METRICS_DISABLED=1
+   * to opt out (emission is always fire-and-forget and never blocks a tool call
+   * either way).
+   */
+  metricsEnabled: boolean;
 }
 
 function stripTrailingSlash(url: string): string {
@@ -65,5 +72,12 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     devTier: parseTier(env.WA_DEV_TIER?.trim()),
+    metricsEnabled: !isTruthy(env.WA_METRICS_DISABLED),
   };
+}
+
+/** Truthy-string check for boolean-ish env flags ("1", "true", "yes", "on"). */
+function isTruthy(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }

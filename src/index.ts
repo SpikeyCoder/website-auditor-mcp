@@ -8,6 +8,8 @@ import { WaApiClient } from "./api/client.js";
 import { DefaultSubscriptionProvider } from "./auth/entitlements.js";
 import { InMemoryMeter } from "./auth/meter.js";
 import { InMemoryAuditCache } from "./auth/auditCache.js";
+import { HttpEventSink } from "./telemetry/httpSink.js";
+import { NoopEventSink } from "./telemetry/events.js";
 import { createServer } from "./mcp/server.js";
 import type { ToolDeps } from "./tools/context.js";
 
@@ -23,6 +25,7 @@ async function main(): Promise<void> {
       maxDomains: config.freeMaxDomains,
     }),
     cache: new InMemoryAuditCache({ ttlMs: config.auditCacheTtlMs }),
+    events: config.metricsEnabled ? new HttpEventSink(config) : new NoopEventSink(),
   };
 
   const server = createServer(deps);
