@@ -97,15 +97,21 @@ export function createServer(deps: ToolDeps): McpServer {
     const handler = HANDLERS[spec.name];
     if (!handler) continue;
     // track_site / untrack_site mutate server state (enroll/remove a tracking),
-    // so they are NOT read-only. Every other served tool only reads.
-    const readOnlyHint = !MUTATING_TOOLS.has(spec.name);
+    // so they are NOT read-only — they carry destructiveHint. Every other served
+    // tool only reads and carries readOnlyHint. Every tool also carries a human
+    // `title` and openWorldHint (all tools reach the external Website Auditor API).
+    // These annotations are required for the Claude connector directory.
+    const isMutating = MUTATING_TOOLS.has(spec.name);
+    const annotations = isMutating
+      ? { title: spec.title, readOnlyHint: false, destructiveHint: true, openWorldHint: true }
+      : { title: spec.title, readOnlyHint: true, openWorldHint: true };
     server.registerTool(
       spec.name,
       {
         title: spec.title,
         description: spec.description,
         inputSchema: spec.inputSchema,
-        annotations: { readOnlyHint, openWorldHint: true },
+        annotations,
       },
       async (args: Record<string, unknown>) => {
         const startedAt = Date.now();

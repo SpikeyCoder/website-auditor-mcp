@@ -1,0 +1,30 @@
+# Extra excludes on top of mcpb's built-in defaults (which already drop .git,
+# .env*, *.map, *.d.ts, package-lock.json, tsconfig.json, *.tsbuildinfo, logs).
+# Goal: ship only the built server (dist/), its runtime deps (node_modules),
+# manifest.json, README, and LICENSE. No source, tests, or dev tooling.
+
+# TypeScript source — the compiled dist/ is what runs.
+src/
+
+# Tests and test tooling.
+tests/
+vitest.config.ts
+coverage/
+.vitest/
+
+# Repo docs / scaffolding not needed inside the bundle.
+docs/
+.claude/
+.npmignore
+.gitignore
+server.json
+
+# Dev tooling caches.
+.git/
+scratchpad/
+node_modules/.vite/
+node_modules/.cache/
+
+# NOTE: node_modules IS bundled (a desktop extension must ship its runtime deps
+# so it works offline). Before packing, prune to production deps only:
+#   npm prune --omit=dev  &&  npx --yes @anthropic-ai/mcpb pack  &&  npm install

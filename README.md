@@ -125,6 +125,31 @@ injected, and HTTP is mocked at the `fetch` boundary, so no network is touched.
 
 ---
 
+## Privacy Policy
+
+This connector talks to a single external service: the **Website Auditor API**
+at **[website-auditor.io](https://website-auditor.io)**. When you invoke a tool
+it sends only two things to that API:
+
+- the **target domain** you asked to audit or monitor, and
+- your **API key** (`WA_API_KEY`), used to authenticate the request and resolve
+  your plan tier.
+
+That's the full extent of what leaves your machine. The connector does **not**
+collect, store, or transmit your files, prompts, conversation content, or any
+other personal data, and it does not send data to any third party beyond the
+Website Auditor API. Your API key is held only in your MCP client's
+configuration (in Claude Desktop it is stored in the OS keychain and injected as
+an environment variable); it is never written to the bundle or logged.
+
+Anonymous, aggregate usage telemetry (which tool ran, success/failure, latency —
+no domains, no keys, no personal data) may be emitted to improve the service, and
+can be disabled entirely by setting `WA_METRICS_DISABLED=1`.
+
+Full privacy policy: **https://website-auditor.io/privacy**
+
+---
+
 ## License
 
 [Elastic License 2.0](LICENSE) — © 2026 Kevin Armstrong / SpikeyCoder.
