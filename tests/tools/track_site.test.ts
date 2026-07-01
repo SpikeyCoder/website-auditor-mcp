@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { trackSite } from "../../src/tools/trackSite.js";
 import { WaApiError } from "../../src/api/errors.js";
-import { makeDeps } from "../helpers.js";
+import { makeDeps, fixedResolution } from "../helpers.js";
 
 describe("track_site [Pro]", () => {
   it("no key -> PRO_REQUIRED, does not enroll", async () => {
@@ -11,6 +11,18 @@ describe("track_site [Pro]", () => {
     if (res.ok) return;
     expect(res.error.code).toBe("PRO_REQUIRED");
     expect(res.error.upgrade_url).toContain("website-auditor.io");
+    expect(client.trackSite).not.toHaveBeenCalled();
+  });
+
+  it("subscription unverifiable (outage) -> SUBSCRIPTION_UNVERIFIED, does not enroll", async () => {
+    const client = { trackSite: vi.fn() };
+    const res = await trackSite(
+      { domain: "example.com" },
+      makeDeps({ subscriptions: fixedResolution({ tier: "free", verified: false }), client }),
+    );
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("SUBSCRIPTION_UNVERIFIED");
     expect(client.trackSite).not.toHaveBeenCalled();
   });
 

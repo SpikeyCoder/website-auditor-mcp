@@ -3,6 +3,7 @@
  *
  * Implemented today (maps to a live endpoint):
  *   - runAudit           → GET  /api/audit?businessUrl=&businessName=&businessCity=
+ *   - getSubscription    → GET  /api/subscription           (API-key-authed tier/status)
  *   - getChanges         → GET  /api/ai-visibility-history?domain=&since= (+ computeChanges)
  *   - trackSite          → POST /api/tracked-domains        (enroll for weekly monitoring)
  *   - listTrackedDomains → GET  /api/tracked-domains
@@ -11,7 +12,6 @@
  * Declared but NOT yet available upstream (PRD open questions). These methods
  * exist so the tools can be wired against the interface and light up the moment
  * the endpoints ship. They throw NOT_YET_AVAILABLE rather than fabricating data:
- *   - getSubscription    → no API-key-authed subscription endpoint exists
  *   - compareCompetitors → no dedicated comparison endpoint (the compare_competitors
  *                          tool instead fans out real runAudit calls today)
  */
@@ -101,6 +101,13 @@ interface ClientDeps {
  */
 const CITY_SENTINEL = " ";
 
+/**
+ * Stripe subscription statuses that grant Pro. Mirrors the server's own
+ * `ACTIVE_STATUSES` in website-auditor-api (`services/subscriptions.js`) so the
+ * MCP and the API agree on who is Pro — active/trialing => pro, else free.
+ */
+export const ACTIVE_SUBSCRIPTION_STATUSES: readonly string[] = ["active", "trialing"];
+
 export class WaApiClient implements WaApiClientLike {
   private readonly cfg: WaConfig;
   private readonly fetchImpl: typeof fetch;
@@ -149,26 +156,38 @@ export class WaApiClient implements WaApiClientLike {
     return rateLimit ? { runId, report, rateLimit, raw: body } : { runId, report, raw: body };
   }
 
-  // ── Not yet available upstream — see class docstring ──────────────────
-
+  /**
+   * Read the caller's subscription tier/status from the live, API-key-authed
+   * `GET /api/subscription` endpoint (shipped in website-auditor-api PR #7).
+   *
+   * `tier` is derived from `status`: an active/trialing subscription is Pro,
+   * everything else (none / canceled / past_due / …) is free — matching the
+   * server's own mapping and the web session path. The real `status` is
+   * preserved so callers can tell "never subscribed" (none) from "lapsed"
+   * (canceled). A 401 surfaces as INVALID_KEY and a 5xx/network failure as
+   * UPSTREAM_ERROR (transient) — the tier resolver relies on that distinction.
+   */
   async getSubscription(): Promise<SubscriptionInfo> {
-    throw new WaApiError(
-      "NOT_YET_AVAILABLE",
-      "website-auditor-api does not yet expose an API-key-authed subscription endpoint (PRD open question #1).",
-    );
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/subscription`);
+    const body = (await this.requestJson("GET", url)) as {
+      tier?: string;
+      status?: string;
+      current_period_end?: string | null;
+    };
+
+    const status = typeof body.status === "string" && body.status ? body.status : "none";
+    const tier: "free" | "pro" = ACTIVE_SUBSCRIPTION_STATUSES.includes(status) ? "pro" : "free";
+    const info: SubscriptionInfo = { tier, status };
+    if (body.current_period_end) info.current_period_end = body.current_period_end;
+    return info;
   }
 
   async getRemainingQuota(): Promise<RateLimit | null> {
-    // Prefer a no-audit-cost read from the subscription endpoint. That endpoint
-    // isn't available yet, so this returns null today and callers fall back to
-    // learning the remaining quota from runAudit's response headers. Any failure
-    // to read quota is non-fatal (the audit call is the source of truth).
-    try {
-      const sub = await this.getSubscription();
-      return sub.quota ?? null;
-    } catch {
-      return null;
-    }
+    // `/api/subscription` reports tier/status only — it carries no audit-quota
+    // block — so there is no no-audit-cost way to read remaining quota today.
+    // Callers learn the remaining quota from runAudit's `X-RateLimit-*` response
+    // headers instead (the audit call is the source of truth).
+    return null;
   }
 
   /**

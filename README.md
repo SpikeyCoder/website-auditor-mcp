@@ -70,7 +70,8 @@ npm run dev
 | `WA_FREE_MAX_DOMAINS` | `1` | Free-tier distinct-domain cap per key. |
 | `WA_REQUEST_TIMEOUT_MS` | `120000` | Timeout for API calls. |
 | `WA_AUDIT_CACHE_TTL_MS` | `86400000` | Reuse a domain's audit within this window instead of spending quota (used by `compare_competitors`). Defaults to 24h. |
-| `WA_DEV_TIER` | _(none)_ | Local/testing override (`free`/`pro`) — see auth model. |
+| `WA_SUBSCRIPTION_CACHE_TTL_MS` | `60000` | How long a resolved Pro/free tier is cached per key before re-checking the live subscription endpoint. Short (60s) so upgrades/downgrades reflect quickly. |
+| `WA_DEV_TIER` | _(none)_ | **Explicit** local/testing tier override (`free`/`pro`) — **not** the default path; tier is normally read live. See auth model. |
 | `WA_METRICS_DISABLED` | _(unset → metrics on)_ | Set to `1`/`true` to disable P0 telemetry emission. See [Telemetry & success metrics](#telemetry--success-metrics). |
 
 See `.env.example`. **Never commit `.env` or any `wa_` key** (`.gitignore` excludes them).
@@ -80,28 +81,49 @@ See `.env.example`. **Never commit `.env` or any `wa_` key** (`.gitignore` exclu
 ## Auth & gating model
 
 The key is supplied via MCP server config (`WA_API_KEY`) and validated on every
-call against the real API. Tiers:
+call against the real API. The Pro/free tier is resolved from the **live,
+API-key-authed subscription endpoint** — `GET /api/subscription` in
+website-auditor-api (shipped in PR #7) — which reads the same `subscriptions`
+table as the web session, so the MCP and the portal always agree on who is Pro.
+Tiers:
 
 - **`none`** (no key): free tools return `AUTH_REQUIRED` (the backend requires a
   key), Pro tools return `PRO_REQUIRED`. Both include the upgrade URL.
-- **`free`** (valid key, no confirmed subscription): free tools work, subject to
-  MCP-side metering (`WA_FREE_DAILY_AUDIT_LIMIT` audits/day, `WA_FREE_MAX_DOMAINS`
-  domains) on top of the API's own per-key daily rate limit. Pro tools return
-  `PRO_REQUIRED` + upgrade URL.
-- **`pro`** (active subscription): all tools, metering bypassed.
+- **`free`** (valid key, no active subscription — never-subscribed *or* lapsed):
+  free tools work, subject to MCP-side metering (`WA_FREE_DAILY_AUDIT_LIMIT`
+  audits/day, `WA_FREE_MAX_DOMAINS` domains) on top of the API's own per-key
+  daily rate limit. Pro tools return `PRO_REQUIRED` + upgrade URL.
+- **`pro`** (subscription `status` = `active` or `trialing`): all tools, metering
+  bypassed.
+
+**How the tier is resolved** (`DefaultSubscriptionProvider`, `src/auth/entitlements.ts`):
+
+1. No key → `none`. A key with `WA_DEV_TIER` set → that tier (explicit local
+   override only, **never the default path**).
+2. Otherwise the tier is read from `GET /api/subscription` and **cached per key**
+   for `WA_SUBSCRIPTION_CACHE_TTL_MS` (default 60s), so tier resolution isn't a
+   round-trip on every tool call but still reflects upgrades/downgrades within a
+   minute. `active`/`trialing` ⇒ `pro`, everything else ⇒ `free`.
+
+**Failure handling (deliberate — a Pro user must never be wrongly told they're
+not subscribed during an outage):**
+
+- Subscription endpoint errors but a **prior tier is cached** → the **last-known
+  tier is honored** (a Pro user keeps Pro through a blip).
+- Endpoint errors with **no cached tier** (cold) → default to **`free`, but
+  flagged _unverified_**. We never fail-open to Pro, but Pro tools return a
+  distinct **`SUBSCRIPTION_UNVERIFIED`** ("couldn't verify — temporary, try
+  again") instead of the flat `PRO_REQUIRED`, so a genuine Pro user isn't told
+  they aren't subscribed. Free tools still work (free is the safe default).
+- A **definitive** key rejection (`401` → `INVALID_KEY`) is treated as a verified
+  `free`, not a retryable outage — retrying won't change a revoked key.
 
 Errors are normalized to stable codes so agents can branch on them:
-`AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `OVER_QUOTA`,
-`UNREACHABLE_DOMAIN`, `INVALID_INPUT`, `UPSTREAM_ERROR`, `TIMEOUT`,
-`NOT_YET_AVAILABLE`. Failures come back as MCP error results (`isError: true`)
-with a JSON body carrying the `code`, `message`, and `upgrade_url` where relevant.
-
-> **How is the tier resolved?** `SubscriptionProvider` (`src/auth/entitlements.ts`)
-> is the seam. website-auditor-api does **not yet expose an API-key-authed way to
-> read subscription state** (PRD open question #1), so the default provider is
-> conservative: a valid key is `free` unless `WA_DEV_TIER=pro` is set for local
-> testing. When the endpoint ships, swap in a provider that calls
-> `client.getSubscription()` — no tool changes needed.
+`AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `SUBSCRIPTION_UNVERIFIED`,
+`OVER_QUOTA`, `LIMIT_REACHED`, `UNREACHABLE_DOMAIN`, `INVALID_INPUT`,
+`UPSTREAM_ERROR`, `TIMEOUT`, `NOT_YET_AVAILABLE`. Failures come back as MCP error
+results (`isError: true`) with a JSON body carrying the `code`, `message`, and
+`upgrade_url` where relevant.
 
 ---
 
@@ -149,18 +171,19 @@ specific errors (never a fabricated score), and valid-key happy paths.
 
 ## Mapping to the real API (and what's missing)
 
-This server wraps `SpikeyCoder/website-auditor-api`. Only one endpoint is live
-today: `GET /api/audit` (`X-API-Key` auth, per-key daily rate limit → 429). Both
-free tools map onto it; `compare_competitors` fans out one audit per domain,
-capped to the remaining daily quota (learned from the `X-RateLimit-*` headers)
-and served from a short-lived audit cache where possible.
+This server wraps `SpikeyCoder/website-auditor-api`. Live endpoints it uses:
+`GET /api/audit` (`X-API-Key` auth, per-key daily rate limit → 429), `GET
+/api/subscription` (Pro/free gating — see the auth model), `GET
+/api/ai-visibility-history` (`get_changes`), and `/api/tracked-domains`
+(`track_site` enrollment). Both free tools map onto `/api/audit`;
+`compare_competitors` fans out one audit per domain, capped to the remaining
+daily quota (learned from the `X-RateLimit-*` headers) and served from a
+short-lived audit cache where possible.
 
-The following are **declared on the client interface but not yet available
-upstream** — they throw `NOT_YET_AVAILABLE` rather than fabricating data, and the
-tools are wired to light up the moment the endpoints ship:
+The following remains **declared on the client interface but not yet available
+upstream** — it throws `NOT_YET_AVAILABLE` rather than fabricating data, and the
+tool is wired to light up the moment the endpoint ships:
 
-- **Subscription check by API key** (blocks true Pro gating) — PRD open question #1.
-- **AI-visibility deltas / history by API key** (`get_changes`) — PRD open question #2.
 - **A dedicated competitor-comparison endpoint** (`compare_competitors` uses
   fan-out audits in the meantime, which consumes audit quota).
 

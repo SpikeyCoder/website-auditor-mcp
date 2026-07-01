@@ -31,10 +31,17 @@ export interface WaConfig {
    */
   auditCacheTtlMs: number;
   /**
-   * Optional local-dev/testing override for the resolved tier. There is not yet
-   * an API-key-authed subscription endpoint in website-auditor-api (PRD open
-   * question #1), so this lets you exercise Pro paths locally. Ignored in the
-   * absence of an API key.
+   * TTL (ms) for the per-key subscription-tier cache. The tier is resolved from
+   * the live `GET /api/subscription` endpoint and cached for this window so a
+   * tier lookup isn't a round-trip on every tool call, while still reflecting
+   * upgrades/downgrades reasonably fast. Defaults to 60s.
+   */
+  subscriptionCacheTtlMs: number;
+  /**
+   * EXPLICIT local-dev/testing override for the resolved tier. This is NOT the
+   * default path: tier is normally resolved from the live subscription endpoint
+   * (see `subscriptionCacheTtlMs`). Set `WA_DEV_TIER=pro`/`free` only to exercise
+   * a tier locally without a real subscription. Ignored when no API key is set.
    */
   devTier?: Tier;
   /**
@@ -71,6 +78,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     freeMaxDomains: parseIntOr(env.WA_FREE_MAX_DOMAINS, 1),
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
+    subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),
     devTier: parseTier(env.WA_DEV_TIER?.trim()),
     metricsEnabled: !isTruthy(env.WA_METRICS_DISABLED),
   };

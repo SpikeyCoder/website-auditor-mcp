@@ -28,20 +28,21 @@ Phase-0/1 tool needs.
 
 ## Gaps (blocking / needed)
 
-### 1. No API-key-authed subscription check — **PRD open question #1 (blocking)**
-`apiKeyAuth` resolves the key to a `user_id` but the audit route never checks
-Pro. Subscription state lives in the Supabase `subscriptions` table and is only
-reachable via **Google-SSO session** endpoints (`/stripe/subscription-status`,
-session-authed) or the Flask app's `wa_auth` **JWT cookie** — neither is usable
-from an API key. So the MCP cannot currently tell a free key from a Pro key.
-
-**Needed:** an endpoint like `GET /api/subscription` (X-API-Key authed) returning
-`{ tier: "free" | "pro", status, current_period_end }`. There's already an
-in-app helper (`supabase_client.get_active_subscription(user_id)` in chaos_tester)
-that does exactly this lookup by `user_id`; the API portal's `apiKeyAuth` already
-has the `user_id` in hand, so this is a small addition.
-**MCP wiring:** `client.getSubscription()` + `DefaultSubscriptionProvider` are the
-seam; today the provider defaults a valid key to `free` (Pro via `WA_DEV_TIER`).
+### 1. API-key-authed subscription check — **RESOLVED (PRD open question #1)**
+Shipped in website-auditor-api **PR #7**: `GET /api/subscription` (X-API-Key
+authed via `apiKeyAuth`, mounted at `/api`). It reads the same Supabase
+`subscriptions` table as the web session (`resolveSubscription` in
+`services/subscriptions.js`, statuses `active`/`trialing` ⇒ Pro) and returns
+`{ success, tier, status, current_period_end, cancel_at_period_end }`. `401` on a
+missing/invalid/revoked key; `500` on a lookup failure. It surfaces the real
+`status` so "never subscribed" (`none`) is distinguishable from "lapsed"
+(`canceled`/`past_due`).
+**MCP wiring (live):** `client.getSubscription()` calls it and maps
+`status ∈ {active,trialing}` ⇒ `pro`. `DefaultSubscriptionProvider` caches the
+tier per key (`WA_SUBSCRIPTION_CACHE_TTL_MS`, default 60s) and, on an endpoint
+outage, honors the last-known cached tier or defaults to `free` **flagged
+unverified** (Pro tools then return `SUBSCRIPTION_UNVERIFIED`, not a false
+`PRO_REQUIRED`). `WA_DEV_TIER` remains only as an explicit local override.
 
 ### 2. No AI-visibility deltas / history by API key — **PRD open question #2 (blocking for P1)**
 `get_changes` needs "what changed since last check." The Flask app has
@@ -72,10 +73,12 @@ remaining quota (pre-flight where possible, otherwise from each audit's
 to what's available, and returns a `quota` block + `skipped` list naming any
 competitors it couldn't audit — never silently dropping them or fabricating
 scores. Zero remaining quota is an actionable `OVER_QUOTA` error.
-**Nice to have:** a batch/compare endpoint to audit N domains for one quota unit
-(and, when the `GET /api/subscription` endpoint lands, a no-audit-cost way to
-read remaining quota up-front — the client's `getRemainingQuota()` already reads
-it from there).
+**Nice to have:** a batch/compare endpoint to audit N domains for one quota unit,
+and a no-audit-cost way to read remaining quota up-front. (The now-live
+`GET /api/subscription` reports tier/status only — no quota block — so
+`getRemainingQuota()` returns `null` and the fan-out still learns the remaining
+quota from each audit's `X-RateLimit-Remaining` header. Adding a quota field to
+that endpoint, or a dedicated quota endpoint, would let the tool pre-flight.)
 
 ## Smaller mismatches (worked around, worth fixing)
 

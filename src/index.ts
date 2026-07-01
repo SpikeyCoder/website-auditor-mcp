@@ -16,10 +16,11 @@ import type { ToolDeps } from "./tools/context.js";
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
 
+  const client = new WaApiClient(config);
   const deps: ToolDeps = {
     config,
-    client: new WaApiClient(config),
-    subscriptions: new DefaultSubscriptionProvider(config),
+    client,
+    subscriptions: new DefaultSubscriptionProvider(config, client),
     meter: new InMemoryMeter({
       dailyLimit: config.freeDailyAuditLimit,
       maxDomains: config.freeMaxDomains,

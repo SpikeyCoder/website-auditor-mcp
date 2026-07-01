@@ -133,7 +133,7 @@ describe("WaApiClient.runAudit — rate-limit headers", () => {
 });
 
 describe("WaApiClient.getRemainingQuota", () => {
-  it("returns null today because the subscription endpoint is not yet available", async () => {
+  it("returns null because /api/subscription carries no audit-quota block (quota is learned from runAudit headers)", async () => {
     const client = new WaApiClient(baseCfg, { fetch: makeFetch(200, {}) as unknown as typeof fetch });
     await expect(client.getRemainingQuota()).resolves.toBeNull();
   });
@@ -146,9 +146,69 @@ describe("WaApiClient — endpoints not yet available in website-auditor-api", (
     await expect(client.getChanges({ domain: "example.com" })).rejects.toBeInstanceOf(WaApiError);
     await expect(client.getChanges({ domain: "example.com" })).rejects.toMatchObject({ code: "NOT_YET_AVAILABLE" });
   });
+});
 
-  it("getSubscription throws NOT_YET_AVAILABLE (no API-key-authed subscription endpoint)", async () => {
-    await expect(client.getSubscription()).rejects.toMatchObject({ code: "NOT_YET_AVAILABLE" });
+describe("WaApiClient.getSubscription — wired to GET /api/subscription", () => {
+  it("GETs /api/subscription with the X-API-Key header and maps an active sub to Pro", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      tier: "pro",
+      status: "active",
+      current_period_end: "2026-12-31T00:00:00Z",
+      cancel_at_period_end: false,
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const sub = await client.getSubscription();
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("https://api.website-auditor.io/api/subscription");
+    expect((init as RequestInit).method).toBe("GET");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+    expect(sub).toMatchObject({ tier: "pro", status: "active", current_period_end: "2026-12-31T00:00:00Z" });
+  });
+
+  it("maps a trialing subscription to Pro (active/trialing => pro)", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "pro", status: "trialing" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).resolves.toMatchObject({ tier: "pro", status: "trialing" });
+  });
+
+  it("maps 'no subscription' (status none) to free", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "free", status: "none", current_period_end: null });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).resolves.toMatchObject({ tier: "free", status: "none" });
+  });
+
+  it("maps a lapsed (canceled) subscription to free while surfacing the real status", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "free", status: "canceled" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).resolves.toMatchObject({ tier: "free", status: "canceled" });
+  });
+
+  it("derives tier from status even if the body's tier field disagrees (status is the source of truth)", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "pro", status: "canceled" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).resolves.toMatchObject({ tier: "free", status: "canceled" });
+  });
+
+  it("maps HTTP 401 (revoked/invalid key) to INVALID_KEY", async () => {
+    const fetchMock = makeFetch(401, { success: false, error: "This API key has been revoked." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).rejects.toMatchObject({ code: "INVALID_KEY" });
+  });
+
+  it("maps HTTP 500 (lookup failure) to UPSTREAM_ERROR — the transient path callers fall back on", async () => {
+    const fetchMock = makeFetch(500, { success: false, error: "Failed to look up subscription." });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
+  });
+
+  it("wraps a network failure as UPSTREAM_ERROR (transient)", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("network down");
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getSubscription()).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
   });
 });
 

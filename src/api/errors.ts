@@ -7,6 +7,7 @@ export type ErrorCode =
   | "AUTH_REQUIRED" // no API key configured — the backend requires one
   | "INVALID_KEY" // key present but rejected by the API (401)
   | "PRO_REQUIRED" // a Pro tool was called without an active subscription
+  | "SUBSCRIPTION_UNVERIFIED" // couldn't confirm subscription state (outage) — retryable, NOT a downgrade
   | "OVER_QUOTA" // free-tier daily/domain cap or API rate limit hit (429)
   | "LIMIT_REACHED" // tracked-domain cap reached (5 domains) — untrack one first (409)
   | "UNREACHABLE_DOMAIN" // the audited site could not be reached
