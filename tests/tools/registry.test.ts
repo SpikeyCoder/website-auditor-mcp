@@ -26,6 +26,19 @@ describe("tool registry", () => {
     expect(audit.description.startsWith("Run a full one-time audit of a website")).toBe(true);
   });
 
+  it("keeps the verbatim compare_competitors copy but appends quota guidance for agents", () => {
+    const compare = P0_TOOLS.find((t) => t.name === "compare_competitors")!;
+    // Original listing-doc opening is preserved (agents still match on it)...
+    expect(
+      compare.description.startsWith(
+        "Compare a website's AI visibility head-to-head against named competitors.",
+      ),
+    ).toBe(true);
+    // ...and the new quota behavior is spelled out so an agent knows what to expect.
+    expect(compare.description).toMatch(/quota/i);
+    expect(compare.description).toMatch(/skipped/i);
+  });
+
   it("declares the P1 tools so they are ready to add next, but they are not in P0", () => {
     const p1Names = P1_TOOLS.map((t) => t.name).sort();
     expect(p1Names).toEqual(

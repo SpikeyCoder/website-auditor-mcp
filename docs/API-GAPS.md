@@ -65,8 +65,17 @@ Nothing computes head-to-head scores across domains. The audit's
 but there's no multi-domain comparison.
 **MCP behavior today:** `compare_competitors` **fans out one `runAudit` per
 domain** and builds the ranking + per-engine gaps from live data — a genuine
-implementation, but each domain consumes an audit against the 5/day quota.
-**Nice to have:** a batch/compare endpoint to avoid N full audits.
+implementation, but each domain consumes an audit against the 5/day quota. To
+avoid exhausting the day in one call, the tool is quota-aware: it reads the
+remaining quota (pre-flight where possible, otherwise from each audit's
+`X-RateLimit-Remaining` header), reuses recent cached audits, caps the fan-out
+to what's available, and returns a `quota` block + `skipped` list naming any
+competitors it couldn't audit — never silently dropping them or fabricating
+scores. Zero remaining quota is an actionable `OVER_QUOTA` error.
+**Nice to have:** a batch/compare endpoint to audit N domains for one quota unit
+(and, when the `GET /api/subscription` endpoint lands, a no-audit-cost way to
+read remaining quota up-front — the client's `getRemainingQuota()` already reads
+it from there).
 
 ## Smaller mismatches (worked around, worth fixing)
 

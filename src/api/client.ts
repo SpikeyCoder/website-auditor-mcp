@@ -13,7 +13,7 @@
  *                          tool instead fans out real runAudit calls today)
  */
 import type { WaConfig } from "../config.js";
-import type { AuditReport, Changes } from "./types.js";
+import type { AuditReport, Changes, RateLimit } from "./types.js";
 import { WaApiError } from "./errors.js";
 import { normalizeDomain, deriveBusinessName } from "./domain.js";
 
@@ -28,6 +28,8 @@ export interface AuditParams {
 export interface AuditResponse {
   runId: string;
   report: AuditReport;
+  /** Rate-limit state from the response headers, when the API provides it. */
+  rateLimit?: RateLimit;
   /** The untouched JSON envelope from the API, for debugging/extension. */
   raw: unknown;
 }
@@ -41,11 +43,20 @@ export interface SubscriptionInfo {
   tier: "free" | "pro";
   status: string;
   current_period_end?: string;
+  /** Remaining daily audit quota, once the subscription endpoint reports it. */
+  quota?: RateLimit;
 }
 
 export interface WaApiClientLike {
   runAudit(params: AuditParams): Promise<AuditResponse>;
   getSubscription(): Promise<SubscriptionInfo>;
+  /**
+   * Best-effort read of the remaining daily audit quota WITHOUT spending an
+   * audit. Returns null when it can't be determined (e.g. the subscription
+   * endpoint isn't available yet) — callers then learn the remaining quota from
+   * `runAudit` response headers instead.
+   */
+  getRemainingQuota(): Promise<RateLimit | null>;
   getChanges(params: GetChangesParams): Promise<Changes>;
   compareCompetitors(params: { domain: string; competitors: string[] }): Promise<never>;
 }
@@ -111,7 +122,8 @@ export class WaApiClient implements WaApiClientLike {
     if (!report || !runId) {
       throw new WaApiError("UPSTREAM_ERROR", "The API response did not include an audit report.", { details: body });
     }
-    return { runId, report, raw: body };
+    const rateLimit = parseRateLimit(resp.headers);
+    return rateLimit ? { runId, report, rateLimit, raw: body } : { runId, report, raw: body };
   }
 
   // ── Not yet available upstream — see class docstring ──────────────────
@@ -121,6 +133,19 @@ export class WaApiClient implements WaApiClientLike {
       "NOT_YET_AVAILABLE",
       "website-auditor-api does not yet expose an API-key-authed subscription endpoint (PRD open question #1).",
     );
+  }
+
+  async getRemainingQuota(): Promise<RateLimit | null> {
+    // Prefer a no-audit-cost read from the subscription endpoint. That endpoint
+    // isn't available yet, so this returns null today and callers fall back to
+    // learning the remaining quota from runAudit's response headers. Any failure
+    // to read quota is non-fatal (the audit call is the source of truth).
+    try {
+      const sub = await this.getSubscription();
+      return sub.quota ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async getChanges(_params: GetChangesParams): Promise<Changes> {
@@ -168,4 +193,19 @@ export class WaApiClient implements WaApiClientLike {
         return new WaApiError("UPSTREAM_ERROR", message, { status, details: b.details });
     }
   }
+}
+
+function toIntOrNull(value: string | null): number | null {
+  if (value === null) return null;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Parse `X-RateLimit-*` headers, or undefined if none are present. */
+export function parseRateLimit(headers: Headers): RateLimit | undefined {
+  const limit = headers.get("x-ratelimit-limit");
+  const remaining = headers.get("x-ratelimit-remaining");
+  const reset = headers.get("x-ratelimit-reset");
+  if (limit === null && remaining === null && reset === null) return undefined;
+  return { limit: toIntOrNull(limit), remaining: toIntOrNull(remaining), reset };
 }

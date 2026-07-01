@@ -135,7 +135,44 @@ export interface CompetitorGap {
   your_score: number;
 }
 
+/** Rate-limit state, from the API's `X-RateLimit-*` response headers. */
+export interface RateLimit {
+  limit: number | null;
+  remaining: number | null;
+  reset: string | null;
+}
+
+export type SkipReason = "quota" | "unreachable" | "error";
+
+export interface SkippedDomain {
+  domain: string;
+  reason: SkipReason;
+  detail?: string;
+}
+
+/** Quota accounting for a `compare_competitors` call. */
+export interface CompareQuota {
+  /** Daily audit limit for the key, if known. */
+  limit: number | null;
+  /** Audits remaining after this call, if known (null = couldn't determine). */
+  remaining: number | null;
+  /** Fresh audits actually spent by this call. */
+  audits_used: number;
+  /** Competitors skipped specifically because the daily quota was exhausted. */
+  audits_skipped: number;
+  /** Domains served from a recent cached audit (cost no quota). */
+  cached_reused: number;
+  /** When the daily quota resets (ISO), if known. */
+  reset: string | null;
+}
+
 export interface Comparison {
   ranking: CompetitorRank[];
   gaps: CompetitorGap[];
+  /** Quota accounting so an agent knows what was spent and what remains. */
+  quota: CompareQuota;
+  /** Domains that were not ranked, each with an explicit reason. */
+  skipped: SkippedDomain[];
+  /** Human/agent-readable summary of what was compared vs. skipped and why. */
+  summary: string;
 }

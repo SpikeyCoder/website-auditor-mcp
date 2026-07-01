@@ -25,6 +25,12 @@ export interface WaConfig {
   /** Timeout (ms) for calls to the API portal. */
   requestTimeoutMs: number;
   /**
+   * TTL (ms) for the audit cache. A domain audited within this window is reused
+   * instead of spending a fresh audit against the daily quota. Defaults to 24h
+   * to mirror the upstream engine's own AI-visibility cache.
+   */
+  auditCacheTtlMs: number;
+  /**
    * Optional local-dev/testing override for the resolved tier. There is not yet
    * an API-key-authed subscription endpoint in website-auditor-api (PRD open
    * question #1), so this lets you exercise Pro paths locally. Ignored in the
@@ -57,6 +63,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     freeDailyAuditLimit: parseIntOr(env.WA_FREE_DAILY_AUDIT_LIMIT, 3),
     freeMaxDomains: parseIntOr(env.WA_FREE_MAX_DOMAINS, 1),
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
+    auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     devTier: parseTier(env.WA_DEV_TIER?.trim()),
   };
 }

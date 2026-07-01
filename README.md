@@ -20,7 +20,7 @@ to agents. Built test-first with [vitest](https://vitest.dev).
 | `get_ai_visibility` | **Free** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + top competitor. |
 | `run_audit` | **Free**, rate-limited | Full audit → category scores (AI visibility, SEO, security, performance) + top issues + shareable report URL. |
 | `get_changes` | **Pro** | Deltas since the last check (score movement, engines gained/lost, competitor moves, new/resolved issues). |
-| `compare_competitors` | **Pro** | Head-to-head AI-visibility ranking against named competitor domains + per-engine gaps. |
+| `compare_competitors` | **Pro** | Head-to-head AI-visibility ranking against named competitor domains + per-engine gaps. Quota-aware: caps the audit fan-out to the remaining daily quota, reuses recent cached audits, and reports any competitors skipped for quota rather than dropping them. |
 
 Tool **names and descriptions are verbatim** from the agent-discovery listing doc
 and must stay stable — agents bind to them (`src/tools/registry.ts`).
@@ -69,6 +69,7 @@ npm run dev
 | `WA_FREE_DAILY_AUDIT_LIMIT` | `3` | Free-tier audits per key per UTC day (MCP-side guard). |
 | `WA_FREE_MAX_DOMAINS` | `1` | Free-tier distinct-domain cap per key. |
 | `WA_REQUEST_TIMEOUT_MS` | `120000` | Timeout for API calls. |
+| `WA_AUDIT_CACHE_TTL_MS` | `86400000` | Reuse a domain's audit within this window instead of spending quota (used by `compare_competitors`). Defaults to 24h. |
 | `WA_DEV_TIER` | _(none)_ | Local/testing override (`free`/`pro`) — see auth model. |
 
 See `.env.example`. **Never commit `.env` or any `wa_` key** (`.gitignore` excludes them).
@@ -146,7 +147,9 @@ specific errors (never a fabricated score), and valid-key happy paths.
 
 This server wraps `SpikeyCoder/website-auditor-api`. Only one endpoint is live
 today: `GET /api/audit` (`X-API-Key` auth, per-key daily rate limit → 429). Both
-free tools map onto it; `compare_competitors` fans out one audit per domain.
+free tools map onto it; `compare_competitors` fans out one audit per domain,
+capped to the remaining daily quota (learned from the `X-RateLimit-*` headers)
+and served from a short-lived audit cache where possible.
 
 The following are **declared on the client interface but not yet available
 upstream** — they throw `NOT_YET_AVAILABLE` rather than fabricating data, and the

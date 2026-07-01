@@ -3,7 +3,10 @@ import type { WaConfig, Tier } from "../src/config.js";
 import type { WaApiClientLike, AuditResponse } from "../src/api/client.js";
 import type { SubscriptionProvider } from "../src/auth/entitlements.js";
 import type { Meter } from "../src/auth/meter.js";
+import type { AuditCache } from "../src/auth/auditCache.js";
+import { InMemoryAuditCache } from "../src/auth/auditCache.js";
 import type { ToolDeps } from "../src/tools/context.js";
+import type { AuditReport, RateLimit } from "../src/api/types.js";
 import { WaApiError } from "../src/api/errors.js";
 import { reachableReport } from "./fixtures/reports.js";
 
@@ -16,6 +19,7 @@ export function testConfig(over: Partial<WaConfig> = {}): WaConfig {
     freeDailyAuditLimit: 3,
     freeMaxDomains: 1,
     requestTimeoutMs: 120000,
+    auditCacheTtlMs: 24 * 60 * 60 * 1000,
     ...over,
   };
 }
@@ -39,6 +43,7 @@ export function makeClient(over: Partial<WaApiClientLike> = {}): WaApiClientLike
     getSubscription: vi.fn(async () => {
       throw new WaApiError("NOT_YET_AVAILABLE", "no subscription endpoint");
     }),
+    getRemainingQuota: vi.fn(async () => null),
     getChanges: vi.fn(async () => {
       throw new WaApiError("NOT_YET_AVAILABLE", "no changes endpoint");
     }),
@@ -53,12 +58,52 @@ export function makeDeps(over: {
   tier?: Tier;
   client?: Partial<WaApiClientLike>;
   meter?: Meter;
+  cache?: AuditCache;
   config?: Partial<WaConfig>;
 } = {}): ToolDeps {
   return {
     client: makeClient(over.client ?? {}),
     subscriptions: fixedTier(over.tier ?? "free"),
     meter: over.meter ?? openMeter(),
+    cache: over.cache ?? new InMemoryAuditCache({ ttlMs: 24 * 60 * 60 * 1000 }),
     config: testConfig(over.config ?? {}),
   };
+}
+
+/**
+ * A client that simulates the API's per-key daily audit counter: each runAudit
+ * spends one unit and returns the post-call `X-RateLimit-Remaining` in
+ * `rateLimit`; when exhausted it throws OVER_QUOTA like the real 429. Used to
+ * drive the quota-aware fan-out in compare_competitors.
+ */
+export function makeQuotaClient(opts: {
+  start: number; // remaining audits available when the call begins
+  limit?: number;
+  reset?: string;
+  report: (domain: string) => AuditReport;
+  /** If true, getRemainingQuota reports the current remaining (simulating the
+   *  future subscription endpoint). Default false → null (header-learning). */
+  preflight?: boolean;
+}): WaApiClientLike {
+  const limit = opts.limit ?? 5;
+  const reset = opts.reset ?? "2026-06-30T23:59:59.999Z";
+  let remaining = opts.start;
+
+  const runAudit = vi.fn(async ({ domain }: { domain: string }): Promise<AuditResponse> => {
+    if (remaining <= 0) {
+      throw new WaApiError("OVER_QUOTA", "Rate limit exceeded. You can make 5 requests per day.", {
+        status: 429,
+        details: { limit, remaining: 0, resets_at: reset },
+      });
+    }
+    remaining -= 1;
+    const rateLimit: RateLimit = { limit, remaining, reset };
+    return { runId: `run-${domain}`, report: opts.report(domain), rateLimit, raw: {} };
+  });
+
+  const getRemainingQuota = vi.fn(async (): Promise<RateLimit | null> =>
+    opts.preflight ? { limit, remaining, reset } : null,
+  );
+
+  return makeClient({ runAudit, getRemainingQuota });
 }

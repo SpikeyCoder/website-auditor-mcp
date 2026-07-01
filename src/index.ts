@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import { WaApiClient } from "./api/client.js";
 import { DefaultSubscriptionProvider } from "./auth/entitlements.js";
 import { InMemoryMeter } from "./auth/meter.js";
+import { InMemoryAuditCache } from "./auth/auditCache.js";
 import { createServer } from "./mcp/server.js";
 import type { ToolDeps } from "./tools/context.js";
 
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
       dailyLimit: config.freeDailyAuditLimit,
       maxDomains: config.freeMaxDomains,
     }),
+    cache: new InMemoryAuditCache({ ttlMs: config.auditCacheTtlMs }),
   };
 
   const server = createServer(deps);

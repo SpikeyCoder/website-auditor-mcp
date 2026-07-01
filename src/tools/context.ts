@@ -6,6 +6,7 @@ import type { WaConfig } from "../config.js";
 import type { WaApiClientLike } from "../api/client.js";
 import type { SubscriptionProvider } from "../auth/entitlements.js";
 import type { Meter } from "../auth/meter.js";
+import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
@@ -14,6 +15,7 @@ export interface ToolDeps {
   client: WaApiClientLike;
   subscriptions: SubscriptionProvider;
   meter: Meter;
+  cache: AuditCache;
   config: WaConfig;
 }
 

@@ -3,11 +3,11 @@ import { WaApiClient } from "../../src/api/client.js";
 import { WaApiError } from "../../src/api/errors.js";
 import { reachableReport } from "../fixtures/reports.js";
 
-function makeFetch(status: number, body: unknown) {
+function makeFetch(status: number, body: unknown, extraHeaders: Record<string, string> = {}) {
   return vi.fn(async () =>
     new Response(JSON.stringify(body), {
       status,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...extraHeaders },
     }),
   );
 }
@@ -105,6 +105,37 @@ describe("WaApiClient.runAudit", () => {
     });
     const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
     await expect(client.runAudit({ domain: "example.com" })).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
+  });
+});
+
+describe("WaApiClient.runAudit — rate-limit headers", () => {
+  it("parses X-RateLimit-* headers into rateLimit on a successful audit", async () => {
+    const fetchMock = makeFetch(
+      200,
+      { success: true, run_id: "abc123def456", audit: reachableReport() },
+      {
+        "X-RateLimit-Limit": "5",
+        "X-RateLimit-Remaining": "3",
+        "X-RateLimit-Reset": "2026-06-30T23:59:59.999Z",
+      },
+    );
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.runAudit({ domain: "example.com" });
+    expect(res.rateLimit).toEqual({ limit: 5, remaining: 3, reset: "2026-06-30T23:59:59.999Z" });
+  });
+
+  it("leaves rateLimit undefined when the API sends no rate-limit headers", async () => {
+    const fetchMock = makeFetch(200, { success: true, run_id: "x", audit: reachableReport() });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.runAudit({ domain: "example.com" });
+    expect(res.rateLimit).toBeUndefined();
+  });
+});
+
+describe("WaApiClient.getRemainingQuota", () => {
+  it("returns null today because the subscription endpoint is not yet available", async () => {
+    const client = new WaApiClient(baseCfg, { fetch: makeFetch(200, {}) as unknown as typeof fetch });
+    await expect(client.getRemainingQuota()).resolves.toBeNull();
   });
 });
 
