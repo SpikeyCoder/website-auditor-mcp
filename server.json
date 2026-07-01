@@ -3,7 +3,7 @@
   "name": "io.github.spikeycoder/website-auditor-mcp",
   "title": "Website Auditor",
   "description": "AI-visibility (GEO) and site-audit tools for ChatGPT, Perplexity, Claude and Gemini — check how visible a website is to AI assistants, run full audits, compare competitors and monitor changes over time.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "websiteUrl": "https://website-auditor.io",
   "repository": {
     "url": "https://github.com/SpikeyCoder/website-auditor-mcp",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@spikeycoder/website-auditor-mcp",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
