@@ -48,7 +48,11 @@
         "track_site",
         "untrack_site",
         "list_tracked_sites",
-        "get_monitoring_status"
+        "get_monitoring_status",
+        "get_benchmark",
+        "get_recommendations",
+        "generate_schema",
+        "get_report"
       ]
     }
   }
