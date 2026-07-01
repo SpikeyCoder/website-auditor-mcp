@@ -3,7 +3,7 @@
   "name": "io.github.SpikeyCoder/website-auditor-mcp",
   "title": "Website Auditor",
   "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "websiteUrl": "https://website-auditor.io",
   "repository": {
     "url": "https://github.com/SpikeyCoder/website-auditor-mcp",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@spikeycoder/website-auditor-mcp",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
