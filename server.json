@@ -4,6 +4,7 @@
   "title": "Website Auditor",
   "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
   "version": "1.0.2",
+  "icon": "icon.png",
   "websiteUrl": "https://website-auditor.io",
   "repository": {
     "url": "https://github.com/SpikeyCoder/website-auditor-mcp",
