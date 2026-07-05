@@ -16,6 +16,7 @@
     "type": "git",
     "url": "https://github.com/SpikeyCoder/website-auditor-mcp"
   },
+  "icon": "icon.png",
   "license": "Elastic-2.0",
   "keywords": [
     "ai-visibility",

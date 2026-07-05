@@ -19,6 +19,9 @@ docs/
 .gitignore
 server.json
 
+# Icon source — only the rendered icon.png ships in the bundle.
+logo.svg
+
 # Dev tooling caches.
 .git/
 scratchpad/
