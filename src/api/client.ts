@@ -279,7 +279,7 @@ export class WaApiClient implements WaApiClientLike {
   async getAiVisibilityHistory(params: { domain: string; since?: string }): Promise<AiVisibilitySnapshot[]> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/ai-visibility-history`);
     url.searchParams.set("domain", params.domain);
-    /* mutant: since ignored */
+    if (params.since) url.searchParams.set("since", params.since);
 
     const body = (await this.requestJson("GET", url)) as {
       snapshots?: Array<{

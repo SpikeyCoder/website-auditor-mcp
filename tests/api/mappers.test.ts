@@ -162,6 +162,17 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     expect(trend.change_7d!.engine_changes).toEqual([{ engine: "chatgpt", from: 50, to: 60, delta: 10 }]);
   });
 
+  it("engine deltas cover only engines measured at BOTH window endpoints (no from-0 fabrication, no silent drops)", () => {
+    const oldest = { captured_at: at(5), score: 50, by_engine: { chatgpt: 50, perplexity: 45 }, is_simulated: false };
+    const latest = { captured_at: at(1), score: 60, by_engine: { chatgpt: 60, gemini: 60 }, is_simulated: false };
+    const trend = computeTrend([oldest, latest], NOW)!;
+    const engines = trend.change_7d!.engine_changes.map((c) => c.engine);
+    // gemini was unmeasured at the start -> must NOT appear as a +60 gain;
+    // perplexity became unmeasured -> must not fabricate a drop either.
+    expect(engines).toEqual(["chatgpt"]);
+    expect(trend.change_7d!.engine_changes[0]).toEqual({ engine: "chatgpt", from: 50, to: 60, delta: 10 });
+  });
+
   it("flags simulated data anywhere in the series", () => {
     const trend = computeTrend([snap(5, 40, true), snap(1, 60)], NOW)!;
     expect(trend.includes_simulated).toBe(true);

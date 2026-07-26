@@ -50,9 +50,14 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
 
   let message: string;
   if (sub.tier === "pro" && sub.status === "trialing") {
-    message =
-      `Free trial active${periodEnd ? ` until ${periodEnd}` : ""} — all Pro tools are unlocked. ` +
-      `The subscription starts automatically when the trial ends unless canceled at ${upgradeUrl}.`;
+    // A canceled-mid-trial subscription stays `trialing` with
+    // cancel_at_period_end=true — it will NOT convert or charge, so the
+    // auto-conversion wording would be flatly wrong for that state.
+    message = canceling
+      ? `Free trial active${periodEnd ? ` until ${periodEnd}` : ""}, but set not to convert — Pro access simply ends then. ` +
+        `Resubscribe at ${upgradeUrl} to keep Pro tools.`
+      : `Free trial active${periodEnd ? ` until ${periodEnd}` : ""} — all Pro tools are unlocked. ` +
+        `The subscription starts automatically when the trial ends unless canceled at ${upgradeUrl}.`;
   } else if (sub.tier === "pro") {
     message = canceling
       ? `Pro subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. Resubscribe at ${upgradeUrl} to keep Pro tools.`
@@ -60,7 +65,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   } else if (sub.status === "none") {
     message =
       `Free tier. Upgrading to Pro unlocks monitoring, history/trends, benchmarks, recommendations, schema and report tools. ` +
-      `Subscribe at ${upgradeUrl} — starting Pro requires adding a payment method and accepting the Terms; you get a 7-day free trial.`;
+      `Subscribe at ${upgradeUrl} — starting Pro requires adding a payment method and accepting the Terms; eligible new customers get a 7-day free trial.`;
   } else {
     message =
       `Subscription lapsed (status: ${sub.status}) — Pro tools are locked. ` +

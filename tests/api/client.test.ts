@@ -550,3 +550,14 @@ describe("WaApiClient.getAiVisibilityHistory — raw snapshot series for trend",
     });
   });
 });
+
+describe("WaApiClient.getAiVisibilityHistory since param", () => {
+  it("forwards since as a query param when provided, omits it otherwise", async () => {
+    const fetchMock = makeFetch(200, { success: true, snapshots: [] });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await client.getAiVisibilityHistory({ domain: "example.com", since: "2026-07-01T00:00:00Z" });
+    await client.getAiVisibilityHistory({ domain: "example.com" });
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("since=2026-07-01");
+    expect(String(fetchMock.mock.calls[1]![0])).not.toContain("since=");
+  });
+});

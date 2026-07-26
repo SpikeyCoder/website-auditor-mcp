@@ -103,4 +103,45 @@ describe("check_upgrade_status [Free]", () => {
     expect(recordQuery).not.toHaveBeenCalled();
     expect(runAudit).not.toHaveBeenCalled();
   });
+
+  it("trial canceled mid-trial -> no auto-conversion promise; resubscribe pointer instead", async () => {
+    const client = {
+      getSubscription: vi.fn(async () => ({
+        tier: "pro" as const,
+        status: "trialing",
+        current_period_end: "2026-08-02T00:00:00Z",
+        cancel_at_period_end: true,
+      })),
+    };
+    const res = await checkUpgradeStatus({}, makeDeps({ client }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.cancel_at_period_end).toBe(true);
+    expect(res.data.message).toContain("not to convert");
+    expect(res.data.message).toContain("Resubscribe");
+    expect(res.data.message).not.toContain("starts automatically");
+  });
+
+  it("active Pro message carries no upsell or trial language", async () => {
+    const client = {
+      getSubscription: vi.fn(async () => ({
+        tier: "pro" as const,
+        status: "active",
+        current_period_end: "2026-08-26T00:00:00Z",
+      })),
+    };
+    const res = await checkUpgradeStatus({}, makeDeps({ client }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.message).not.toContain("Subscribe at");
+    expect(res.data.message).not.toContain("trial");
+  });
+
+  it("never-subscribed message hedges the trial ('eligible') rather than promising one", async () => {
+    const res = await checkUpgradeStatus({}, makeDeps({}));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.message).toContain("eligible new customers");
+    expect(res.data.message).not.toMatch(/you (get|will get|receive) a .*trial/i);
+  });
 });

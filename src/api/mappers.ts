@@ -198,9 +198,16 @@ export function computeTrend(
     const inWindow = snapshots.filter((s) => Date.parse(s.captured_at) >= cutoff);
     if (inWindow.length < 2) return null;
     const oldest = inWindow[0]!;
+    // Engine deltas compare ONLY engines measured at BOTH endpoints. Engines
+    // roll out incrementally (null = not measured, stripped by the client), so
+    // an engine absent from one endpoint must not become a fabricated from-0
+    // gain via computeChanges' `?? 0`, nor silently vanish on a drop.
+    const shared = Object.keys(latest.by_engine).filter((k) => k in oldest.by_engine);
+    const pickShared = (m: Record<string, number>): Record<string, number> =>
+      Object.fromEntries(shared.map((k) => [k, m[k]!]));
     const changes = computeChanges(
-      { score: latest.score, by_engine: latest.by_engine },
-      { score: oldest.score, by_engine: oldest.by_engine },
+      { score: latest.score, by_engine: pickShared(latest.by_engine) },
+      { score: oldest.score, by_engine: pickShared(oldest.by_engine) },
     );
     return {
       window_days: days,

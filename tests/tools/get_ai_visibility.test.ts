@@ -136,3 +136,21 @@ describe("get_ai_visibility trend (Pro history)", () => {
     expect(res.data.trend_note).toContain("could not be loaded");
   });
 });
+
+describe("get_ai_visibility trend during subscription outages", () => {
+  it("unverified free (outage default) -> transient note, never an upsell", async () => {
+    const { fixedResolution } = await import("../helpers.js");
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({
+        subscriptions: fixedResolution({ tier: "free", verified: false }),
+        meter: { recordQuery: () => ({ ok: true as const }) },
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend).toBeNull();
+    expect(res.data.trend_note).toContain("could not be verified");
+    expect(res.data.trend_note).not.toContain("requires a Pro subscription");
+  });
+});

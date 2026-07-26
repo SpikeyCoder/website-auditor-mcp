@@ -20,9 +20,14 @@ export interface GetAiVisibilityArgs {
 
 /** Fill `trend`/`trend_note` on a mapped result. Never throws. */
 async function attachTrend(result: AiVisibility, domain: string, deps: ToolDeps): Promise<void> {
-  const { tier } = await deps.subscriptions.resolve();
+  const { tier, verified } = await deps.subscriptions.resolve();
   if (tier !== "pro") {
-    result.trend_note = `AI-visibility trend history requires a Pro subscription (${deps.config.upgradeUrl}).`;
+    // An UNVERIFIED free is an outage default, not a real answer — a genuine
+    // Pro user must get a transient note, never an upsell (mirrors the
+    // gateProTool SUBSCRIPTION_UNVERIFIED distinction).
+    result.trend_note = verified
+      ? `AI-visibility trend history requires a Pro subscription (${deps.config.upgradeUrl}).`
+      : "Your subscription could not be verified right now, so trend history was skipped — try again shortly.";
     return;
   }
 
