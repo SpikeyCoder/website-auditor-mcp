@@ -73,7 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     apiBaseUrl: stripTrailingSlash(env.WA_API_BASE_URL?.trim() || "https://api.website-auditor.io"),
     siteUrl: stripTrailingSlash(env.WA_SITE_URL?.trim() || "https://website-auditor.io"),
     apiKey: apiKey ? apiKey : undefined,
-    upgradeUrl: env.WA_UPGRADE_URL?.trim() || "https://website-auditor.io/admin_portal",
+    upgradeUrl: env.WA_UPGRADE_URL?.trim() || "https://api.website-auditor.io/admin_portal/",
     freeDailyAuditLimit: parseIntOr(env.WA_FREE_DAILY_AUDIT_LIMIT, 3),
     freeMaxDomains: parseIntOr(env.WA_FREE_MAX_DOMAINS, 1),
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),

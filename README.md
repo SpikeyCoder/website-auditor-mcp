@@ -77,7 +77,7 @@ subscription. Treat the key like a password — set it only in your MCP client's
 | `WA_API_KEY` | _(required)_ | Per-user API key (starts with `wa_`). |
 | `WA_API_BASE_URL` | `https://api.website-auditor.io` | The Website Auditor API this server wraps. |
 | `WA_SITE_URL` | `https://website-auditor.io` | Used to build shareable report links. |
-| `WA_UPGRADE_URL` | `https://website-auditor.io/admin_portal` | Surfaced in auth/quota errors. |
+| `WA_UPGRADE_URL` | `https://api.website-auditor.io/admin_portal/` | Surfaced in auth/quota errors. |
 | `WA_FREE_DAILY_AUDIT_LIMIT` | `3` | Free-tier audits per key per UTC day. |
 | `WA_FREE_MAX_DOMAINS` | `1` | Free-tier distinct-domain cap per key. |
 | `WA_REQUEST_TIMEOUT_MS` | `120000` | Timeout for API calls. |

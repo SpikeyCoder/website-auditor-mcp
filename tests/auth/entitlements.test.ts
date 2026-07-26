@@ -7,7 +7,7 @@ import type { SubscriptionInfo } from "../../src/api/client.js";
 const cfg = (over: Record<string, unknown> = {}) => ({
   apiBaseUrl: "https://api.website-auditor.io",
   siteUrl: "https://website-auditor.io",
-  upgradeUrl: "https://website-auditor.io/admin_portal",
+  upgradeUrl: "https://api.website-auditor.io/admin_portal/",
   freeDailyAuditLimit: 3,
   freeMaxDomains: 1,
   requestTimeoutMs: 120000,
