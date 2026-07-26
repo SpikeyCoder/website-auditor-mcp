@@ -13,11 +13,12 @@ async function connect(deps = makeDeps({ tier: "free" })) {
 }
 
 describe("MCP server (end-to-end over in-memory transport)", () => {
-  it("lists all 12 served tools (Phase-0 + scheduled-monitoring + Phase-1 reads) with verbatim names", async () => {
+  it("lists all 13 served tools (Phase-0 + scheduled-monitoring + Phase-1 reads + check_upgrade_status) with verbatim names", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
+        "check_upgrade_status",
         "compare_competitors",
         "generate_schema",
         "get_ai_visibility",

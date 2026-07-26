@@ -93,6 +93,40 @@ export interface EnginePresence {
   gemini: boolean;
 }
 
+/** One stored AI-visibility measurement, as the history endpoint returns it. */
+export interface AiVisibilitySnapshot {
+  captured_at: string;
+  score: number;
+  by_engine: Record<string, number>;
+  /** True when the snapshot was produced without live AI queries. */
+  is_simulated: boolean;
+}
+
+/** Score movement across one lookback window (newest vs oldest in range). */
+export interface TrendWindow {
+  window_days: number;
+  from_score: number;
+  to_score: number;
+  score_delta: number;
+  engine_changes: EngineChange[];
+  /** Snapshots that fell inside this window. */
+  snapshots: number;
+}
+
+/**
+ * Historical movement behind the current score (Pro — reads the same
+ * ai_visibility_snapshots history that powers get_changes). A window is null
+ * when fewer than two snapshots fall inside it.
+ */
+export interface AiVisibilityTrend {
+  change_7d: TrendWindow | null;
+  change_30d: TrendWindow | null;
+  snapshots_analyzed: number;
+  latest_captured_at: string;
+  /** True if any analyzed snapshot was simulated (estimated) data. */
+  includes_simulated: boolean;
+}
+
 export interface AiVisibility {
   score: number;
   by_engine: { chatgpt: number; perplexity: number; claude: number; gemini: number };
@@ -104,6 +138,10 @@ export interface AiVisibility {
   appears_by_engine: EnginePresence;
   top_competitor: string | null;
   summary: string;
+  /** Pro only; null when unavailable — `trend_note` says why. */
+  trend: AiVisibilityTrend | null;
+  /** Present exactly when `trend` is null: the human-readable reason. */
+  trend_note?: string;
 }
 
 export interface AuditIssue {

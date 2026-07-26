@@ -21,6 +21,7 @@
  */
 import type { WaConfig } from "../config.js";
 import type {
+  AiVisibilitySnapshot,
   AuditReport,
   Changes,
   RateLimit,
@@ -83,6 +84,8 @@ export interface SubscriptionInfo {
   tier: "free" | "pro";
   status: string;
   current_period_end?: string;
+  /** True when the subscription is set to end (not renew) at the period end. */
+  cancel_at_period_end?: boolean;
   /** Remaining daily audit quota, once the subscription endpoint reports it. */
   quota?: RateLimit;
 }
@@ -98,6 +101,12 @@ export interface WaApiClientLike {
    */
   getRemainingQuota(): Promise<RateLimit | null>;
   getChanges(params: GetChangesParams): Promise<Changes>;
+  /**
+   * Raw AI-visibility snapshot series for a domain (Pro endpoint), oldest
+   * first. Unlike getChanges this does NOT collapse to a single delta or throw
+   * on short history — trend logic decides what enough data means.
+   */
+  getAiVisibilityHistory(params: { domain: string; since?: string }): Promise<AiVisibilitySnapshot[]>;
   compareCompetitors(params: { domain: string; competitors: string[] }): Promise<never>;
   /** Enroll a domain for weekly scheduled monitoring (Pro). */
   trackSite(params: TrackSiteParams): Promise<TrackResult>;
@@ -206,12 +215,16 @@ export class WaApiClient implements WaApiClientLike {
       tier?: string;
       status?: string;
       current_period_end?: string | null;
+      cancel_at_period_end?: boolean;
     };
 
     const status = typeof body.status === "string" && body.status ? body.status : "none";
     const tier: "free" | "pro" = ACTIVE_SUBSCRIPTION_STATUSES.includes(status) ? "pro" : "free";
     const info: SubscriptionInfo = { tier, status };
     if (body.current_period_end) info.current_period_end = body.current_period_end;
+    if (typeof body.cancel_at_period_end === "boolean") {
+      info.cancel_at_period_end = body.cancel_at_period_end;
+    }
     return info;
   }
 
@@ -261,6 +274,34 @@ export class WaApiClient implements WaApiClientLike {
       { score: current.score, by_engine: current.by_engine },
       { score: previous.score, by_engine: previous.by_engine },
     );
+  }
+
+  async getAiVisibilityHistory(params: { domain: string; since?: string }): Promise<AiVisibilitySnapshot[]> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/ai-visibility-history`);
+    url.searchParams.set("domain", params.domain);
+    /* mutant: since ignored */
+
+    const body = (await this.requestJson("GET", url)) as {
+      snapshots?: Array<{
+        captured_at?: string;
+        score?: number | null;
+        by_engine?: Record<string, number | null>;
+        is_simulated?: boolean | null;
+      }>;
+    };
+
+    // Server returns oldest-first; drop rows without a usable score or
+    // timestamp rather than inventing zeros that would poison deltas.
+    return (body.snapshots ?? [])
+      .filter((s) => typeof s.score === "number" && typeof s.captured_at === "string")
+      .map((s) => ({
+        captured_at: s.captured_at as string,
+        score: s.score as number,
+        by_engine: Object.fromEntries(
+          Object.entries(s.by_engine ?? {}).filter(([, v]) => typeof v === "number"),
+        ) as Record<string, number>,
+        is_simulated: s.is_simulated === true,
+      }));
   }
 
   async trackSite(params: TrackSiteParams): Promise<TrackResult> {

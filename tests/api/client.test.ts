@@ -490,3 +490,63 @@ describe("WaApiClient.getReport — wired to GET /api/report", () => {
     expect(res).not.toHaveProperty("success");
   });
 });
+
+describe("WaApiClient.getAiVisibilityHistory — raw snapshot series for trend", () => {
+  it("returns oldest-first snapshots with captured_at/is_simulated preserved", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      domain: "example.com",
+      count: 2,
+      insufficient_history: false,
+      snapshots: [
+        { captured_at: "2026-07-01T00:00:00Z", score: 50, by_engine: { chatgpt: 40 }, is_simulated: true },
+        { captured_at: "2026-07-20T00:00:00Z", score: 70, by_engine: { chatgpt: 75 }, is_simulated: false },
+      ],
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const snaps = await client.getAiVisibilityHistory({ domain: "example.com" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/api/ai-visibility-history");
+    expect(String(url)).toContain("domain=example.com");
+    expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
+
+    expect(snaps).toHaveLength(2);
+    expect(snaps[0]).toEqual({
+      captured_at: "2026-07-01T00:00:00Z",
+      score: 50,
+      by_engine: { chatgpt: 40 },
+      is_simulated: true,
+    });
+    expect(snaps[1]!.is_simulated).toBe(false);
+  });
+
+  it("drops rows with null scores or missing timestamps instead of inventing zeros", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      snapshots: [
+        { captured_at: "2026-07-01T00:00:00Z", score: null, by_engine: {} },
+        { score: 50, by_engine: {} },
+        { captured_at: "2026-07-10T00:00:00Z", score: 60, by_engine: { chatgpt: 55, perplexity: null } },
+      ],
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const snaps = await client.getAiVisibilityHistory({ domain: "example.com" });
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]!.by_engine).toEqual({ chatgpt: 55 }); // null engine dropped too
+  });
+
+  it("does NOT throw on short history — trend logic owns that decision", async () => {
+    const fetchMock = makeFetch(200, { success: true, snapshots: [] });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getAiVisibilityHistory({ domain: "example.com" })).resolves.toEqual([]);
+  });
+
+  it("maps 403 to PRO_REQUIRED like other Pro endpoints", async () => {
+    const fetchMock = makeFetch(403, { success: false, error: "Endpoint requires an active Pro subscription" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await expect(client.getAiVisibilityHistory({ domain: "example.com" })).rejects.toMatchObject({
+      code: "PRO_REQUIRED",
+    });
+  });
+});

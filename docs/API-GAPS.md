@@ -53,12 +53,25 @@ total_tests, passed, failed, warnings, errors }]`, **but**:
 - it returns audit-level scores, not the per-engine AI-visibility deltas the tool
   promises (engine gained/lost, competitor moves).
 
-**Needed:** an API-key-authed `GET /api/changes?domain=&since=` (or expose
-domain-history through the portal) returning at least two AI-visibility snapshots
-so deltas can be computed. The delta computation itself is done and unit-tested
-in the MCP (`computeChanges` in `src/api/mappers.ts`) — it only needs the data.
-**MCP wiring:** `client.getChanges()` throws `NOT_YET_AVAILABLE`; `get_changes`
-passes the Pro gate and returns that clearly-flagged error until the endpoint lands.
+**RESOLVED:** the portal shipped API-key-authed (Pro-gated)
+`GET /api/ai-visibility-history?domain=&since=&limit=` returning oldest-first
+snapshots `{ captured_at, run_id, score, by_engine: {chatgpt, perplexity,
+claude, gemini}, is_simulated }` — one row per interactive audit plus one per
+weekly scheduled run for tracked domains.
+**MCP wiring (live):** `client.getChanges()` reads it and collapses to a delta
+via `computeChanges` (throws `NOT_YET_AVAILABLE` below two snapshots);
+`client.getAiVisibilityHistory()` (1.0.4) returns the raw series, which
+`get_ai_visibility` folds into 7/30-day `trend` windows for Pro callers
+(`computeTrend` in `src/api/mappers.ts`).
+
+### 2b. Trial eligibility is not exposed to API keys
+`eligible_for_trial` exists only on the session-authed
+`GET /stripe/subscription-status` (portal SPA). `GET /api/subscription` carries
+no trial fields, so `check_upgrade_status` (1.0.4) reports tier/status/period
+end and *describes* the trial prerequisites (payment method + Terms acceptance)
+without promising eligibility. If we ever want the MCP to say "you're eligible
+for a 7-day trial," the API needs `eligible_for_trial` added to
+`/api/subscription` (read `api_users.trial_used_at`, reuse `isEligibleForTrial`).
 
 ### 3. No dedicated competitor-comparison endpoint
 Nothing computes head-to-head scores across domains. The audit's

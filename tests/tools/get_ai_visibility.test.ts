@@ -61,3 +61,78 @@ describe("get_ai_visibility [Free]", () => {
     expect(recordQuery).not.toHaveBeenCalled();
   });
 });
+
+describe("get_ai_visibility trend (Pro history)", () => {
+  const snaps = (specs: Array<[string, number]>) =>
+    specs.map(([captured_at, score]) => ({
+      captured_at,
+      score,
+      by_engine: { chatgpt: score, perplexity: score, claude: score, gemini: score },
+      is_simulated: false,
+    }));
+
+  it("free tier -> trend null with an upgrade note; history is never fetched", async () => {
+    const getAiVisibilityHistory = vi.fn(async () => []);
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "free", client: { getAiVisibilityHistory } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend).toBeNull();
+    expect(res.data.trend_note).toContain("Pro");
+    expect(getAiVisibilityHistory).not.toHaveBeenCalled();
+  });
+
+  it("pro with history -> trend windows computed, audit result untouched", async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const getAiVisibilityHistory = vi.fn(async () =>
+      snaps([
+        [new Date(now - 20 * day).toISOString(), 40],
+        [new Date(now - 5 * day).toISOString(), 50],
+        [new Date(now - 1 * day).toISOString(), 60],
+      ]),
+    );
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.score).toBe(62); // fresh audit score, not history
+    expect(res.data.trend).not.toBeNull();
+    expect(res.data.trend!.change_7d!.score_delta).toBe(10); // 60 vs 50
+    expect(res.data.trend!.change_30d!.score_delta).toBe(20); // 60 vs 40
+    expect(res.data.trend!.snapshots_analyzed).toBe(3);
+    expect(res.data.trend_note).toBeUndefined();
+    expect(getAiVisibilityHistory).toHaveBeenCalledWith({ domain: "example.com" });
+  });
+
+  it("pro with a single snapshot -> trend null + not-enough-history note", async () => {
+    const getAiVisibilityHistory = vi.fn(async () => snaps([[new Date().toISOString(), 50]]));
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend).toBeNull();
+    expect(res.data.trend_note).toContain("at least two snapshots");
+  });
+
+  it("history endpoint failure never fails the tool -> trend null + soft note", async () => {
+    const getAiVisibilityHistory = vi.fn(async () => {
+      throw new WaApiError("UPSTREAM_ERROR", "boom");
+    });
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.score).toBe(62);
+    expect(res.data.trend).toBeNull();
+    expect(res.data.trend_note).toContain("could not be loaded");
+  });
+});

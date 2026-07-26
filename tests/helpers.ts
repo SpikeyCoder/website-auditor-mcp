@@ -62,6 +62,8 @@ export function makeClient(over: Partial<WaApiClientLike> = {}): WaApiClientLike
     getChanges: vi.fn(async () => {
       throw new WaApiError("NOT_YET_AVAILABLE", "no changes endpoint");
     }),
+    // Default: empty history — tools must treat this as "no trend yet".
+    getAiVisibilityHistory: vi.fn(async () => []),
     compareCompetitors: vi.fn(async () => {
       throw new WaApiError("NOT_YET_AVAILABLE", "no compare endpoint");
     }),

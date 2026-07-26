@@ -21,6 +21,7 @@ import { getBenchmark } from "../tools/getBenchmark.js";
 import { getRecommendations } from "../tools/getRecommendations.js";
 import { generateSchema } from "../tools/generateSchema.js";
 import { getReport } from "../tools/getReport.js";
+import { checkUpgradeStatus } from "../tools/checkUpgradeStatus.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
@@ -41,6 +42,7 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   generate_schema: (a, d) =>
     generateSchema(a as { domain: string; type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto" }, d),
   get_report: (a, d) => getReport(a as { domain: string }, d),
+  check_upgrade_status: (_a, d) => checkUpgradeStatus({}, d),
 };
 
 // Tools that MUTATE server state (not read-only). Everything else only reads.
@@ -84,7 +86,7 @@ export function createServer(deps: ToolDeps): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       instructions:
-        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance. Free tools: get_ai_visibility, run_audit. Pro tools: get_changes, compare_competitors. Set WA_API_KEY to a Website Auditor Pro key.",
+        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance. Free tools: get_ai_visibility (includes 7/30-day trend for Pro), run_audit, check_upgrade_status (the caller's own subscription standing). Pro tools: get_changes, compare_competitors, monitoring, benchmarks, recommendations, schema and report. Set WA_API_KEY to a Website Auditor key.",
     },
   );
 
