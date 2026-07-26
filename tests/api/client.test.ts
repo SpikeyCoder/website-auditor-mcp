@@ -16,7 +16,7 @@ const baseCfg = {
   apiBaseUrl: "https://api.website-auditor.io",
   siteUrl: "https://website-auditor.io",
   apiKey: "wa_valid_key",
-  upgradeUrl: "https://website-auditor.io/admin_portal",
+  upgradeUrl: "https://api.website-auditor.io/admin_portal/",
   freeDailyAuditLimit: 3,
   freeMaxDomains: 1,
   requestTimeoutMs: 120000,

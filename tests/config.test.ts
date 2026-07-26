@@ -6,7 +6,7 @@ describe("loadConfig", () => {
     const cfg = loadConfig({});
     expect(cfg.apiBaseUrl).toBe("https://api.website-auditor.io");
     expect(cfg.siteUrl).toBe("https://website-auditor.io");
-    expect(cfg.upgradeUrl).toBe("https://website-auditor.io/admin_portal");
+    expect(cfg.upgradeUrl).toBe("https://api.website-auditor.io/admin_portal/");
     expect(cfg.apiKey).toBeUndefined();
     expect(cfg.freeDailyAuditLimit).toBe(3);
     expect(cfg.freeMaxDomains).toBe(1);
