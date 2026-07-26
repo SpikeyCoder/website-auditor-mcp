@@ -18,10 +18,6 @@ export interface WaConfig {
   apiKey?: string;
   /** Where callers are sent to subscribe/upgrade. Surfaced in error payloads. */
   upgradeUrl: string;
-  /** Free-tier: max audits per key per UTC day (MCP-side abuse guard). */
-  freeDailyAuditLimit: number;
-  /** Free-tier: max distinct domains per key. */
-  freeMaxDomains: number;
   /** Timeout (ms) for calls to the API portal. */
   requestTimeoutMs: number;
   /**
@@ -74,8 +70,6 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     siteUrl: stripTrailingSlash(env.WA_SITE_URL?.trim() || "https://website-auditor.io"),
     apiKey: apiKey ? apiKey : undefined,
     upgradeUrl: env.WA_UPGRADE_URL?.trim() || "https://api.website-auditor.io/admin_portal/",
-    freeDailyAuditLimit: parseIntOr(env.WA_FREE_DAILY_AUDIT_LIMIT, 3),
-    freeMaxDomains: parseIntOr(env.WA_FREE_MAX_DOMAINS, 1),
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),

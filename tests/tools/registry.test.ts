@@ -9,12 +9,14 @@ describe("tool registry", () => {
     );
   });
 
-  it("marks the correct free/pro gate per the listing doc", () => {
+  it("marks the correct gate per tool: everything is subscription-gated except check_upgrade_status", () => {
+    // No free API tier since website-auditor-api PR #17 (1.0.5 retier).
     const gate = Object.fromEntries(ALL_TOOL_SPECS.map((t) => [t.name, t.tier]));
-    expect(gate.get_ai_visibility).toBe("free");
-    expect(gate.run_audit).toBe("free");
+    expect(gate.get_ai_visibility).toBe("pro");
+    expect(gate.run_audit).toBe("pro");
     expect(gate.get_changes).toBe("pro");
     expect(gate.compare_competitors).toBe("pro");
+    expect(gate.check_upgrade_status).toBe("free");
   });
 
   it("uses the verbatim, trigger-first descriptions from the listing doc", () => {

@@ -3,12 +3,12 @@ import { getBenchmark } from "../../src/tools/getBenchmark.js";
 import { makeDeps, fixedResolution } from "../helpers.js";
 
 describe("get_benchmark [Pro]", () => {
-  it("no key -> PRO_REQUIRED with upgrade URL (does not run)", async () => {
+  it("no key -> AUTH_REQUIRED with upgrade URL (does not run)", async () => {
     const getBenchmarkFn = vi.fn();
     const res = await getBenchmark({ domain: "example.com" }, makeDeps({ tier: "none", client: { getBenchmark: getBenchmarkFn } }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe("PRO_REQUIRED");
+    expect(res.error.code).toBe("AUTH_REQUIRED");
     expect(res.error.upgrade_url).toContain("website-auditor.io");
     expect(getBenchmarkFn).not.toHaveBeenCalled();
   });

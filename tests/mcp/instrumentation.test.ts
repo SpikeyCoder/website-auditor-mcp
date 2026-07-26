@@ -13,7 +13,7 @@ async function connect(opts: {
   clientVersion?: string;
   tier?: "none" | "free" | "pro";
 }) {
-  const deps = makeDeps({ tier: opts.tier ?? "free", events: opts.events });
+  const deps = makeDeps({ tier: opts.tier ?? "pro", events: opts.events });
   const server = createServer(deps);
   const client = new Client({ name: opts.clientName ?? "test-client", version: opts.clientVersion ?? "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -43,7 +43,7 @@ describe("MCP event instrumentation", () => {
 
   it("emits a tool_call with name, success, duration and client info on success", async () => {
     const sink = new RecordingEventSink();
-    const { client } = await connect({ events: sink, clientName: "cursor", tier: "free" });
+    const { client } = await connect({ events: sink, clientName: "cursor", tier: "pro" });
     await client.callTool({ name: "get_ai_visibility", arguments: { domain: "example.com" } });
     await flush();
 
@@ -59,6 +59,7 @@ describe("MCP event instrumentation", () => {
 
   it("emits a tool_call with success:false and the error_code on a gated failure", async () => {
     const sink = new RecordingEventSink();
+    // A valid key with no subscription: the pre-flight gate is the failure.
     const { client } = await connect({ events: sink, tier: "free" });
     await client.callTool({ name: "get_changes", arguments: { domain: "example.com" } });
     await flush();
@@ -74,7 +75,7 @@ describe("MCP event instrumentation", () => {
         throw new Error("telemetry exploded");
       },
     };
-    const { client } = await connect({ events: throwingSink, clientName: "cursor", tier: "free" });
+    const { client } = await connect({ events: throwingSink, clientName: "cursor", tier: "pro" });
     const res = await client.callTool({ name: "get_ai_visibility", arguments: { domain: "example.com" } });
     // The call still returns a valid, non-error result despite the broken sink.
     expect(res.isError).toBeFalsy();

@@ -1,17 +1,27 @@
 import { describe, it, expect, vi } from "vitest";
 import { getAiVisibility } from "../../src/tools/getAiVisibility.js";
-import { makeDeps } from "../helpers.js";
+import { makeDeps, fixedResolution } from "../helpers.js";
 import { WaApiError } from "../../src/api/errors.js";
 import { unreachableReport } from "../fixtures/reports.js";
 
-describe("get_ai_visibility [Free]", () => {
-  it("happy path: valid key returns score, per-engine breakdown and top competitor", async () => {
-    const res = await getAiVisibility({ domain: "example.com" }, makeDeps({ tier: "free" }));
+describe("get_ai_visibility [Subscription]", () => {
+  it("happy path (subscriber): returns score, per-engine breakdown and top competitor", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, makeDeps({ tier: "pro" }));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.score).toBe(62);
     expect(res.data.by_engine).toEqual({ chatgpt: 75, perplexity: 62, claude: 50, gemini: 62 });
     expect(res.data.top_competitor).toBe("Globex");
+  });
+
+  it("free tier (no subscription) -> PRO_REQUIRED pre-flight; no API call, no token spend", async () => {
+    const runAudit = vi.fn();
+    const res = await getAiVisibility({ domain: "example.com" }, makeDeps({ tier: "free", client: { runAudit } }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("PRO_REQUIRED");
+    expect(res.error.upgrade_url).toContain("website-auditor.io");
+    expect(runAudit).not.toHaveBeenCalled();
   });
 
   it("no key -> AUTH_REQUIRED with an upgrade URL (backend requires a key)", async () => {
@@ -22,24 +32,25 @@ describe("get_ai_visibility [Free]", () => {
     expect(res.error.upgrade_url).toContain("website-auditor.io");
   });
 
+  it("unverified tier (subscription-service outage) -> SUBSCRIPTION_UNVERIFIED, retryable, never an upsell", async () => {
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ subscriptions: fixedResolution({ tier: "free", verified: false }) }),
+    );
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("SUBSCRIPTION_UNVERIFIED");
+  });
+
   it("unreachable domain -> UNREACHABLE_DOMAIN, never a fabricated score", async () => {
     const client = {
       runAudit: vi.fn(async () => ({ runId: "x", report: unreachableReport(), raw: {} })),
     };
-    const res = await getAiVisibility({ domain: "not-a-real-domain-zzz.example" }, makeDeps({ tier: "free", client }));
+    const res = await getAiVisibility({ domain: "not-a-real-domain-zzz.example" }, makeDeps({ tier: "pro", client }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("UNREACHABLE_DOMAIN");
     expect(JSON.stringify(res)).not.toContain('"score"');
-  });
-
-  it("free tier over quota -> OVER_QUOTA with upgrade path", async () => {
-    const meter = { recordQuery: () => ({ ok: false as const, reason: "daily" as const }) };
-    const res = await getAiVisibility({ domain: "example.com" }, makeDeps({ tier: "free", meter }));
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.error.code).toBe("OVER_QUOTA");
-    expect(res.error.upgrade_url).toBeTruthy();
   });
 
   it("propagates an invalid-key error from the API", async () => {
@@ -48,21 +59,14 @@ describe("get_ai_visibility [Free]", () => {
         throw new WaApiError("INVALID_KEY", "Invalid API key.");
       }),
     };
-    const res = await getAiVisibility({ domain: "example.com" }, makeDeps({ tier: "free", client }));
+    const res = await getAiVisibility({ domain: "example.com" }, makeDeps({ tier: "pro", client }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("INVALID_KEY");
   });
-
-  it("pro tier bypasses free metering", async () => {
-    const recordQuery = vi.fn(() => ({ ok: true as const }));
-    const res = await getAiVisibility({ domain: "example.com" }, makeDeps({ tier: "pro", meter: { recordQuery } }));
-    expect(res.ok).toBe(true);
-    expect(recordQuery).not.toHaveBeenCalled();
-  });
 });
 
-describe("get_ai_visibility trend (Pro history)", () => {
+describe("get_ai_visibility trend", () => {
   const snaps = (specs: Array<[string, number]>) =>
     specs.map(([captured_at, score]) => ({
       captured_at,
@@ -71,20 +75,7 @@ describe("get_ai_visibility trend (Pro history)", () => {
       is_simulated: false,
     }));
 
-  it("free tier -> trend null with an upgrade note; history is never fetched", async () => {
-    const getAiVisibilityHistory = vi.fn(async () => []);
-    const res = await getAiVisibility(
-      { domain: "example.com" },
-      makeDeps({ tier: "free", client: { getAiVisibilityHistory } }),
-    );
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.data.trend).toBeNull();
-    expect(res.data.trend_note).toContain("Pro");
-    expect(getAiVisibilityHistory).not.toHaveBeenCalled();
-  });
-
-  it("pro with history -> trend windows computed, audit result untouched", async () => {
+  it("subscriber with history -> trend windows computed, audit result untouched", async () => {
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
     const getAiVisibilityHistory = vi.fn(async () =>
@@ -109,7 +100,7 @@ describe("get_ai_visibility trend (Pro history)", () => {
     expect(getAiVisibilityHistory).toHaveBeenCalledWith({ domain: "example.com" });
   });
 
-  it("pro with a single snapshot -> trend null + not-enough-history note", async () => {
+  it("single snapshot -> trend null + not-enough-history note", async () => {
     const getAiVisibilityHistory = vi.fn(async () => snaps([[new Date().toISOString(), 50]]));
     const res = await getAiVisibility(
       { domain: "example.com" },
@@ -134,23 +125,5 @@ describe("get_ai_visibility trend (Pro history)", () => {
     expect(res.data.score).toBe(62);
     expect(res.data.trend).toBeNull();
     expect(res.data.trend_note).toContain("could not be loaded");
-  });
-});
-
-describe("get_ai_visibility trend during subscription outages", () => {
-  it("unverified free (outage default) -> transient note, never an upsell", async () => {
-    const { fixedResolution } = await import("../helpers.js");
-    const res = await getAiVisibility(
-      { domain: "example.com" },
-      makeDeps({
-        subscriptions: fixedResolution({ tier: "free", verified: false }),
-        meter: { recordQuery: () => ({ ok: true as const }) },
-      }),
-    );
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.data.trend).toBeNull();
-    expect(res.data.trend_note).toContain("could not be verified");
-    expect(res.data.trend_note).not.toContain("requires a Pro subscription");
   });
 });

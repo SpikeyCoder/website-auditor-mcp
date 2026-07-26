@@ -86,7 +86,7 @@ export function createServer(deps: ToolDeps): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       instructions:
-        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance. Free tools: get_ai_visibility (includes 7/30-day trend for Pro), run_audit, check_upgrade_status (the caller's own subscription standing). Pro tools: get_changes, compare_competitors, monitoring, benchmarks, recommendations, schema and report. Set WA_API_KEY to a Website Auditor key.",
+        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance. Every tool requires an active Website Auditor subscription (a 7-day free trial counts) — there is no free API tier. check_upgrade_status works with any valid key and reports the caller's own standing. Set WA_API_KEY to a Website Auditor key.",
     },
   );
 

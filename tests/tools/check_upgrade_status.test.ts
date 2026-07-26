@@ -67,6 +67,7 @@ describe("check_upgrade_status [Free]", () => {
     if (!res.ok) return;
     expect(res.data.tier).toBe("free");
     expect(res.data.status).toBe("none");
+    expect(res.data.message).toContain("no free API tier");
     expect(res.data.message).toContain("payment method");
     expect(res.data.message).toContain("Terms");
   });
@@ -96,11 +97,9 @@ describe("check_upgrade_status [Free]", () => {
   });
 
   it("consumes no audit quota and runs no audit", async () => {
-    const recordQuery = vi.fn(() => ({ ok: true as const }));
     const runAudit = vi.fn();
-    const res = await checkUpgradeStatus({}, makeDeps({ meter: { recordQuery }, client: { runAudit } }));
+    const res = await checkUpgradeStatus({}, makeDeps({ client: { runAudit } }));
     expect(res.ok).toBe(true);
-    expect(recordQuery).not.toHaveBeenCalled();
     expect(runAudit).not.toHaveBeenCalled();
   });
 

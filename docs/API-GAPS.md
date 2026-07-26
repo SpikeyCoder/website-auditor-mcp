@@ -121,3 +121,13 @@ that endpoint, or a dedicated quota endpoint, would let the tool pre-flight.)
   (recommendation "Investigate server connectivity or DNS resolution." with no
   page load succeeding) and returns `UNREACHABLE_DOMAIN` instead of a fabricated
   score.
+
+### 4. No free API tier (2026-07-26, api PR #17)
+Every key-authed capability upstream — including `GET /api/audit` — now
+requires an active/trialing subscription; key minting/rotation is
+subscription-gated in the portal too. The MCP retiered `get_ai_visibility` and
+`run_audit` to Pro in 1.0.5, gates all tools client-side pre-flight (saving
+the round-trip the server would 403), and retired the vestigial client-side
+free meter. `GET /api/subscription` remains open to any valid key so
+`check_upgrade_status` and the tier resolver can report a lapsed caller's
+standing.

@@ -4,12 +4,12 @@ import { WaApiError } from "../../src/api/errors.js";
 import { makeDeps, fixedResolution } from "../helpers.js";
 
 describe("track_site [Pro]", () => {
-  it("no key -> PRO_REQUIRED, does not enroll", async () => {
+  it("no key -> AUTH_REQUIRED, does not enroll", async () => {
     const client = { trackSite: vi.fn() };
     const res = await trackSite({ domain: "example.com" }, makeDeps({ tier: "none", client }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe("PRO_REQUIRED");
+    expect(res.error.code).toBe("AUTH_REQUIRED");
     expect(res.error.upgrade_url).toContain("website-auditor.io");
     expect(client.trackSite).not.toHaveBeenCalled();
   });

@@ -8,8 +8,6 @@ describe("loadConfig", () => {
     expect(cfg.siteUrl).toBe("https://website-auditor.io");
     expect(cfg.upgradeUrl).toBe("https://api.website-auditor.io/admin_portal/");
     expect(cfg.apiKey).toBeUndefined();
-    expect(cfg.freeDailyAuditLimit).toBe(3);
-    expect(cfg.freeMaxDomains).toBe(1);
     expect(cfg.requestTimeoutMs).toBe(120000);
     expect(cfg.devTier).toBeUndefined();
     // Audit cache TTL mirrors the upstream engine's 24h AI-visibility cache.
@@ -24,8 +22,6 @@ describe("loadConfig", () => {
       WA_SITE_URL: "https://example.com/",
       WA_API_KEY: "wa_test_key",
       WA_UPGRADE_URL: "https://example.com/upgrade",
-      WA_FREE_DAILY_AUDIT_LIMIT: "5",
-      WA_FREE_MAX_DOMAINS: "2",
       WA_REQUEST_TIMEOUT_MS: "30000",
       WA_AUDIT_CACHE_TTL_MS: "900000",
       WA_SUBSCRIPTION_CACHE_TTL_MS: "120000",
@@ -33,8 +29,6 @@ describe("loadConfig", () => {
     expect(cfg.apiBaseUrl).toBe("https://api.example.com");
     expect(cfg.siteUrl).toBe("https://example.com");
     expect(cfg.apiKey).toBe("wa_test_key");
-    expect(cfg.freeDailyAuditLimit).toBe(5);
-    expect(cfg.freeMaxDomains).toBe(2);
     expect(cfg.requestTimeoutMs).toBe(30000);
     expect(cfg.auditCacheTtlMs).toBe(900000);
     expect(cfg.subscriptionCacheTtlMs).toBe(120000);

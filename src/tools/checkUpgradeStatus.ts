@@ -64,11 +64,11 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       : `Pro subscription active${periodEnd ? ` (renews ${periodEnd})` : ""} — all tools are unlocked.`;
   } else if (sub.status === "none") {
     message =
-      `Free tier. Upgrading to Pro unlocks monitoring, history/trends, benchmarks, recommendations, schema and report tools. ` +
+      `No active subscription — there is no free API tier, so all Website Auditor tools are locked. ` +
       `Subscribe at ${upgradeUrl} — starting Pro requires adding a payment method and accepting the Terms; eligible new customers get a 7-day free trial.`;
   } else {
     message =
-      `Subscription lapsed (status: ${sub.status}) — Pro tools are locked. ` +
+      `Subscription lapsed (status: ${sub.status}) — all Website Auditor tools are locked (there is no free API tier). ` +
       `Resubscribe at ${upgradeUrl} (requires a payment method and accepting the Terms).`;
   }
 

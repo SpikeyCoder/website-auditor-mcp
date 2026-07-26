@@ -6,7 +6,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { loadConfig } from "./config.js";
 import { WaApiClient } from "./api/client.js";
 import { DefaultSubscriptionProvider } from "./auth/entitlements.js";
-import { InMemoryMeter } from "./auth/meter.js";
 import { InMemoryAuditCache } from "./auth/auditCache.js";
 import { HttpEventSink } from "./telemetry/httpSink.js";
 import { NoopEventSink } from "./telemetry/events.js";
@@ -21,10 +20,6 @@ async function main(): Promise<void> {
     config,
     client,
     subscriptions: new DefaultSubscriptionProvider(config, client),
-    meter: new InMemoryMeter({
-      dailyLimit: config.freeDailyAuditLimit,
-      maxDomains: config.freeMaxDomains,
-    }),
     cache: new InMemoryAuditCache({ ttlMs: config.auditCacheTtlMs }),
     events: config.metricsEnabled ? new HttpEventSink(config) : new NoopEventSink(),
   };
