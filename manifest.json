@@ -37,7 +37,8 @@
       "command": "node",
       "args": ["${__dirname}/dist/index.js"],
       "env": {
-        "WA_API_KEY": "${user_config.wa_api_key}"
+        "WA_API_KEY": "${user_config.wa_api_key}",
+        "WA_METRICS_DISABLED": "${user_config.wa_metrics_disabled}"
       }
     }
   },
@@ -48,11 +49,18 @@
       "description": "Your per-user API key (starts with 'wa_') minted from a Website Auditor account at https://website-auditor.io. Free tools work with any valid key; Pro tools require an active subscription.",
       "sensitive": true,
       "required": true
+    },
+    "wa_metrics_disabled": {
+      "type": "boolean",
+      "title": "Disable anonymous usage telemetry",
+      "description": "Turn off the anonymous, aggregate usage events (which tool ran, success or failure, latency — no domains, no keys, no personal data) that the server sends to improve the service. Emission is always fire-and-forget and never blocks a tool call either way. See https://website-auditor.io/privacy.",
+      "required": false,
+      "default": false
     }
   },
   "privacy_policies": ["https://website-auditor.io/privacy"],
   "compatibility": {
-    "platforms": ["darwin", "win32"],
+    "platforms": ["darwin", "win32", "linux"],
     "runtimes": {
       "node": ">=20"
     }

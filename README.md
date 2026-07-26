@@ -144,7 +144,9 @@ an environment variable); it is never written to the bundle or logged.
 
 Anonymous, aggregate usage telemetry (which tool ran, success/failure, latency —
 no domains, no keys, no personal data) may be emitted to improve the service, and
-can be disabled entirely by setting `WA_METRICS_DISABLED=1`.
+can be disabled entirely by setting `WA_METRICS_DISABLED=1`. Installed as a
+desktop extension, the same opt-out is a **"Disable anonymous usage telemetry"**
+checkbox in the extension's settings.
 
 Full privacy policy: **https://website-auditor.io/privacy**
 
