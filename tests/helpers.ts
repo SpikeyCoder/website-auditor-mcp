@@ -2,7 +2,6 @@ import { vi } from "vitest";
 import type { WaConfig, Tier } from "../src/config.js";
 import type { WaApiClientLike, AuditResponse } from "../src/api/client.js";
 import type { SubscriptionProvider, TierResolution } from "../src/auth/entitlements.js";
-import type { Meter } from "../src/auth/meter.js";
 import type { AuditCache } from "../src/auth/auditCache.js";
 import { InMemoryAuditCache } from "../src/auth/auditCache.js";
 import type { ToolDeps } from "../src/tools/context.js";
@@ -25,8 +24,6 @@ export function testConfig(over: Partial<WaConfig> = {}): WaConfig {
     siteUrl: "https://website-auditor.io",
     apiKey: "wa_test",
     upgradeUrl: "https://api.website-auditor.io/admin_portal/",
-    freeDailyAuditLimit: 3,
-    freeMaxDomains: 1,
     requestTimeoutMs: 120000,
     auditCacheTtlMs: 24 * 60 * 60 * 1000,
     subscriptionCacheTtlMs: 60_000,
@@ -43,11 +40,6 @@ export function fixedTier(tier: Tier): SubscriptionProvider {
 /** A provider that resolves to a fixed tier + verified flag (for outage tests). */
 export function fixedResolution(resolution: TierResolution): SubscriptionProvider {
   return { resolve: async () => resolution };
-}
-
-/** Meter that always allows. */
-export function openMeter(): Meter {
-  return { recordQuery: () => ({ ok: true }) };
 }
 
 export function makeClient(over: Partial<WaApiClientLike> = {}): WaApiClientLike {
@@ -90,7 +82,6 @@ export function makeDeps(over: {
   /** Full provider override — takes precedence over `tier` (e.g. outage/unverified tests). */
   subscriptions?: SubscriptionProvider;
   client?: Partial<WaApiClientLike>;
-  meter?: Meter;
   cache?: AuditCache;
   config?: Partial<WaConfig>;
   events?: EventSink;
@@ -98,7 +89,6 @@ export function makeDeps(over: {
   return {
     client: makeClient(over.client ?? {}),
     subscriptions: over.subscriptions ?? fixedTier(over.tier ?? "free"),
-    meter: over.meter ?? openMeter(),
     cache: over.cache ?? new InMemoryAuditCache({ ttlMs: 24 * 60 * 60 * 1000 }),
     config: testConfig(over.config ?? {}),
     events: over.events ?? new NoopEventSink(),

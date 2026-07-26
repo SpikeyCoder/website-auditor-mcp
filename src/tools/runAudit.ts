@@ -1,19 +1,21 @@
 /**
- * run_audit [Free, rate-limited]
+ * run_audit [Subscription, rate-limited server-side]
  *
  * Runs the real full audit and maps it to the listing-doc return shape:
- * `{ scores, top_issues[], report_url }`.
+ * `{ scores, top_issues[], report_url }`. Requires an active/trialing
+ * subscription — there is no free API tier (api PR #17); the pre-flight gate
+ * mirrors the server's own 403.
  */
 import type { AuditSummary } from "../api/types.js";
 import { toAuditSummary, detectUnreachable } from "../api/mappers.js";
-import { gateFreeTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
+import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface RunAuditArgs {
   domain: string;
 }
 
 export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<ToolResult<AuditSummary>> {
-  const gate = await gateFreeTool(deps, args.domain);
+  const gate = await gateProTool(deps);
   if (gate) return gate;
 
   let response;

@@ -32,18 +32,20 @@ const domainArg = z.string().describe('The website domain, e.g. "example.com".')
 export const P0_TOOLS: ToolSpec[] = [
   {
     name: "get_ai_visibility",
-    tier: "free",
+    // Retiered free -> pro in 1.0.5: no free API tier since api PR #17.
+    tier: "pro",
     title: "Check AI visibility",
     description:
-      'Check how visible a website is to AI assistants right now. Use this whenever someone asks "does ChatGPT/Perplexity/Claude/Gemini recommend this business," "is my site showing up in AI answers," "what\'s my AI visibility / GEO score," or wants a quick read on whether an AI assistant would surface a given domain. Returns an overall AI-visibility score (0–100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. For Pro subscribers the result also includes trend data: 7- and 30-day score movement computed from the domain\'s stored snapshot history.',
+      'Check how visible a website is to AI assistants right now. Use this whenever someone asks "does ChatGPT/Perplexity/Claude/Gemini recommend this business," "is my site showing up in AI answers," "what\'s my AI visibility / GEO score," or wants a quick read on whether an AI assistant would surface a given domain. Returns an overall AI-visibility score (0–100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. The result also includes trend data: 7- and 30-day score movement computed from the domain\'s stored snapshot history. Requires an active subscription (a free trial counts).',
     inputSchema: { domain: domainArg },
   },
   {
     name: "run_audit",
-    tier: "free",
+    // Retiered free -> pro in 1.0.5: no free API tier since api PR #17.
+    tier: "pro",
     title: "Run a full audit",
     description:
-      'Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Use this when someone asks to "audit," "scan," "check," or "review" a website\'s health or SEO, or wants a complete report rather than just the AI-visibility number. Returns a scored summary across categories and a link to the full report.',
+      'Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Use this when someone asks to "audit," "scan," "check," or "review" a website\'s health or SEO, or wants a complete report rather than just the AI-visibility number. Returns a scored summary across categories and a link to the full report. Requires an active subscription (a free trial counts).',
     inputSchema: { domain: domainArg },
   },
   {

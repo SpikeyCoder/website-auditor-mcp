@@ -3,12 +3,12 @@ import { getRecommendations } from "../../src/tools/getRecommendations.js";
 import { makeDeps, fixedResolution } from "../helpers.js";
 
 describe("get_recommendations [Pro]", () => {
-  it("no key -> PRO_REQUIRED with upgrade URL (does not run)", async () => {
+  it("no key -> AUTH_REQUIRED with upgrade URL (does not run)", async () => {
     const fn = vi.fn();
     const res = await getRecommendations({ domain: "example.com" }, makeDeps({ tier: "none", client: { getRecommendations: fn } }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe("PRO_REQUIRED");
+    expect(res.error.code).toBe("AUTH_REQUIRED");
     expect(res.error.upgrade_url).toContain("website-auditor.io");
     expect(fn).not.toHaveBeenCalled();
   });

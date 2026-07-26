@@ -21,15 +21,15 @@ server just makes them available to agents.
 
 | Tool | Tier | What it does |
 |---|---|---|
-| `get_ai_visibility` | **Free** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + the top competitor appearing in your place. Pro subscribers also get `trend`: 7- and 30-day score movement from stored snapshot history. |
-| `run_audit` | **Free**, rate-limited | Full one-time audit → category scores (AI visibility, SEO, security, performance) + top issues + a shareable report URL. |
+| `get_ai_visibility` | **Pro** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + the top competitor appearing in your place. Pro subscribers also get `trend`: 7- and 30-day score movement from stored snapshot history. |
+| `run_audit` | **Pro**, rate-limited | Full one-time audit → category scores (AI visibility, SEO, security, performance) + top issues + a shareable report URL. |
 | `get_changes` | **Pro** | What changed since the last check — score movement, engines gained/lost, competitor moves, new/resolved issues. Requires the domain to be tracked. |
 | `compare_competitors` | **Pro** | Head-to-head AI-visibility ranking against named competitor domains + where each appears that you don't. Quota-aware: caps the audit fan-out to your remaining daily quota, reuses recent cached audits, and reports any competitors it had to skip rather than dropping them silently. |
 | `track_site` | **Pro** | Start (or stop) weekly monitoring of a site's AI visibility. Establishes the history `get_changes` reads from. |
 | `untrack_site` | **Pro** | Stop monitoring a site and free up a monitoring slot. Idempotent. |
 | `list_tracked_sites` | **Pro** | List the sites you're monitoring, with cadence, active state, and slots used/remaining. |
 | `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score, when each was last checked and next runs, and the most recent change. |
-| `check_upgrade_status` | **Free** | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms; eligible new customers get a 7-day free trial). Consumes no audit quota. |
+| `check_upgrade_status` | Any valid key | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms; eligible new customers get a 7-day free trial). Consumes no audit quota. |
 
 ---
 
@@ -79,8 +79,6 @@ subscription. Treat the key like a password — set it only in your MCP client's
 | `WA_API_BASE_URL` | `https://api.website-auditor.io` | The Website Auditor API this server wraps. |
 | `WA_SITE_URL` | `https://website-auditor.io` | Used to build shareable report links. |
 | `WA_UPGRADE_URL` | `https://api.website-auditor.io/admin_portal/` | Surfaced in auth/quota errors. |
-| `WA_FREE_DAILY_AUDIT_LIMIT` | `3` | Free-tier audits per key per UTC day. |
-| `WA_FREE_MAX_DOMAINS` | `1` | Free-tier distinct-domain cap per key. |
 | `WA_REQUEST_TIMEOUT_MS` | `120000` | Timeout for API calls. |
 | `WA_AUDIT_CACHE_TTL_MS` | `86400000` | Reuse a domain's audit within this window instead of spending quota (used by `compare_competitors`). Defaults to 24h. |
 | `WA_SUBSCRIPTION_CACHE_TTL_MS` | `60000` | How long a resolved Pro/free tier is cached per key before re-checking the subscription. |
@@ -97,11 +95,11 @@ Your key is validated on every call. The Pro/free tier is resolved live from the
 API and cached briefly, so upgrades and downgrades take effect within about a
 minute:
 
-- **No key** → free tools return `AUTH_REQUIRED`, Pro tools return
-  `PRO_REQUIRED`. Both include an upgrade link.
-- **Free** (valid key, no active subscription) → free tools work, subject to
-  per-day metering; Pro tools return `PRO_REQUIRED`.
-- **Pro** (active or trialing subscription) → all tools, metering bypassed.
+- **No key** → every tool returns `AUTH_REQUIRED` with an upgrade link.
+- **No active subscription** (valid key, lapsed/canceled/never subscribed) →
+  every tool returns `PRO_REQUIRED` with an upgrade link — there is no free
+  API tier; `check_upgrade_status` still answers so the caller can learn why.
+- **Subscribed** (active or trialing — the 7-day trial counts) → all tools.
 
 Errors are normalized to stable codes agents can branch on — e.g.
 `AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `OVER_QUOTA`,

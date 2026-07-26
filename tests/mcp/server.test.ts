@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/mcp/server.js";
 import { makeDeps } from "../helpers.js";
 
-async function connect(deps = makeDeps({ tier: "free" })) {
+async function connect(deps = makeDeps({ tier: "pro" })) {
   const server = createServer(deps);
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -59,7 +59,7 @@ describe("MCP server (end-to-end over in-memory transport)", () => {
   });
 
   it("calls get_ai_visibility and returns structured content on success", async () => {
-    const { client } = await connect(makeDeps({ tier: "free" }));
+    const { client } = await connect(makeDeps({ tier: "pro" }));
     const res = await client.callTool({ name: "get_ai_visibility", arguments: { domain: "example.com" } });
     expect(res.isError).toBeFalsy();
     const structured = res.structuredContent as { score: number; by_engine: Record<string, number> };

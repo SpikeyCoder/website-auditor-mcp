@@ -23,7 +23,7 @@
       "environmentVariables": [
         {
           "name": "WA_API_KEY",
-          "description": "Per-user API key (starts with 'wa_') minted from a Website Auditor account at https://website-auditor.io. Free tools work with any valid key; Pro tools require an active subscription.",
+          "description": "Per-user API key (starts with 'wa_') minted from a Website Auditor account at https://website-auditor.io. All tools require an active subscription (a 7-day free trial counts); check_upgrade_status reports your standing with any valid key.",
           "isRequired": true,
           "isSecret": true
         },
@@ -40,11 +40,11 @@
   "_meta": {
     "io.website-auditor/tools": {
       "free": [
-        "get_ai_visibility",
-        "run_audit",
         "check_upgrade_status"
       ],
       "pro": [
+        "run_audit",
+        "get_ai_visibility",
         "get_changes",
         "compare_competitors",
         "track_site",

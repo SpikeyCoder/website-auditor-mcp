@@ -1,36 +1,27 @@
 /**
- * get_ai_visibility [Free; trend data for Pro]
+ * get_ai_visibility [Subscription]
  *
  * Maps to the real audit endpoint and returns the AI-visibility slice. There is
  * no AI-visibility-only endpoint upstream, so this runs the full audit and
- * extracts the `ai_visibility` block (a thin, honest adaptation).
+ * extracts the `ai_visibility` block (a thin, honest adaptation). Requires an
+ * active/trialing subscription — no free API tier (api PR #17).
  *
- * Pro callers additionally get `trend`: 7- and 30-day movement computed from
- * the domain's stored snapshot history (the Pro history endpoint). Trend is
- * strictly additive — any failure to load history degrades to `trend: null`
- * with a `trend_note`, never to a failed tool call.
+ * The result includes `trend`: 7- and 30-day movement computed from the
+ * domain's stored snapshot history. Trend is strictly additive — any failure
+ * to load history degrades to `trend: null` with a `trend_note`, never to a
+ * failed tool call.
  */
 import type { AiVisibility } from "../api/types.js";
 import { toAiVisibility, computeTrend, detectUnreachable } from "../api/mappers.js";
-import { gateFreeTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
+import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetAiVisibilityArgs {
   domain: string;
 }
 
-/** Fill `trend`/`trend_note` on a mapped result. Never throws. */
+/** Fill `trend`/`trend_note` on a mapped result. Never throws.
+ *  Runs after gateProTool, so the caller is a verified subscriber. */
 async function attachTrend(result: AiVisibility, domain: string, deps: ToolDeps): Promise<void> {
-  const { tier, verified } = await deps.subscriptions.resolve();
-  if (tier !== "pro") {
-    // An UNVERIFIED free is an outage default, not a real answer — a genuine
-    // Pro user must get a transient note, never an upsell (mirrors the
-    // gateProTool SUBSCRIPTION_UNVERIFIED distinction).
-    result.trend_note = verified
-      ? `AI-visibility trend history requires a Pro subscription (${deps.config.upgradeUrl}).`
-      : "Your subscription could not be verified right now, so trend history was skipped — try again shortly.";
-    return;
-  }
-
   try {
     const snapshots = await deps.client.getAiVisibilityHistory({ domain });
     const trend = computeTrend(snapshots);
@@ -47,7 +38,7 @@ async function attachTrend(result: AiVisibility, domain: string, deps: ToolDeps)
 }
 
 export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps): Promise<ToolResult<AiVisibility>> {
-  const gate = await gateFreeTool(deps, args.domain);
+  const gate = await gateProTool(deps);
   if (gate) return gate;
 
   let response;
