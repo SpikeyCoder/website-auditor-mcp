@@ -5,6 +5,7 @@ import {
   detectUnreachable,
   topCompetitor,
   computeChanges,
+  computeTrend,
 } from "../../src/api/mappers.js";
 import { reachableReport, unreachableReport, partialOutageReport } from "../fixtures/reports.js";
 
@@ -123,5 +124,57 @@ describe("computeChanges (delta logic, ready for the pending endpoint)", () => {
     expect(chatgpt).toEqual({ engine: "chatgpt", from: 40, to: 75, delta: 35 });
     // claude unchanged -> not reported
     expect(delta.engine_changes.find((e) => e.engine === "claude")).toBeUndefined();
+  });
+});
+
+describe("computeTrend — 7/30-day windows over a snapshot series", () => {
+  const NOW = new Date("2026-07-26T12:00:00Z");
+  const at = (daysAgo: number) => new Date(NOW.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+  const snap = (daysAgo: number, score: number, is_simulated = false) => ({
+    captured_at: at(daysAgo),
+    score,
+    by_engine: { chatgpt: score },
+    is_simulated,
+  });
+
+  it("fewer than two snapshots -> null (no fabricated trend)", () => {
+    expect(computeTrend([], NOW)).toBeNull();
+    expect(computeTrend([snap(1, 50)], NOW)).toBeNull();
+  });
+
+  it("windows compare newest vs oldest-in-window; sparse 7d window is null while 30d works", () => {
+    const trend = computeTrend([snap(25, 40), snap(10, 45), snap(1, 60)], NOW)!;
+    expect(trend.change_7d).toBeNull(); // only one snapshot inside 7 days
+    expect(trend.change_30d).toEqual(
+      expect.objectContaining({ window_days: 30, from_score: 40, to_score: 60, score_delta: 20, snapshots: 3 }),
+    );
+    expect(trend.snapshots_analyzed).toBe(3);
+    expect(trend.latest_captured_at).toBe(at(1));
+    expect(trend.includes_simulated).toBe(false);
+  });
+
+  it("both windows populated when history is dense; engine deltas ride along", () => {
+    const trend = computeTrend([snap(20, 40), snap(6, 50), snap(2, 55), snap(1, 60)], NOW)!;
+    expect(trend.change_7d).toEqual(
+      expect.objectContaining({ from_score: 50, to_score: 60, score_delta: 10, snapshots: 3 }),
+    );
+    expect(trend.change_30d!.score_delta).toBe(20);
+    expect(trend.change_7d!.engine_changes).toEqual([{ engine: "chatgpt", from: 50, to: 60, delta: 10 }]);
+  });
+
+  it("engine deltas cover only engines measured at BOTH window endpoints (no from-0 fabrication, no silent drops)", () => {
+    const oldest = { captured_at: at(5), score: 50, by_engine: { chatgpt: 50, perplexity: 45 }, is_simulated: false };
+    const latest = { captured_at: at(1), score: 60, by_engine: { chatgpt: 60, gemini: 60 }, is_simulated: false };
+    const trend = computeTrend([oldest, latest], NOW)!;
+    const engines = trend.change_7d!.engine_changes.map((c) => c.engine);
+    // gemini was unmeasured at the start -> must NOT appear as a +60 gain;
+    // perplexity became unmeasured -> must not fabricate a drop either.
+    expect(engines).toEqual(["chatgpt"]);
+    expect(trend.change_7d!.engine_changes[0]).toEqual({ engine: "chatgpt", from: 50, to: 60, delta: 10 });
+  });
+
+  it("flags simulated data anywhere in the series", () => {
+    const trend = computeTrend([snap(5, 40, true), snap(1, 60)], NOW)!;
+    expect(trend.includes_simulated).toBe(true);
   });
 });

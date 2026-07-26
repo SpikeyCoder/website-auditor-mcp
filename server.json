@@ -41,7 +41,8 @@
     "io.website-auditor/tools": {
       "free": [
         "get_ai_visibility",
-        "run_audit"
+        "run_audit",
+        "check_upgrade_status"
       ],
       "pro": [
         "get_changes",

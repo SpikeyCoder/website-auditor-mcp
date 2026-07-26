@@ -21,7 +21,7 @@ server just makes them available to agents.
 
 | Tool | Tier | What it does |
 |---|---|---|
-| `get_ai_visibility` | **Free** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + the top competitor appearing in your place. |
+| `get_ai_visibility` | **Free** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + the top competitor appearing in your place. Pro subscribers also get `trend`: 7- and 30-day score movement from stored snapshot history. |
 | `run_audit` | **Free**, rate-limited | Full one-time audit → category scores (AI visibility, SEO, security, performance) + top issues + a shareable report URL. |
 | `get_changes` | **Pro** | What changed since the last check — score movement, engines gained/lost, competitor moves, new/resolved issues. Requires the domain to be tracked. |
 | `compare_competitors` | **Pro** | Head-to-head AI-visibility ranking against named competitor domains + where each appears that you don't. Quota-aware: caps the audit fan-out to your remaining daily quota, reuses recent cached audits, and reports any competitors it had to skip rather than dropping them silently. |
@@ -29,6 +29,7 @@ server just makes them available to agents.
 | `untrack_site` | **Pro** | Stop monitoring a site and free up a monitoring slot. Idempotent. |
 | `list_tracked_sites` | **Pro** | List the sites you're monitoring, with cadence, active state, and slots used/remaining. |
 | `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score, when each was last checked and next runs, and the most recent change. |
+| `check_upgrade_status` | **Free** | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms; eligible new customers get a 7-day free trial). Consumes no audit quota. |
 
 ---
 

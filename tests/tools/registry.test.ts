@@ -49,10 +49,11 @@ describe("tool registry", () => {
     for (const t of P1_TOOLS) expect(p0Names.has(t.name)).toBe(false);
   });
 
-  it("serves all 12 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools", () => {
-    expect(SERVED_TOOLS).toHaveLength(12);
+  it("serves all 13 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools + check_upgrade_status", () => {
+    expect(SERVED_TOOLS).toHaveLength(13);
     expect(SERVED_TOOLS.map((t) => t.name).sort()).toEqual(
       [
+        "check_upgrade_status",
         "compare_competitors",
         "generate_schema",
         "get_ai_visibility",
@@ -67,6 +68,12 @@ describe("tool registry", () => {
         "untrack_site",
       ].sort(),
     );
+  });
+
+  it("check_upgrade_status is served, free-tier, and takes no arguments", () => {
+    const spec = SERVED_TOOLS.find((t) => t.name === "check_upgrade_status")!;
+    expect(spec.tier).toBe("free");
+    expect(Object.keys(spec.inputSchema)).toHaveLength(0);
   });
 
   it("the four Phase-1 read tools are served and Pro-gated", () => {

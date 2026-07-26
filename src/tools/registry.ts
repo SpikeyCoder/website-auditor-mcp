@@ -35,7 +35,7 @@ export const P0_TOOLS: ToolSpec[] = [
     tier: "free",
     title: "Check AI visibility",
     description:
-      'Check how visible a website is to AI assistants right now. Use this whenever someone asks "does ChatGPT/Perplexity/Claude/Gemini recommend this business," "is my site showing up in AI answers," "what\'s my AI visibility / GEO score," or wants a quick read on whether an AI assistant would surface a given domain. Returns an overall AI-visibility score (0–100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site.',
+      'Check how visible a website is to AI assistants right now. Use this whenever someone asks "does ChatGPT/Perplexity/Claude/Gemini recommend this business," "is my site showing up in AI answers," "what\'s my AI visibility / GEO score," or wants a quick read on whether an AI assistant would surface a given domain. Returns an overall AI-visibility score (0–100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. For Pro subscribers the result also includes trend data: 7- and 30-day score movement computed from the domain\'s stored snapshot history.',
     inputSchema: { domain: domainArg },
   },
   {
@@ -167,7 +167,26 @@ export const MONITORING_TOOLS: ToolSpec[] = [
   },
 ];
 
-export const ALL_TOOL_SPECS: ToolSpec[] = [...P0_TOOLS, ...P1_TOOLS, ...MONITORING_TOOLS];
+/**
+ * Self-serve subscription introspection (1.0.4). Free tier and unmetered: it
+ * reads the caller's own /api/subscription standing — not an audit — so it
+ * must never spend audit quota or require Pro.
+ */
+export const CHECK_UPGRADE_STATUS_TOOL: ToolSpec = {
+  name: "check_upgrade_status",
+  tier: "free",
+  title: "Check upgrade status",
+  description:
+    'Check the caller\'s own Website Auditor subscription standing. Use this when someone asks "am I on Pro," "is my trial still active," "when does my subscription renew/end," "why is this tool locked," or before suggesting an upgrade. Works with any valid API key and consumes no audit quota. Returns the tier (none/free/pro), raw subscription status, period end, whether the subscription is set to cancel, the upgrade URL, and a plain-language summary — including what starting Pro requires (a payment method and accepting the Terms; eligible new customers get a 7-day free trial).',
+  inputSchema: {},
+};
+
+export const ALL_TOOL_SPECS: ToolSpec[] = [
+  ...P0_TOOLS,
+  ...P1_TOOLS,
+  ...MONITORING_TOOLS,
+  CHECK_UPGRADE_STATUS_TOOL,
+];
 
 const TRACK_SITE_TOOL: ToolSpec = P1_TOOLS.find((t) => t.name === "track_site")!;
 
@@ -180,9 +199,14 @@ const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TO
 /**
  * The tools actually registered on the running server: the four Phase-0 tools,
  * the scheduled-monitoring surface — track_site (start), untrack_site (stop),
- * list_tracked_sites (list), get_monitoring_status (per-user view) — and the
- * four Pro-gated read tools (get_benchmark, get_recommendations,
- * generate_schema, get_report) now that their website-auditor-api endpoints have
- * shipped. Twelve tools in total.
+ * list_tracked_sites (list), get_monitoring_status (per-user view) — the four
+ * Pro-gated read tools (get_benchmark, get_recommendations, generate_schema,
+ * get_report), and check_upgrade_status (1.0.4). Thirteen tools in total.
  */
-export const SERVED_TOOLS: ToolSpec[] = [...P0_TOOLS, TRACK_SITE_TOOL, ...PHASE1_READ_TOOLS, ...MONITORING_TOOLS];
+export const SERVED_TOOLS: ToolSpec[] = [
+  ...P0_TOOLS,
+  TRACK_SITE_TOOL,
+  ...PHASE1_READ_TOOLS,
+  ...MONITORING_TOOLS,
+  CHECK_UPGRADE_STATUS_TOOL,
+];

@@ -8,6 +8,9 @@ import type {
   AuditReport,
   AiVisibilityBlock,
   AiVisibility,
+  AiVisibilitySnapshot,
+  AiVisibilityTrend,
+  TrendWindow,
   AuditSummary,
   AuditIssue,
   Severity,
@@ -103,7 +106,9 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
       ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}`
       : `${name} scores ${score}/100 for AI visibility across ChatGPT, Perplexity, Claude and Gemini.${simulatedNote}`;
 
-  return { score, by_engine, appears_by_engine, top_competitor: competitor, summary };
+  // trend is filled in by the tool layer (Pro history lookup); the mapper
+  // itself only ever sees a single report.
+  return { score, by_engine, appears_by_engine, top_competitor: competitor, summary, trend: null };
 }
 
 /** Pass-rate (0–100) of results for a given module, or null if none ran. */
@@ -170,6 +175,59 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
  * for `get_changes`, kept pure and tested so the tool is ready the moment
  * website-auditor-api exposes a history/delta endpoint (PRD open question #2).
  */
+/**
+ * Fold a raw snapshot series (oldest first) into 7- and 30-day trend windows.
+ * A window compares the newest snapshot against the OLDEST snapshot inside the
+ * window, and is null when fewer than two snapshots fall inside it — snapshot
+ * cadence is irregular (one per audit + one per weekly scheduled run), so
+ * windows describe "movement within the last N days", not fixed daily points.
+ * Returns null when the series has fewer than two usable snapshots at all.
+ *
+ * `now` is injectable for deterministic tests; callers default it.
+ */
+export function computeTrend(
+  snapshots: AiVisibilitySnapshot[],
+  now: Date = new Date(),
+): AiVisibilityTrend | null {
+  if (snapshots.length < 2) return null;
+
+  const latest = snapshots[snapshots.length - 1]!;
+
+  const windowOf = (days: number): TrendWindow | null => {
+    const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000;
+    const inWindow = snapshots.filter((s) => Date.parse(s.captured_at) >= cutoff);
+    if (inWindow.length < 2) return null;
+    const oldest = inWindow[0]!;
+    // Engine deltas compare ONLY engines measured at BOTH endpoints. Engines
+    // roll out incrementally (null = not measured, stripped by the client), so
+    // an engine absent from one endpoint must not become a fabricated from-0
+    // gain via computeChanges' `?? 0`, nor silently vanish on a drop.
+    const shared = Object.keys(latest.by_engine).filter((k) => k in oldest.by_engine);
+    const pickShared = (m: Record<string, number>): Record<string, number> =>
+      Object.fromEntries(shared.map((k) => [k, m[k]!]));
+    const changes = computeChanges(
+      { score: latest.score, by_engine: pickShared(latest.by_engine) },
+      { score: oldest.score, by_engine: pickShared(oldest.by_engine) },
+    );
+    return {
+      window_days: days,
+      from_score: oldest.score,
+      to_score: latest.score,
+      score_delta: changes.score_delta,
+      engine_changes: changes.engine_changes,
+      snapshots: inWindow.length,
+    };
+  };
+
+  return {
+    change_7d: windowOf(7),
+    change_30d: windowOf(30),
+    snapshots_analyzed: snapshots.length,
+    latest_captured_at: latest.captured_at,
+    includes_simulated: snapshots.some((s) => s.is_simulated),
+  };
+}
+
 export function computeChanges(
   current: { score: number; by_engine: Record<string, number> },
   previous: { score: number; by_engine: Record<string, number> },
