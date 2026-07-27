@@ -36,7 +36,7 @@ export const P0_TOOLS: ToolSpec[] = [
     tier: "pro",
     title: "Check AI visibility",
     description:
-      'Check how visible a website is to AI assistants right now. Use this whenever someone asks "does ChatGPT/Perplexity/Claude/Gemini recommend this business," "is my site showing up in AI answers," "what\'s my AI visibility / GEO score," or wants a quick read on whether an AI assistant would surface a given domain. Returns an overall AI-visibility score (0–100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. The result also includes trend data: 7- and 30-day score movement computed from the domain\'s stored snapshot history. Requires an active subscription (a free trial counts).',
+      'Check how visible a website is to AI assistants right now. Use this whenever someone asks "does ChatGPT/Perplexity/Claude/Gemini recommend this business," "is my site showing up in AI answers," "what\'s my AI visibility / GEO score," or wants a quick read on whether an AI assistant would surface a given domain. Returns an overall AI-visibility score (0–100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. The result also includes trend data: 7- and 30-day score movement computed from the domain\'s stored snapshot history. Requires an active subscription.',
     inputSchema: { domain: domainArg },
   },
   {
@@ -45,7 +45,7 @@ export const P0_TOOLS: ToolSpec[] = [
     tier: "pro",
     title: "Run a full audit",
     description:
-      'Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Use this when someone asks to "audit," "scan," "check," or "review" a website\'s health or SEO, or wants a complete report rather than just the AI-visibility number. Returns a scored summary across categories and a link to the full report. Requires an active subscription (a free trial counts).',
+      'Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Use this when someone asks to "audit," "scan," "check," or "review" a website\'s health or SEO, or wants a complete report rather than just the AI-visibility number. Returns a scored summary across categories and a link to the full report. Requires an active subscription.',
     inputSchema: { domain: domainArg },
   },
   {
@@ -179,7 +179,7 @@ export const CHECK_UPGRADE_STATUS_TOOL: ToolSpec = {
   tier: "free",
   title: "Check upgrade status",
   description:
-    'Check the caller\'s own Website Auditor subscription standing. Use this when someone asks "am I on Pro," "is my trial still active," "when does my subscription renew/end," "why is this tool locked," or before suggesting an upgrade. Works with any valid API key and consumes no audit quota. Returns the tier (none/free/pro), raw subscription status, period end, whether the subscription is set to cancel, the upgrade URL, and a plain-language summary — including what starting Pro requires (a payment method and accepting the Terms; eligible new customers get a 7-day free trial).',
+    'Check the caller\'s own Website Auditor subscription standing. Use this when someone asks "am I on Pro," "is my trial still active," "when does my subscription renew/end," "why is this tool locked," or before suggesting an upgrade. Works with any valid API key and consumes no audit quota. Returns the tier (none/free/pro), raw subscription status, period end, whether the subscription is set to cancel, the upgrade URL, and a plain-language summary — including what starting Pro requires (a payment method and accepting the Terms).',
   inputSchema: {},
 };
 

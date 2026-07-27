@@ -3,7 +3,7 @@
   "name": "io.github.SpikeyCoder/website-auditor-mcp",
   "title": "Website Auditor",
   "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "icon": "icon.png",
   "websiteUrl": "https://website-auditor.io",
   "repository": {
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@spikeycoder/website-auditor-mcp",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -23,7 +23,7 @@
       "environmentVariables": [
         {
           "name": "WA_API_KEY",
-          "description": "Per-user API key (starts with 'wa_') minted from a Website Auditor account at https://website-auditor.io. All tools require an active subscription (a 7-day free trial counts); check_upgrade_status reports your standing with any valid key.",
+          "description": "Per-user API key (starts with 'wa_') minted from a Website Auditor account at https://website-auditor.io. All tools require an active subscription; check_upgrade_status reports your standing with any valid key.",
           "isRequired": true,
           "isSecret": true
         },

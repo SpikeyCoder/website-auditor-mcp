@@ -29,7 +29,7 @@ server just makes them available to agents.
 | `untrack_site` | **Pro** | Stop monitoring a site and free up a monitoring slot. Idempotent. |
 | `list_tracked_sites` | **Pro** | List the sites you're monitoring, with cadence, active state, and slots used/remaining. |
 | `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score, when each was last checked and next runs, and the most recent change. |
-| `check_upgrade_status` | Any valid key | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms; eligible new customers get a 7-day free trial). Consumes no audit quota. |
+| `check_upgrade_status` | Any valid key | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms). Consumes no audit quota. |
 
 ---
 
@@ -99,7 +99,7 @@ minute:
 - **No active subscription** (valid key, lapsed/canceled/never subscribed) →
   every tool returns `PRO_REQUIRED` with an upgrade link — there is no free
   API tier; `check_upgrade_status` still answers so the caller can learn why.
-- **Subscribed** (active or trialing — the 7-day trial counts) → all tools.
+- **Subscribed** (status `active`, or a legacy trial still in progress) → all tools.
 
 Errors are normalized to stable codes agents can branch on — e.g.
 `AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `OVER_QUOTA`,
