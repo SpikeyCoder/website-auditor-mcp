@@ -72,7 +72,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
   if (tier === "none") {
     return err(
       "AUTH_REQUIRED",
-      "This tool requires a Website Auditor API key. Set WA_API_KEY in your MCP server config (keys are created in the admin portal and work with an active subscription or free trial).",
+      "This tool requires a Website Auditor API key. Set WA_API_KEY in your MCP server config (keys are created in the admin portal and work with an active subscription).",
       { upgrade_url: deps.config.upgradeUrl },
     );
   }
@@ -87,7 +87,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
 
   return err(
     "PRO_REQUIRED",
-    "This tool requires an active Website Auditor subscription (a 7-day free trial counts). Subscribe to unlock audits, AI-visibility checks, monitoring, deltas, benchmarks and competitor comparison.",
+    "This tool requires an active Website Auditor subscription. Subscribe to unlock audits, AI-visibility checks, monitoring, deltas, benchmarks and competitor comparison.",
     { upgrade_url: deps.config.upgradeUrl },
   );
 }

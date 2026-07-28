@@ -6,9 +6,10 @@
  * /api/subscription endpoint is deliberately not Pro-gated) and never spends
  * audit quota — it isn't an audit, so it bypasses the free-tier meter.
  *
- * Deliberately does NOT claim trial eligibility: no API-key-authed endpoint
- * exposes it (it's decided at checkout), so the message says what a trial
- * requires rather than promising one.
+ * Trials were removed for new subscriptions on 2026-07-27, so the upsell
+ * message never mentions one. The `trialing` status branch below stays: it
+ * serves customers grandfathered into a trial granted before the removal,
+ * until Stripe flips their status at trial end.
  */
 import { fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 
@@ -65,7 +66,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   } else if (sub.status === "none") {
     message =
       `No active subscription — there is no free API tier, so all Website Auditor tools are locked. ` +
-      `Subscribe at ${upgradeUrl} — starting Pro requires adding a payment method and accepting the Terms; eligible new customers get a 7-day free trial.`;
+      `Subscribe at ${upgradeUrl} — starting Pro requires adding a payment method and accepting the Terms.`;
   } else {
     message =
       `Subscription lapsed (status: ${sub.status}) — all Website Auditor tools are locked (there is no free API tier). ` +

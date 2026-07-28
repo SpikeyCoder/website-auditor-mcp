@@ -25,7 +25,7 @@ import { checkUpgradeStatus } from "../tools/checkUpgradeStatus.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
-export const SERVER_VERSION = "1.0.5";
+export const SERVER_VERSION = "1.0.6";
 
 // Dispatch by tool name. Each handler receives the validated args + deps.
 const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) => Promise<ToolResult<unknown>>> = {
@@ -86,7 +86,7 @@ export function createServer(deps: ToolDeps): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       instructions:
-        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance. Every tool requires an active Website Auditor subscription (a 7-day free trial counts) — there is no free API tier. check_upgrade_status works with any valid key and reports the caller's own standing. Set WA_API_KEY to a Website Auditor key.",
+        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance. Every tool requires an active Website Auditor subscription — there is no free API tier. check_upgrade_status works with any valid key and reports the caller's own standing. Set WA_API_KEY to a Website Auditor key.",
     },
   );
 

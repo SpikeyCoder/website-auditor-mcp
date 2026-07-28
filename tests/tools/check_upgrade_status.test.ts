@@ -61,7 +61,7 @@ describe("check_upgrade_status [Free]", () => {
     expect(res.data.message).toContain("set to end");
   });
 
-  it("never subscribed -> free-tier upsell naming the trial prerequisites", async () => {
+  it("never subscribed -> paid-subscribe upsell naming the prerequisites, no trial offer", async () => {
     const res = await checkUpgradeStatus({}, makeDeps({}));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -70,6 +70,9 @@ describe("check_upgrade_status [Free]", () => {
     expect(res.data.message).toContain("no free API tier");
     expect(res.data.message).toContain("payment method");
     expect(res.data.message).toContain("Terms");
+    // Trials were removed for new subscriptions (2026-07-27): the message a
+    // prospective customer sees must not mention one in any form.
+    expect(res.data.message).not.toMatch(/trial/i);
   });
 
   it("lapsed subscription -> real status surfaced, resubscribe pointer", async () => {
@@ -136,11 +139,11 @@ describe("check_upgrade_status [Free]", () => {
     expect(res.data.message).not.toContain("trial");
   });
 
-  it("never-subscribed message hedges the trial ('eligible') rather than promising one", async () => {
+  it("never-subscribed message carries no trial language at all (trials removed 2026-07-27)", async () => {
     const res = await checkUpgradeStatus({}, makeDeps({}));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.message).toContain("eligible new customers");
-    expect(res.data.message).not.toMatch(/you (get|will get|receive) a .*trial/i);
+    expect(res.data.message).not.toMatch(/trial/i);
+    expect(res.data.message).not.toContain("eligible new customers");
   });
 });

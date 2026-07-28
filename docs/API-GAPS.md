@@ -64,14 +64,15 @@ via `computeChanges` (throws `NOT_YET_AVAILABLE` below two snapshots);
 `get_ai_visibility` folds into 7/30-day `trend` windows for Pro callers
 (`computeTrend` in `src/api/mappers.ts`).
 
-### 2b. Trial eligibility is not exposed to API keys
-`eligible_for_trial` exists only on the session-authed
-`GET /stripe/subscription-status` (portal SPA). `GET /api/subscription` carries
-no trial fields, so `check_upgrade_status` (1.0.4) reports tier/status/period
-end and *describes* the trial prerequisites (payment method + Terms acceptance)
-without promising eligibility. If we ever want the MCP to say "you're eligible
-for a 7-day trial," the API needs `eligible_for_trial` added to
-`/api/subscription` (read `api_users.trial_used_at`, reuse `isEligibleForTrial`).
+### 2b. Trial eligibility — moot (trials removed 2026-07-27)
+Free trials were removed for new subscriptions on 2026-07-27, so the once-
+proposed `eligible_for_trial` addition to `GET /api/subscription` is no longer
+needed and should not be built. The session-authed
+`GET /stripe/subscription-status` now pins `eligible_for_trial: false`
+unconditionally (kept only so stale portal bundles never show trial copy).
+Subscriptions already `trialing` are grandfathered: the status keeps resolving
+to tier `pro` until Stripe flips it at trial end, and `check_upgrade_status`
+keeps its `trialing` message branch for those callers.
 
 ### 3. No dedicated competitor-comparison endpoint
 Nothing computes head-to-head scores across domains. The audit's
