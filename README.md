@@ -46,7 +46,7 @@ MCP client's config with your API key.
   "mcpServers": {
     "website-auditor": {
       "command": "npx",
-      "args": ["-y", "@spikeycoder/website-auditor-mcp"],
+      "args": ["-y", "website-auditor-mcp"],
       "env": {
         "WA_API_KEY": "wa_your_key_here"
       }
@@ -58,7 +58,7 @@ MCP client's config with your API key.
 **Claude Code** — add it from the CLI:
 
 ```bash
-claude mcp add website-auditor -e WA_API_KEY=wa_your_key_here -- npx -y @spikeycoder/website-auditor-mcp
+claude mcp add website-auditor -e WA_API_KEY=wa_your_key_here -- npx -y website-auditor-mcp
 ```
 
 Restart the client and the tools appear.
