@@ -26,3 +26,10 @@ coverage/
 
 # Claude Code (worktrees / agent dir)
 .claude/
+
+# Packed desktop-extension bundles are build artifacts, not source. They are
+# distributed as GitHub release assets (see every release from 1.0.2 on), so a
+# copy in the repo is a duplicate that goes stale the moment a version ships —
+# 1.0.6 sat here through three releases. Build with:
+#   npm prune --omit=dev && npx --yes @anthropic-ai/mcpb pack && npm install
+*.mcpb
