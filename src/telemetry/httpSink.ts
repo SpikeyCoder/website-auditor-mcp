@@ -9,6 +9,7 @@
  */
 import type { WaConfig } from "../config.js";
 import type { EventSink, McpEvent } from "./events.js";
+import { resolveInstallId } from "./installId.js";
 
 const INGEST_PATH = "/api/mcp-events";
 /** Telemetry writes get a tight timeout so a slow ingest never lingers. */
@@ -22,12 +23,20 @@ interface HttpSinkDeps {
 export class HttpEventSink implements EventSink {
   private readonly url: string;
   private readonly apiKey?: string;
+  /**
+   * Anonymous install id, resolved once at construction. Sent on every event so
+   * keyless installs can be deduplicated from restarts — see installId.ts.
+   * Undefined when telemetry is disabled or storage is unusable, in which case
+   * the field is simply omitted.
+   */
+  private readonly installId?: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
   constructor(cfg: WaConfig, deps: HttpSinkDeps = {}) {
     this.url = `${cfg.apiBaseUrl}${INGEST_PATH}`;
     this.apiKey = cfg.apiKey;
+    this.installId = resolveInstallId(cfg);
     this.fetchImpl = deps.fetch ?? globalThis.fetch;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -49,7 +58,7 @@ export class HttpEventSink implements EventSink {
       await this.fetchImpl(this.url, {
         method: "POST",
         headers,
-        body: JSON.stringify(event),
+        body: JSON.stringify(this.installId ? { ...event, install_id: this.installId } : event),
         signal: controller.signal,
       });
     } finally {

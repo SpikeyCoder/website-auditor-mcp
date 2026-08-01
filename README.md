@@ -21,6 +21,7 @@ server just makes them available to agents.
 
 | Tool | Tier | What it does |
 |---|---|---|
+| `get_sample_audit` | **Free — no key** | A complete sample report for `example.com` in the exact shape a real audit returns. Needs no API key, no subscription and no network. Try this first to see what you'd be buying. |
 | `get_ai_visibility` | **Pro** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + the top competitor appearing in your place. Pro subscribers also get `trend`: 7- and 30-day score movement from stored snapshot history. |
 | `run_audit` | **Pro**, rate-limited | Full one-time audit → category scores (AI visibility, SEO, security, performance) + top issues + a shareable report URL. |
 | `get_changes` | **Pro** | What changed since the last check — score movement, engines gained/lost, competitor moves, new/resolved issues. Requires the domain to be tracked. |
@@ -35,8 +36,18 @@ server just makes them available to agents.
 
 ## Install & configure
 
-The server runs directly via `npx` — no clone or build required. Add it to your
-MCP client's config with your API key.
+The server runs directly via `npx` — no clone or build required.
+
+**Try it before you buy it.** Install with no API key at all and ask your agent
+for a *sample audit* — `get_sample_audit` returns a full report for `example.com`
+in the exact format a real run produces, so you can check the shape fits your
+needs first.
+
+**Pricing.** Auditing real domains needs a Website Auditor subscription at
+**$10/month**. Sign up and create an API key at
+**[api.website-auditor.io/admin_portal](https://api.website-auditor.io/admin_portal/?source=mcp)**,
+then set it as `WA_API_KEY` below. There is no free API tier — a key only
+functions with an active subscription.
 
 **Claude Desktop** (`claude_desktop_config.json`), **Cursor**
 (`~/.cursor/mcp.json`), and most other clients use the same `mcpServers` shape:
@@ -66,10 +77,16 @@ Restart the client and the tools appear.
 ### Getting an API key
 
 `WA_API_KEY` is a per-user key (it starts with `wa_`) minted from a Website
-Auditor account at **[website-auditor.io](https://website-auditor.io)**. Free
-tools work with any valid key; **Pro** tools require an account with an active
-subscription. Treat the key like a password — set it only in your MCP client's
-`env` and never commit it.
+Auditor account at
+**[api.website-auditor.io/admin_portal](https://api.website-auditor.io/admin_portal/?source=mcp)**
+— the admin portal, where you subscribe and manage keys.
+
+Minting a key requires an active subscription ($10/month): there is no free API
+tier, so every tool except `get_sample_audit` and `check_upgrade_status` needs
+one. `get_sample_audit` needs no key at all.
+
+Treat the key like a password — set it only in your MCP client's `env` and never
+commit it.
 
 ### Configuration (environment variables)
 
@@ -95,10 +112,14 @@ Your key is validated on every call. The Pro/free tier is resolved live from the
 API and cached briefly, so upgrades and downgrades take effect within about a
 minute:
 
-- **No key** → every tool returns `AUTH_REQUIRED` with an upgrade link.
+- **No key** → `get_sample_audit` still works (that's the point of it); every
+  other tool returns `AUTH_REQUIRED` with the price and a sign-up link.
+- **Revoked or unrecognized key** → `INVALID_KEY`, carrying the API's own
+  remediation ("generate a new key"). Distinct from `PRO_REQUIRED`: the fix is a
+  new key, not a purchase.
 - **No active subscription** (valid key, lapsed/canceled/never subscribed) →
-  every tool returns `PRO_REQUIRED` with an upgrade link — there is no free
-  API tier; `check_upgrade_status` still answers so the caller can learn why.
+  `PRO_REQUIRED` with the price and an upgrade link — there is no free API tier;
+  `check_upgrade_status` still answers so the caller can learn why.
 - **Subscribed** (status `active`, or a legacy trial still in progress) → all tools.
 
 Errors are normalized to stable codes agents can branch on — e.g.
@@ -125,6 +146,15 @@ injected, and HTTP is mocked at the `fetch` boundary, so no network is touched.
 ---
 
 ## Privacy Policy
+
+**Anonymous install id.** When telemetry is enabled, the server generates a
+random UUID on first run and stores it at
+`~/.config/website-auditor-mcp/install-id` (or `$XDG_CONFIG_HOME`), sending it
+with each event. It exists solely to tell one install restarting many times
+apart from many separate installs — without it, install counts are just restart
+counts. It is randomly generated, never derived from your machine, username or
+network, and is not a fingerprint. Setting `WA_METRICS_DISABLED` stops
+telemetry entirely: no id is generated and nothing is written to disk.
 
 This connector talks to a single external service: the **Website Auditor API**
 at **[website-auditor.io](https://website-auditor.io)**. When you invoke a tool

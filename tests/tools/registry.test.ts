@@ -51,11 +51,12 @@ describe("tool registry", () => {
     for (const t of P1_TOOLS) expect(p0Names.has(t.name)).toBe(false);
   });
 
-  it("serves all 13 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools + check_upgrade_status", () => {
-    expect(SERVED_TOOLS).toHaveLength(13);
+  it("serves all 14 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools + check_upgrade_status", () => {
+    expect(SERVED_TOOLS).toHaveLength(14);
     expect(SERVED_TOOLS.map((t) => t.name).sort()).toEqual(
       [
         "check_upgrade_status",
+      "get_sample_audit",
         "compare_competitors",
         "generate_schema",
         "get_ai_visibility",

@@ -150,12 +150,17 @@ describe("DefaultSubscriptionProvider.resolve — failure handling", () => {
     expect(await p.resolve("wa_key")).toEqual({ tier: "free", verified: false });
   });
 
-  it("treats an outright-rejected key (INVALID_KEY) as a definitive verified free, not a retryable outage", async () => {
+  it("treats an outright-rejected key (INVALID_KEY) as definitively invalid — verified, but not a retryable outage and not 'free'", async () => {
+    // Behaviour change (1.0.8). This previously resolved to { tier: "free",
+    // verified: true }, which was right about "not retryable" and wrong about
+    // everything else: gateProTool then emitted PRO_REQUIRED, telling a paying
+    // customer whose key had been revoked to buy a subscription they already
+    // held. `invalid` is its own state so the gate can say "replace the key".
     const src = source(async () => {
       throw new WaApiError("INVALID_KEY", "Invalid API key.");
     });
     const p = new DefaultSubscriptionProvider(cfg({ apiKey: "wa_bad" }), src);
-    expect(await p.resolve("wa_bad")).toEqual({ tier: "free", verified: true });
+    expect(await p.resolve("wa_bad")).toEqual({ tier: "invalid", verified: true, message: "Invalid API key." });
   });
 
   it("wraps an unexpected (non-WaApiError) throw as UNVERIFIED free when cold", async () => {
@@ -172,5 +177,40 @@ describe("isPro", () => {
     expect(isPro("pro")).toBe(true);
     expect(isPro("free")).toBe(false);
     expect(isPro("none")).toBe(false);
+  });
+});
+
+describe("revoked or invalid key is diagnosed as such, not as an upsell", () => {
+  // Regression: a revoked key resolved to { tier: "free", verified: true }, so
+  // gateProTool emitted PRO_REQUIRED — telling a PAYING customer to subscribe
+  // when what they actually need is a new key. The API's real message ("This
+  // API key has been revoked. Generate a new key from the admin portal.") was
+  // discarded, and INVALID_KEY — declared in errors.ts and documented in the
+  // README as branchable — was unreachable on all 12 gated tools.
+  const revoked = () =>
+    source(async () => {
+      throw new WaApiError("INVALID_KEY", "This API key has been revoked. Generate a new key from the admin portal.");
+    });
+
+  it("resolve() reports the key as invalid rather than silently downgrading to free", async () => {
+    const provider = new DefaultSubscriptionProvider(cfg({ apiKey: "wa_revoked" }) as never, revoked());
+    const res = await provider.resolve();
+    expect(res.tier).toBe("invalid");
+    expect(res.verified).toBe(true);
+  });
+
+  it("a cold-cache outage still resolves free/unverified — an outage is not a bad key", async () => {
+    // The distinction the fix rests on. A transient failure must not start
+    // reporting a perfectly good key as revoked and send a paying customer off
+    // to mint a replacement they don't need.
+    const provider = new DefaultSubscriptionProvider(
+      cfg({ apiKey: "wa_good" }) as never,
+      source(async () => {
+        throw new Error("ECONNRESET");
+      }),
+    );
+    const res = await provider.resolve();
+    expect(res.tier).toBe("free");
+    expect(res.verified).toBe(false);
   });
 });

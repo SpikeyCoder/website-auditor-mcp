@@ -9,6 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
+import { upgradeLink, PRICE } from "./upgrade.js";
 import type { EventSink } from "../telemetry/events.js";
 
 export interface ToolDeps {
@@ -66,14 +67,30 @@ export function fromApiError(e: unknown, upgradeUrl: string): ToolResult<never> 
  * during an outage. No key at all is AUTH_REQUIRED, not an upsell.
  */
 export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | null> {
-  const { tier, verified } = await deps.subscriptions.resolve(deps.config.apiKey);
+  const { tier, verified, message } = await deps.subscriptions.resolve(deps.config.apiKey);
   if (isPro(tier)) return null;
+
+  const upgradeUrl = upgradeLink(deps.config);
 
   if (tier === "none") {
     return err(
       "AUTH_REQUIRED",
-      "This tool requires a Website Auditor API key. Set WA_API_KEY in your MCP server config (keys are created in the admin portal and work with an active subscription).",
-      { upgrade_url: deps.config.upgradeUrl },
+      `This tool requires a Website Auditor API key, but none is configured. ` +
+        `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
+        `To audit real domains, subscribe (${PRICE}) and create a key at ${upgradeUrl} , then set WA_API_KEY in this server's config.`,
+      { upgrade_url: upgradeUrl },
+    );
+  }
+
+  // The key itself was rejected — a new key fixes this, buying a subscription
+  // does not. Pass the API's own remediation text through rather than replacing
+  // it with an upsell, which is what this path used to do.
+  if (tier === "invalid") {
+    return err(
+      "INVALID_KEY",
+      message ??
+        "This Website Auditor API key is not valid — it may have been revoked. Create a new key in the admin portal and update WA_API_KEY.",
+      { upgrade_url: upgradeUrl },
     );
   }
 
@@ -81,13 +98,15 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     return err(
       "SUBSCRIPTION_UNVERIFIED",
       "Couldn't verify your Website Auditor subscription right now — the subscription service was unreachable. This is a temporary issue, not a downgrade: please try again in a moment.",
-      { upgrade_url: deps.config.upgradeUrl },
+      { upgrade_url: upgradeUrl },
     );
   }
 
   return err(
     "PRO_REQUIRED",
-    "This tool requires an active Website Auditor subscription. Subscribe to unlock audits, AI-visibility checks, monitoring, deltas, benchmarks and competitor comparison.",
-    { upgrade_url: deps.config.upgradeUrl },
+    `This tool requires an active Website Auditor subscription (${PRICE}). ` +
+      `Subscribe at ${upgradeUrl} to unlock audits, AI-visibility checks, monitoring, deltas, benchmarks and competitor comparison. ` +
+      `In the meantime get_sample_audit works with no subscription and shows the exact output format.`,
+    { upgrade_url: upgradeUrl },
   );
 }

@@ -183,11 +183,33 @@ export const CHECK_UPGRADE_STATUS_TOOL: ToolSpec = {
   inputSchema: {},
 };
 
+/**
+ * The free demo (1.0.8). The ONLY tool that runs without an API key — no
+ * subscription lookup, no network call, no quota.
+ *
+ * Exists because minting a key requires an active subscription, so a developer
+ * evaluating this server otherwise has to pay $10/mo before seeing a single
+ * byte of output. Production telemetry showed the cost of that: 102 keyless
+ * sessions produced 1 tool call.
+ *
+ * The description leads with "no API key required" because that phrase is what
+ * a model needs to see to pick this tool over refusing outright.
+ */
+export const GET_SAMPLE_AUDIT_TOOL: ToolSpec = {
+  name: "get_sample_audit",
+  tier: "free",
+  title: "See a sample audit (no key needed)",
+  description:
+    'Show a complete sample Website Auditor report — no API key required, nothing to set up. Use this whenever someone wants to "try it," "see a demo," "show me what this does," "what does the output look like," or is deciding whether Website Auditor is worth subscribing to — and use it INSTEAD of refusing when no API key is configured. Returns fixed sample data for example.com in the exact shape a real audit returns: scored summary, per-test results, and the AI-visibility breakdown across ChatGPT, Perplexity, Claude and Gemini. It is clearly marked as a sample and always describes example.com, never the user\'s own site — auditing a real domain needs a subscription.',
+  inputSchema: {},
+};
+
 export const ALL_TOOL_SPECS: ToolSpec[] = [
   ...P0_TOOLS,
   ...P1_TOOLS,
   ...MONITORING_TOOLS,
   CHECK_UPGRADE_STATUS_TOOL,
+  GET_SAMPLE_AUDIT_TOOL,
 ];
 
 const TRACK_SITE_TOOL: ToolSpec = P1_TOOLS.find((t) => t.name === "track_site")!;
@@ -205,10 +227,37 @@ const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TO
  * Pro-gated read tools (get_benchmark, get_recommendations, generate_schema,
  * get_report), and check_upgrade_status (1.0.4). Thirteen tools in total.
  */
+/**
+ * Appended to every subscription-gated description at registration time.
+ *
+ * Two problems it fixes. First, consistency: get_ai_visibility and run_audit
+ * ended with "Requires an active subscription." while the other ten said nothing
+ * about auth at all, so the model's picture of what's gated was arbitrary.
+ *
+ * Second, and the reason for the wording: a bare "requires a subscription" is a
+ * dead end. A model reading it with no key configured declines and stops — no
+ * tool call, no link, nothing the user can act on. Naming the price and pointing
+ * at the free demo turns a refusal into a next step.
+ *
+ * Applied here rather than edited into the twelve strings above so the trigger
+ * phrases stay verbatim (agents bind to those — see this file's header) and the
+ * price lives in exactly one place.
+ */
+const PRO_SUFFIX =
+  " Requires a Website Auditor subscription ($10/month) — if the user doesn't have one, call get_sample_audit first to show them the exact output format, free and with no API key.";
+
+function withProSuffix(spec: ToolSpec): ToolSpec {
+  if (spec.tier !== "pro") return spec;
+  // Strip the older, inconsistent phrasing so it isn't stated twice.
+  const base = spec.description.replace(/\s*Requires an active subscription\.\s*$/, "");
+  return { ...spec, description: base + PRO_SUFFIX };
+}
+
 export const SERVED_TOOLS: ToolSpec[] = [
   ...P0_TOOLS,
   TRACK_SITE_TOOL,
   ...PHASE1_READ_TOOLS,
   ...MONITORING_TOOLS,
   CHECK_UPGRADE_STATUS_TOOL,
-];
+  GET_SAMPLE_AUDIT_TOOL,
+].map(withProSuffix);

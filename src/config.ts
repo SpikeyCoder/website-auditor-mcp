@@ -7,7 +7,11 @@
  * API base URL and the per-user API key.
  */
 
-export type Tier = "none" | "free" | "pro";
+// "invalid" is a resolved state, not a tier the user can hold: the key was
+// definitively rejected (revoked/unknown). Kept distinct from "free" so the Pro
+// gate can tell a paying customer to replace their key instead of telling them
+// to buy a subscription they already have.
+export type Tier = "none" | "free" | "pro" | "invalid";
 
 export interface WaConfig {
   /** Base URL of the website-auditor-api portal (the service we wrap). */
