@@ -24,15 +24,21 @@ const root = join(__dirname, "..");
 const read = (f: string) => JSON.parse(readFileSync(join(root, f), "utf8"));
 
 const pkg = read("package.json");
+const lock = read("package-lock.json");
 const server = read("server.json");
 const manifest = read("manifest.json");
 
 describe("published manifests stay in sync with the code", () => {
-  it("all four version strings agree", () => {
+  it("every version string agrees", () => {
     expect(server.version).toBe(pkg.version);
     expect(manifest.version).toBe(pkg.version);
     expect(SERVER_VERSION).toBe(pkg.version);
     expect(server.packages[0].version).toBe(pkg.version);
+    // The lockfile carries it twice and npm only rewrites it on install, so a
+    // hand-edited version bump leaves it behind — it sat at 1.0.7 through the
+    // 1.0.8 release and was only caught by an unrelated prune/install cycle.
+    expect(lock.version).toBe(pkg.version);
+    expect(lock.packages[""].version).toBe(pkg.version);
   });
 
   it("manifest.json lists exactly the tools the server actually serves", () => {
