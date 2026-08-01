@@ -9,6 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
+import { upgradeLink, PRICE } from "./upgrade.js";
 import type { EventSink } from "../telemetry/events.js";
 
 export interface ToolDeps {
@@ -66,14 +67,46 @@ export function fromApiError(e: unknown, upgradeUrl: string): ToolResult<never> 
  * during an outage. No key at all is AUTH_REQUIRED, not an upsell.
  */
 export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | null> {
-  const { tier, verified } = await deps.subscriptions.resolve(deps.config.apiKey);
+  const { tier, verified, message } = await deps.subscriptions.resolve(deps.config.apiKey);
   if (isPro(tier)) return null;
+
+  const upgradeUrl = upgradeLink(deps.config);
 
   if (tier === "none") {
     return err(
       "AUTH_REQUIRED",
-      "This tool requires a Website Auditor API key. Set WA_API_KEY in your MCP server config (keys are created in the admin portal and work with an active subscription).",
-      { upgrade_url: deps.config.upgradeUrl },
+      `This tool requires a Website Auditor API key, but none is configured. ` +
+        `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
+        `To audit real domains, subscribe (${PRICE}) and create a key at ${upgradeUrl} , then set WA_API_KEY in this server's config.`,
+      { upgrade_url: upgradeUrl },
+    );
+  }
+
+  // The KEY was rejected, which is not the same as having no subscription and
+  // must not be answered with an upsell — most revoked keys belong to people who
+  // are currently paying and revoked their own key (rotated it, or killed a
+  // leaked one). Telling them to subscribe cannot fix their problem.
+  //
+  // A lapsed subscriber never reaches here: cancelling does not revoke keys, so
+  // their key stays valid and the Pro gate below answers with PRO_REQUIRED.
+  //
+  // The exception is someone whose key is revoked AND whose subscription has
+  // lapsed. Minting a key requires an active subscription (requireProSession on
+  // POST /api/keys), so "create a new key" alone would send them to a paywall
+  // they weren't warned about — hence stating both, in the order they must
+  // happen. The API's own remediation text is passed through, not replaced.
+  if (tier === "invalid") {
+    // The upstream message already carries the "generate a new key" instruction,
+    // so only the portal URL and the subscription caveat are added — restating
+    // it produced "Generate a new key from the admin portal. Create a
+    // replacement at …", which reads like two different steps.
+    const base =
+      message ?? "This Website Auditor API key is not valid — it may have been revoked.";
+    return err(
+      "INVALID_KEY",
+      `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
+        `so if yours has lapsed, resubscribe there first. Then set the new key as WA_API_KEY.`,
+      { upgrade_url: upgradeUrl },
     );
   }
 
@@ -81,13 +114,15 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     return err(
       "SUBSCRIPTION_UNVERIFIED",
       "Couldn't verify your Website Auditor subscription right now — the subscription service was unreachable. This is a temporary issue, not a downgrade: please try again in a moment.",
-      { upgrade_url: deps.config.upgradeUrl },
+      { upgrade_url: upgradeUrl },
     );
   }
 
   return err(
     "PRO_REQUIRED",
-    "This tool requires an active Website Auditor subscription. Subscribe to unlock audits, AI-visibility checks, monitoring, deltas, benchmarks and competitor comparison.",
-    { upgrade_url: deps.config.upgradeUrl },
+    `This tool requires an active Website Auditor subscription (${PRICE}). ` +
+      `Subscribe at ${upgradeUrl} to unlock audits, AI-visibility checks, monitoring, deltas, benchmarks and competitor comparison. ` +
+      `In the meantime get_sample_audit works with no subscription and shows the exact output format.`,
+    { upgrade_url: upgradeUrl },
   );
 }

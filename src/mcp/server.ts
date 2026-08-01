@@ -22,10 +22,12 @@ import { getRecommendations } from "../tools/getRecommendations.js";
 import { generateSchema } from "../tools/generateSchema.js";
 import { getReport } from "../tools/getReport.js";
 import { checkUpgradeStatus } from "../tools/checkUpgradeStatus.js";
+import { getSampleAudit } from "../tools/sampleAudit.js";
+import { upgradeLink, PRICE } from "../tools/upgrade.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
-export const SERVER_VERSION = "1.0.6";
+export const SERVER_VERSION = "1.0.8";
 
 // Dispatch by tool name. Each handler receives the validated args + deps.
 const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) => Promise<ToolResult<unknown>>> = {
@@ -43,10 +45,15 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
     generateSchema(a as { domain: string; type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto" }, d),
   get_report: (a, d) => getReport(a as { domain: string }, d),
   check_upgrade_status: (_a, d) => checkUpgradeStatus({}, d),
+  get_sample_audit: (_a, d) => getSampleAudit({}, d),
 };
 
 // Tools that MUTATE server state (not read-only). Everything else only reads.
 const MUTATING_TOOLS = new Set(["track_site", "untrack_site"]);
+
+// get_sample_audit answers entirely from a bundled fixture — no key, no network,
+// no external world. Every other tool reaches the Website Auditor API.
+const LOCAL_ONLY_TOOLS = new Set(["get_sample_audit"]);
 
 /** Format a normalized ToolResult as an MCP tool result. */
 export function toCallResult(result: ToolResult<unknown>): CallToolResult {
@@ -82,11 +89,30 @@ function safeEmit(events: EventSink, event: McpEvent): void {
 }
 
 export function createServer(deps: ToolDeps): McpServer {
+  // Config-derived, and carries ?source=mcp so a key minted from this link is
+  // attributable to the MCP (website-auditor-api stamps acquisition_channel).
+  const signupUrl = upgradeLink(deps.config);
+
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
+      // Injected into the model's system prompt at handshake, which makes this
+      // the highest-leverage copy in the package — and previously the reason the
+      // funnel leaked. It used to open with "Every tool requires an active
+      // Website Auditor subscription — there is no free API tier." A model
+      // reading that with no key configured simply told the user to subscribe
+      // WITHOUT calling anything: no tool call, no error payload, no link in the
+      // chat, and no telemetry row. Production agreed — 102 keyless sessions
+      // produced exactly 1 tool call.
+      //
+      // So it now leads with what CAN be done and names the sign-up URL inline,
+      // so a keyless user gets a runnable demo and a clickable link even if the
+      // model never calls a tool at all.
       instructions:
-        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance. Every tool requires an active Website Auditor subscription — there is no free API tier. check_upgrade_status works with any valid key and reports the caller's own standing. Set WA_API_KEY to a Website Auditor key.",
+        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance.\n\n" +
+        "NO API KEY? You can still run get_sample_audit — it needs no key, no setup and no network, and returns a full report for example.com in the exact shape a real audit returns. Call it instead of declining, so the user can see what they would be buying.\n\n" +
+        `Auditing real domains requires a Website Auditor subscription (${PRICE}). Sign up and create an API key at ${signupUrl} , then set WA_API_KEY in this server's config. check_upgrade_status reports the caller's own standing with any valid key.\n\n` +
+        "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price and give them that link — do not just report the error code.",
     },
   );
 
@@ -115,7 +141,7 @@ export function createServer(deps: ToolDeps): McpServer {
     const isMutating = MUTATING_TOOLS.has(spec.name);
     const annotations = isMutating
       ? { title: spec.title, readOnlyHint: false, destructiveHint: true, openWorldHint: true }
-      : { title: spec.title, readOnlyHint: true, openWorldHint: true };
+      : { title: spec.title, readOnlyHint: true, openWorldHint: !LOCAL_ONLY_TOOLS.has(spec.name) };
     server.registerTool(
       spec.name,
       {

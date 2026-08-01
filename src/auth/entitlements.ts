@@ -29,6 +29,8 @@ import { WaApiError } from "../api/errors.js";
 /** A resolved tier plus whether it is a confirmed answer (vs. an outage default). */
 export interface TierResolution {
   tier: Tier;
+  /** The upstream's own explanation, when it gave one (invalid/revoked keys). */
+  message?: string;
   /**
    * true when the tier is a confirmed result (live lookup, no-key `none`, dev
    * override, or a last-known cached tier honored during an outage). false ONLY
@@ -94,10 +96,14 @@ export class DefaultSubscriptionProvider implements SubscriptionProvider {
       // Warm cache (even if expired): honor the last-known tier during an outage.
       if (cached) return { tier: cached.tier, verified: true };
 
-      // A definitive key rejection is NOT a transient outage: the key genuinely
-      // has no Pro, and retrying won't change that. Report a verified free.
+      // A definitive key rejection is NOT a transient outage, and it is NOT the
+      // same as "this account has no subscription". Collapsing it into `free`
+      // made gateProTool emit PRO_REQUIRED, which told a PAYING customer whose
+      // key had been revoked to go and subscribe — advice that cannot fix their
+      // problem. Report it as its own state so the gate can say "replace the
+      // key" and pass the API's own remediation text through.
       if (e instanceof WaApiError && e.code === "INVALID_KEY") {
-        return { tier: "free", verified: true };
+        return { tier: "invalid", verified: true, message: e.message };
       }
 
       // Transient/unreachable with no cached value: never fail-open to Pro, but
