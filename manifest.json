@@ -48,14 +48,14 @@
     "wa_api_key": {
       "type": "string",
       "title": "Website Auditor API Key",
-      "description": "Your per-user API key (starts with 'wa_') minted from a Website Auditor account at https://website-auditor.io. All tools require an active subscription; check_upgrade_status reports your standing with any valid key.",
+      "description": "Optional to install: get_sample_audit runs with no key and shows a full report in the real output format. A key is required for every other tool — audits, AI-visibility checks, monitoring, benchmarks and competitor comparison — and minting one needs an active Website Auditor subscription ($10/month). Sign up and create a key at https://api.website-auditor.io/admin_portal/?source=mcp (starts with 'wa_').",
       "sensitive": true,
-      "required": true
+      "required": false
     },
     "wa_metrics_disabled": {
       "type": "boolean",
       "title": "Disable anonymous usage telemetry",
-      "description": "Turn off the anonymous, aggregate usage events (which tool ran, success or failure, latency \u2014 no domains, no keys, no personal data) that the server sends to improve the service. Emission is always fire-and-forget and never blocks a tool call either way. See https://website-auditor.io/privacy.",
+      "description": "Turn off the anonymous, aggregate usage events (which tool ran, success or failure, latency — no domains, no keys, no personal data) that the server sends to improve the service. Emission is always fire-and-forget and never blocks a tool call either way. See https://website-auditor.io/privacy.",
       "required": false,
       "default": false
     }
@@ -75,12 +75,16 @@
   },
   "tools": [
     {
+      "name": "get_sample_audit",
+      "description": "See a complete sample Website Auditor report with no API key and no setup. Returns fixed sample data for example.com in the exact shape a real audit returns — scored summary, per-test results, and the AI-visibility breakdown across ChatGPT, Perplexity, Claude and Gemini. Use it to check the output fits your needs before subscribing."
+    },
+    {
       "name": "get_ai_visibility",
       "description": "Check AI visibility [read-only]. Check how visible a website is to AI assistants right now. Returns an overall AI-visibility score (0-100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. Includes 7- and 30-day trend data from stored snapshot history. Requires an active subscription."
     },
     {
       "name": "run_audit",
-      "description": "Run a full audit [read-only]. Run a full one-time audit of a website \u2014 AI visibility plus SEO, security headers, broken links, and performance. Returns a scored summary across categories and a link to the full report. Requires an active subscription."
+      "description": "Run a full audit [read-only]. Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Returns a scored summary across categories and a link to the full report. Requires an active subscription."
     },
     {
       "name": "get_changes",
@@ -104,7 +108,7 @@
     },
     {
       "name": "get_monitoring_status",
-      "description": "Monitoring status summary [read-only]. Get a glanceable summary of monitoring status across all tracked websites \u2014 latest AI-visibility score, when each was last audited and next runs, and the most recent change since the prior check."
+      "description": "Monitoring status summary [read-only]. Get a glanceable summary of monitoring status across all tracked websites — latest AI-visibility score, when each was last audited and next runs, and the most recent change since the prior check."
     },
     {
       "name": "get_benchmark",
@@ -124,7 +128,7 @@
     },
     {
       "name": "check_upgrade_status",
-      "description": "Check upgrade status [read-only]. Reports the caller's own subscription standing: tier (none/free/pro), status, period end, and what upgrading unlocks \u2014 including that starting Pro requires a payment method and accepting the Terms. Works with any valid API key; consumes no audit quota."
+      "description": "Check upgrade status [read-only]. Reports the caller's own subscription standing: tier (none/free/pro), status, period end, and what upgrading unlocks — including that starting Pro requires a payment method and accepting the Terms. Works with any valid API key; consumes no audit quota."
     }
   ]
 }
