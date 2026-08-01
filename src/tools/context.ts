@@ -82,14 +82,30 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     );
   }
 
-  // The key itself was rejected — a new key fixes this, buying a subscription
-  // does not. Pass the API's own remediation text through rather than replacing
-  // it with an upsell, which is what this path used to do.
+  // The KEY was rejected, which is not the same as having no subscription and
+  // must not be answered with an upsell — most revoked keys belong to people who
+  // are currently paying and revoked their own key (rotated it, or killed a
+  // leaked one). Telling them to subscribe cannot fix their problem.
+  //
+  // A lapsed subscriber never reaches here: cancelling does not revoke keys, so
+  // their key stays valid and the Pro gate below answers with PRO_REQUIRED.
+  //
+  // The exception is someone whose key is revoked AND whose subscription has
+  // lapsed. Minting a key requires an active subscription (requireProSession on
+  // POST /api/keys), so "create a new key" alone would send them to a paywall
+  // they weren't warned about — hence stating both, in the order they must
+  // happen. The API's own remediation text is passed through, not replaced.
   if (tier === "invalid") {
+    // The upstream message already carries the "generate a new key" instruction,
+    // so only the portal URL and the subscription caveat are added — restating
+    // it produced "Generate a new key from the admin portal. Create a
+    // replacement at …", which reads like two different steps.
+    const base =
+      message ?? "This Website Auditor API key is not valid — it may have been revoked.";
     return err(
       "INVALID_KEY",
-      message ??
-        "This Website Auditor API key is not valid — it may have been revoked. Create a new key in the admin portal and update WA_API_KEY.",
+      `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
+        `so if yours has lapsed, resubscribe there first. Then set the new key as WA_API_KEY.`,
       { upgrade_url: upgradeUrl },
     );
   }
