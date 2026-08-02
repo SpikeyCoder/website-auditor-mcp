@@ -25,6 +25,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The suite takes ~2s. Anything past a couple of minutes is a hang, not slow
+    # work, and without this GitHub's default applies — SIX HOURS of a wedged
+    # runner per job. Learned the hard way on this workflow's first run, where a
+    # /proc path that is inert on macOS blocked on Linux and pinned all three
+    # matrix jobs until they were cancelled by hand.
+    timeout-minutes: 5
     strategy:
       fail-fast: false # one bad major should not hide the others
       matrix:
