@@ -10,6 +10,7 @@
 import type { WaConfig } from "../config.js";
 import type { EventSink, McpEvent } from "./events.js";
 import { resolveInstallId } from "./installId.js";
+import { SERVER_VERSION } from "../mcp/server.js";
 
 const INGEST_PATH = "/api/mcp-events";
 /** Telemetry writes get a tight timeout so a slow ingest never lingers. */
@@ -58,7 +59,16 @@ export class HttpEventSink implements EventSink {
       await this.fetchImpl(this.url, {
         method: "POST",
         headers,
-        body: JSON.stringify(this.installId ? { ...event, install_id: this.installId } : event),
+        // server_version is ALWAYS sent, unlike install_id, which the sandbox
+        // path can leave undefined. That independence is the point: when a field
+        // fails to appear in the data, the build that should have sent it must
+        // still be identifiable, or diagnosing it means unpacking tarballs.
+        // client_name/client_version on the event describe the HOST, not us.
+        body: JSON.stringify({
+          ...event,
+          ...(this.installId ? { install_id: this.installId } : {}),
+          server_version: SERVER_VERSION,
+        }),
         signal: controller.signal,
       });
     } finally {
