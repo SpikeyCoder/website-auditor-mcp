@@ -1,0 +1,64 @@
+name: Tests
+
+# Nothing verified this repo before it shipped. There is no deploy pipeline here
+# — releases go out by hand via `npm publish` and a GitHub release — so a broken
+# commit reached users only when someone published it, with no gate in between.
+#
+# Two layers, because they catch different things:
+#   * this workflow, on every pull request — and unlike website-auditor-api,
+#     this repo is PUBLIC, so branch protection is available and the `test`
+#     check here can genuinely be made required. See the PR description.
+#   * package.json `prepublishOnly`, which now runs typecheck + tests before
+#     `npm publish` will proceed. That is the one that guards the irreversible
+#     action: a published version cannot be replaced.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # The suite takes ~2s. Anything past a couple of minutes is a hang, not slow
+    # work, and without this GitHub's default applies — SIX HOURS of a wedged
+    # runner per job. Learned the hard way on this workflow's first run, where a
+    # /proc path that is inert on macOS blocked on Linux and pinned all three
+    # matrix jobs until they were cancelled by hand.
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false # one bad major should not hide the others
+      matrix:
+        # A published npm package does not choose its runtime — users do, via
+        # npx and whatever Node their MCP client bundles. 20 is the floor in
+        # `engines`; 22 and 24 are what people actually have. This differs from
+        # website-auditor-api on purpose: that one pins to node:20-slim because
+        # it controls its own container.
+        node-version: ['20', '22', '24']
+
+    name: test (node ${{ matrix.node-version }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # ci, not install: installs the lockfile exactly and fails if it has
+      # drifted from package.json. The manifests drift guard already pins the
+      # lockfile's version field, which sat at 1.0.7 through the 1.0.8 release.
+      - run: npm ci
+
+      # Real signal in a TypeScript codebase, and not covered by the tests.
+      - run: npm run typecheck
+
+      # Includes tests/manifests.test.ts, the drift guard over the three files
+      # that describe this server to npm, the registry and the .mcpb installer
+      # but are never exercised by running it.
+      - run: npm test

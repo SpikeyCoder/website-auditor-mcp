@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { resolveInstallId, __resetInstallIdCacheForTests } from "../../src/telemetry/installId.js";
 import { testConfig } from "../helpers.js";
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -80,8 +80,18 @@ describe("anonymous install id", () => {
 
   it("degrades to undefined rather than throwing when the directory is unwritable", () => {
     // A read-only or sandboxed home must never break the server on startup.
+    //
+    // The unwritable path is a directory whose PARENT is a regular file, so
+    // mkdir fails with ENOTDIR immediately, on every platform and whatever uid
+    // the process has. This previously used /proc/..., which is not portable:
+    // macOS has no /proc at all, so mkdir failed instantly with ENOENT and the
+    // test passed in microseconds — while on Linux /proc is a real procfs and
+    // the call hung, wedging CI on its first ever run. chmod would not work
+    // either, since CI frequently runs as root and root ignores permission bits.
+    const unwritable = join(tempHome(), "a-file-not-a-dir");
+    writeFileSync(unwritable, "");
     __resetInstallIdCacheForTests();
-    const id = resolveInstallId(testConfig(), "/proc/nonexistent-and-unwritable");
+    const id = resolveInstallId(testConfig(), join(unwritable, "child"));
     expect(id).toBeUndefined();
   });
 });

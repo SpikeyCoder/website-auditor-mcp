@@ -3,6 +3,9 @@ import { HttpEventSink } from "../../src/telemetry/httpSink.js";
 import { SERVER_VERSION } from "../../src/mcp/server.js";
 import { __resetInstallIdCacheForTests } from "../../src/telemetry/installId.js";
 import type { WaConfig } from "../../src/config.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * The ingest payload is the contract with website-auditor-api. These pin the
@@ -74,19 +77,27 @@ describe("HttpEventSink payload", () => {
     // the build is still knowable and is exactly what you need to diagnose that
     // situation. This is the case that made the field necessary.
     const { calls, fake } = captureFetch();
-    const sink = new HttpEventSink(cfg(), { fetch: fake });
-    // Force resolveInstallId down its unusable-storage path.
+
+    // Force resolveInstallId down its unusable-storage path. The directory's
+    // PARENT is a regular file, so mkdir fails with ENOTDIR immediately on any
+    // platform and any uid — see the matching note in installId.test.ts. Do not
+    // use /proc here: it does not exist on macOS and hangs on Linux CI.
+    const unwritable = join(mkdtempSync(join(tmpdir(), "wa-sandboxed-")), "a-file-not-a-dir");
+    writeFileSync(unwritable, "");
+
     const saved = process.env.XDG_CONFIG_HOME;
-    process.env.XDG_CONFIG_HOME = "/proc/nonexistent";
+    process.env.XDG_CONFIG_HOME = join(unwritable, "child");
     __resetInstallIdCacheForTests();
     const sandboxed = new HttpEventSink(cfg(), { fetch: fake });
-    process.env.XDG_CONFIG_HOME = saved;
+    // Restoring with `= saved` would write the STRING "undefined" when the var
+    // was unset, silently redirecting every later resolution to a relative path.
+    if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = saved;
 
     sandboxed.emit({ event_type: "session_init", client_name: "claude-ai" } as never);
     await flush();
 
     expect(calls[0].install_id).toBeUndefined();
     expect(calls[0].server_version).toBe(SERVER_VERSION);
-    void sink;
   });
 });
