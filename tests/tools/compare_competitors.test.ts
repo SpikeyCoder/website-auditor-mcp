@@ -135,7 +135,10 @@ describe("compare_competitors [Pro] — quota awareness", () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("OVER_QUOTA");
-    expect(res.error.upgrade_url).toContain("website-auditor.io");
+    // INVERTED deliberately. This used to assert an upgrade_url, which sold the
+    // caller the plan they already hold — only a subscriber can reach the daily
+    // cap. See tests/quotaIsNotAnUpsell.test.ts for the full reasoning.
+    expect(res.error.upgrade_url).toBeUndefined();
     expect(res.error.message).toMatch(/quota|remain|reset/i);
   });
 

@@ -109,7 +109,7 @@ export async function compareCompetitors(
   switch (primaryOutcome.kind) {
     case "skip_quota":
     case "quota_error":
-      return overQuota(deps, primaryHost, quota);
+      return overQuota(primaryHost, quota);
     case "unreachable":
       return err(
         "UNREACHABLE_DOMAIN",
@@ -253,12 +253,18 @@ function applyQuotaDetails(quota: QuotaState, details: unknown): void {
   }
 }
 
-function overQuota(deps: ToolDeps, primaryHost: string, quota: QuotaState): ToolResult<never> {
+/**
+ * The daily audit cap is spent. NOT an upsell: there is one plan at $10/month,
+ * so "upgrade for a higher quota" — which this used to say in words — describes
+ * a product nobody can buy, to a customer who is already paying. The only true
+ * remedy is waiting for the reset, so that is the whole message.
+ */
+function overQuota(primaryHost: string, quota: QuotaState): ToolResult<never> {
   const resetTxt = quota.reset ? ` It resets at ${quota.reset}.` : "";
   return err(
     "OVER_QUOTA",
-    `Your daily audit quota is exhausted, so ${primaryHost} can't be audited to compare it.${resetTxt} Re-run after the reset or upgrade for a higher quota.`,
-    { upgrade_url: deps.config.upgradeUrl, details: { limit: quota.limit, remaining: 0, reset: quota.reset } },
+    `Your daily audit quota is exhausted, so ${primaryHost} can't be audited to compare it.${resetTxt} Re-run after it resets.`,
+    { details: { limit: quota.limit, remaining: 0, reset: quota.reset } },
   );
 }
 

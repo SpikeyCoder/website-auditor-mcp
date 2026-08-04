@@ -521,7 +521,13 @@ export class WaApiClient implements WaApiClientLike {
         // prompt — the fix is to untrack a domain, surfaced in the message.
         return new WaApiError("LIMIT_REACHED", message, { status });
       case 429:
-        return new WaApiError("OVER_QUOTA", message, { status, details: b.rate_limit, upgradeUrl });
+        // Same reasoning as the 409 above, one status code along. This is the
+        // server's shared daily audit cap (rateLimitPerDay), not a plan
+        // boundary — and since website-auditor-api PR #17 removed the free API
+        // tier, only an existing subscriber can reach it at all. Offering them
+        // an upgrade offers the plan they already pay for. The remedy is the
+        // reset time carried in rate_limit, so that is what goes in details.
+        return new WaApiError("OVER_QUOTA", message, { status, details: b.rate_limit });
       case 504:
         // Self-describing; needs no timing heuristic.
         return new WaApiError("TIMEOUT", message, { status });
