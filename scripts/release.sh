@@ -76,9 +76,40 @@ ok "all six version strings agree on ${VERSION}"
 npm whoami >/dev/null 2>&1 || die "not logged in to npm. Run: npm login"
 ok "npm authenticated as $(npm whoami 2>/dev/null)"
 
+# Being logged in is NOT the same as being able to publish. With 2FA set to
+# "auth-and-writes", npm demands a one-time password at publish time via a
+# browser flow — which cannot be satisfied from a non-interactive shell. The
+# first run of this script sailed past a green "npm authenticated" check,
+# rebuilt everything, and only failed at EOTP after the tarball was packed.
+# Cheap to detect, so detect it.
+TFA=$(npm profile get "two-factor auth" 2>/dev/null || echo "unknown")
+case "$TFA" in
+  *writes*)
+    if [ -t 0 ]; then
+      ok "npm 2FA is '${TFA}' — you will be prompted for a one-time password"
+    else
+      die "npm 2FA is '${TFA}', so publishing needs a one-time password, and this shell is not interactive (no TTY). Run 'npm run release' from a terminal you can type into. Nothing has been published."
+    fi ;;
+  unknown)
+    # Network or auth hiccup reading the profile. Not worth blocking a release
+    # over: npm itself will still demand the OTP if one is required.
+    echo "   ! could not read npm 2FA setting; continuing" ;;
+  *)
+    ok "npm 2FA is '${TFA}' — no OTP prompt expected" ;;
+esac
+
 command -v mcp-publisher >/dev/null 2>&1 \
   || die "mcp-publisher is not installed. Without it the registry step cannot run, and publishing to npm alone is exactly the failure this script exists to prevent."
 ok "mcp-publisher present"
+
+# Installed is not the same as authenticated, either. mcp-publisher has no
+# whoami, so the token file is the only signal available. Checked BEFORE the
+# npm publish, because discovering it afterwards is precisely the
+# half-published state this script exists to avoid.
+MCP_TOKEN="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-publisher/token.json"
+[ -s "$MCP_TOKEN" ] \
+  || die "mcp-publisher has no saved credentials at ${MCP_TOKEN}. Run: mcp-publisher login github  — checked here rather than after npm, because npm cannot be un-published."
+ok "mcp-publisher authenticated"
 
 # Already published? Publishing is irreversible, so refuse rather than error out
 # halfway. Each channel is reported separately: one may legitimately be ahead if
