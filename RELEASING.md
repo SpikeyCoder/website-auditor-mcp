@@ -12,6 +12,17 @@ days. Nothing warns you; the versions just quietly disagree.
 | MCP registry | `mcp-publisher publish` | the MCP registry / directory consumers |
 | `.mcpb` bundle | see below | Claude Desktop extension installs |
 
+## Just run the script
+
+```
+npm run release              # prompts before publishing
+npm run release -- --dry-run # check the preconditions, publish nothing
+```
+
+`scripts/release.sh` does everything below in the right order, refuses to start
+if a precondition fails, and — critically — checks BOTH channels afterwards
+rather than assuming. The manual steps are kept for when something goes wrong.
+
 ## Steps
 
 1. Bump the version. SIX strings must agree — package.json, package-lock.json
