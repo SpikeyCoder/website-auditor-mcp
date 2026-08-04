@@ -172,6 +172,7 @@ export class WaApiClient implements WaApiClientLike {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.cfg.requestTimeoutMs);
+    const startedAt = Date.now();
 
     let resp: Response;
     try {
@@ -187,7 +188,7 @@ export class WaApiClient implements WaApiClientLike {
 
     const body = await this.parseJson(resp);
 
-    if (!resp.ok) throw this.mapErrorResponse(resp.status, body);
+    if (!resp.ok) throw this.mapErrorResponse(resp.status, body, Date.now() - startedAt);
 
     const runId: string | undefined = (body as { run_id?: string })?.run_id;
     const report = (body as { audit?: AuditReport })?.audit;
@@ -451,6 +452,7 @@ export class WaApiClient implements WaApiClientLike {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.cfg.requestTimeoutMs);
+    const startedAt = Date.now();
 
     let resp: Response;
     try {
@@ -470,7 +472,7 @@ export class WaApiClient implements WaApiClientLike {
     }
 
     const body = await this.parseJson(resp);
-    if (!resp.ok) throw this.mapErrorResponse(resp.status, body);
+    if (!resp.ok) throw this.mapErrorResponse(resp.status, body, Date.now() - startedAt);
     return body ?? {};
   }
 
@@ -482,7 +484,25 @@ export class WaApiClient implements WaApiClientLike {
     }
   }
 
-  private mapErrorResponse(status: number, body: unknown): WaApiError {
+  /**
+   * A 502/503 arriving after this long is a timeout, not a dead backend.
+   *
+   * mcp_events recorded three failures at 60945/61121/60629 ms, all classified
+   * UPSTREAM_ERROR and all suspiciously exactly 60s — an infrastructure timeout
+   * between the API and the audit engine. They could not have been client
+   * aborts (requestTimeoutMs is 120000, and an abort maps to TIMEOUT above), so
+   * they arrived as a gateway 5xx and fell through `default:`.
+   *
+   * The status alone cannot separate the two cases: a FAST 502 means the
+   * service really is down, and telling that user to "wait for the timeout"
+   * sends them to wait for something that will never finish. Only elapsed time
+   * distinguishes them, hence the floor. 30s is well past any healthy response
+   * (audit p50 is ~77s end-to-end but the API answers long before that) and
+   * well short of the 60s boundary actually observed.
+   */
+  private static readonly GATEWAY_TIMEOUT_FLOOR_MS = 30_000;
+
+  private mapErrorResponse(status: number, body: unknown, elapsedMs = 0): WaApiError {
     const b = (body ?? {}) as { error?: string; details?: unknown; rate_limit?: unknown };
     const message = b.error || `Website Auditor API returned HTTP ${status}.`;
     const upgradeUrl = this.cfg.upgradeUrl;
@@ -502,7 +522,21 @@ export class WaApiClient implements WaApiClientLike {
       case 429:
         return new WaApiError("OVER_QUOTA", message, { status, details: b.rate_limit, upgradeUrl });
       case 504:
+        // Self-describing; needs no timing heuristic.
         return new WaApiError("TIMEOUT", message, { status });
+      case 502:
+      case 503:
+        // Ambiguous by status, decided by elapsed time — see the note on
+        // GATEWAY_TIMEOUT_FLOOR_MS. Slow ⇒ the request timed out somewhere
+        // upstream; fast ⇒ the service is genuinely unavailable.
+        //
+        // NOTE 500 is deliberately NOT here. The API returns 500 for
+        // report_unavailable (website-auditor-api src/routes/audit.js) — a run
+        // that completed but whose report could not be fetched. That is slow by
+        // nature and relabelling it a timeout would be a lie.
+        return elapsedMs >= WaApiClient.GATEWAY_TIMEOUT_FLOOR_MS
+          ? new WaApiError("TIMEOUT", "The Website Auditor API timed out while running this request.", { status })
+          : new WaApiError("UPSTREAM_ERROR", message, { status, details: b.details });
       default:
         return new WaApiError("UPSTREAM_ERROR", message, { status, details: b.details });
     }
