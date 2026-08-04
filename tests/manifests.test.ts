@@ -75,4 +75,44 @@ describe("published manifests stay in sync with the code", () => {
       expect(text).toContain("admin_portal");
     }
   });
+
+  // ── Storefront copy ───────────────────────────────────────────────
+  //
+  // The test above checked the env-var descriptions and missed the storefront
+  // text entirely: manifest.long_description went on saying "Every tool
+  // requires an active Website Auditor subscription" through 1.0.8, 1.0.9 and
+  // 1.0.10 — false since get_sample_audit shipped, and shown on the Claude
+  // Desktop listing page to exactly the keyless visitors that tool exists to
+  // convert. It slipped both because it is a different field AND because the
+  // phrasing was "Every tool requires", not the "all tools require" that was
+  // being grepped for. Hence: every user-facing blurb, any phrasing.
+
+  const BLURBS = () => [
+    ["manifest.description", manifest.description],
+    ["manifest.long_description", manifest.long_description],
+    ["server.description", server.description],
+  ];
+
+  it("no storefront blurb claims a subscription is needed for everything", () => {
+    for (const [where, text] of BLURBS()) {
+      expect(text, where).not.toMatch(/every tool requires/i);
+      expect(text, where).not.toMatch(/all tools require/i);
+      expect(text, where).not.toMatch(/requires? (an )?active .{0,30}subscription\b(?!.{0,80}sample)/i);
+    }
+  });
+
+  it("the long description tells a keyless visitor what they CAN do", () => {
+    // The listing is read before install, by someone deciding whether to
+    // bother. If the only thing it says about access is "pay first", the free
+    // path may as well not exist.
+    expect(manifest.long_description).toContain("get_sample_audit");
+    expect(manifest.long_description.toLowerCase()).toMatch(/no api key|without an api key|no key/);
+  });
+
+  it("the free tool named in the blurb is actually served and actually free", () => {
+    // Guards against advertising a tool that was renamed or re-tiered.
+    const spec = SERVED_TOOLS.find((t: { name: string }) => t.name === "get_sample_audit");
+    expect(spec, "get_sample_audit is advertised but not served").toBeTruthy();
+    expect(spec.tier).toBe("free");
+  });
 });
