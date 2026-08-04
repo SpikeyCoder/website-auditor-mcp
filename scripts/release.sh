@@ -109,7 +109,46 @@ ok "mcp-publisher present"
 MCP_TOKEN="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-publisher/token.json"
 [ -s "$MCP_TOKEN" ] \
   || die "mcp-publisher has no saved credentials at ${MCP_TOKEN}. Run: mcp-publisher login github  — checked here rather than after npm, because npm cannot be un-published."
-ok "mcp-publisher authenticated"
+
+# PRESENT IS NOT THE SAME AS VALID. Registry tokens are short-lived JWTs, and
+# an expired one is what actually caused the 1.0.11 release to go out to npm
+# and stop: the file was there, the precondition passed, npm published
+# irreversibly, and only then did the registry reject the stale credential.
+# The exp claim is right there in the token, so read it.
+#
+# A 5-minute floor, not zero: the steps between here and the registry publish
+# (typecheck, full suite, build, npm publish, OTP) take minutes, so a token
+# valid "right now" can still be dead by the time it is used.
+# NB: no top-level `return` here — node -e does not wrap the script in a
+# function, so `return` is a parse error and the whole check silently degrades
+# to "opaque". It did exactly that on the first attempt.
+TOKEN_STATE=$(node -e '
+  const fs = require("fs");
+  let out = "opaque";
+  try {
+    const t = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const parts = (t.token || "").split(".");
+    if (parts.length === 3) {
+      const c = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+      if (c.exp) {
+        const left = Math.floor((c.exp * 1000 - Date.now()) / 1000);
+        out = left <= 0 ? "expired" : (left < 300 ? "expiring:" + left : "valid:" + left);
+      }
+    }
+  } catch (e) { /* opaque */ }
+  console.log(out);
+' "$MCP_TOKEN" 2>/dev/null || echo "opaque")
+
+case "$TOKEN_STATE" in
+  expired)
+    die "the mcp-publisher token has EXPIRED. Run: mcp-publisher login github — caught before npm, because an expired registry token is exactly what half-published 1.0.11." ;;
+  expiring:*)
+    die "the mcp-publisher token expires in ${TOKEN_STATE#expiring:}s, which will not survive the test run, build, npm publish and OTP prompt ahead of it. Refresh it first: mcp-publisher login github" ;;
+  valid:*)
+    ok "mcp-publisher token valid for $(( ${TOKEN_STATE#valid:} / 60 )) more minutes" ;;
+  *)
+    ok "mcp-publisher token present (expiry not readable)" ;;
+esac
 
 # Already published? Publishing is irreversible, so refuse rather than error out
 # halfway. Each channel is reported separately: one may legitimately be ahead if
@@ -121,6 +160,36 @@ else
 fi
 
 REG_URL="https://registry.modelcontextprotocol.io/v0/servers?search=${PKG_NAME}&limit=100"
+
+# THE REGISTRY INDEXES ASYNCHRONOUSLY. A publish can succeed and still not be
+# visible to a read a second later — which is exactly how a successful 1.0.11
+# release was misreported as HALF-PUBLISHED, and then republished on the
+# strength of that stale read. Every registry read therefore retries.
+#
+# registry_has <version>   -> 0 if that version exists at all
+# registry_latest          -> prints the isLatest version, or "?"
+registry_has() {
+  curl -fsS --max-time 25 "$REG_URL" 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const v=process.argv[1];let j;try{j=JSON.parse(s)}catch(e){process.exit(2)}const hit=(j.servers||[]).some(x=>(((x.server&&x.server.version)||x.version)===v));process.exit(hit?0:1)})' "$1"
+}
+registry_latest() {
+  curl -fsS --max-time 25 "$REG_URL" 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch(e){return console.log("?")}const l=(j.servers||[]).find(x=>((x._meta||{})["io.modelcontextprotocol.registry/official"]||{}).isLatest);console.log(l?((l.server&&l.server.version)||l.version):"?")})' \
+    || echo "?"
+}
+# Poll until <version> appears, or give up. Backs off 2,4,8,16,30,30... seconds.
+await_registry() {
+  local want="$1" tries="${2:-6}" delay=2 i=1
+  while [ "$i" -le "$tries" ]; do
+    if registry_has "$want"; then return 0; fi
+    printf '   … not indexed yet, retrying in %ss (%d/%d)\n' "$delay" "$i" "$tries"
+    sleep "$delay"
+    delay=$(( delay * 2 )); [ "$delay" -gt 30 ] && delay=30
+    i=$(( i + 1 ))
+  done
+  return 1
+}
+
 if curl -fsS --max-time 25 "$REG_URL" 2>/dev/null \
      | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const v=process.argv[1];const j=JSON.parse(s);const hit=(j.servers||[]).some(x=>((x.server&&x.server.version)||x.version)===v);process.exit(hit?0:1)})' "$VERSION"; then
   REG_HAS=1; ok "registry already has ${VERSION}"
@@ -174,11 +243,22 @@ fi
 if [ "$REG_HAS" = 0 ]; then
   say "Publishing to the MCP registry"
   if ! mcp-publisher publish; then
+    # A non-zero exit is NOT proof the publish failed. The registry indexes
+    # asynchronously, and the CLI can report an error on a request that landed
+    # (or that raced a concurrent publish). Confirm against the registry before
+    # accusing it of anything — the previous version of this branch declared a
+    # SUCCESSFUL 1.0.11 release half-published, which is how it then got
+    # republished on top of itself.
+    printf '   publish reported an error — confirming against the registry\n'
+    if await_registry "$VERSION" 5; then
+      ok "registry has ${VERSION} after all — the error was not fatal"
+    else
     printf '\n\033[31mHALF-PUBLISHED.\033[0m npm has %s; the registry does NOT.\n' "$VERSION" >&2
     printf 'Claude Desktop and directory users will not see this release until you finish:\n\n' >&2
     printf '    mcp-publisher login github\n    mcp-publisher publish\n\n' >&2
     printf 'Do NOT re-run this script — it will abort on "already on npm".\n\n' >&2
     exit 1
+    fi
   fi
   ok "registry now has ${VERSION}"
 else
@@ -205,13 +285,29 @@ ok "$BUNDLE ($(du -h "$BUNDLE" | cut -f1))"
 # from the publishing side.
 
 say "Verifying both channels"
-sleep 3
-NPM_LIVE=$(npm view "${PKG_NAME}" version 2>/dev/null || echo "?")
+
+# Both registries are eventually consistent, so a single read proves nothing.
+# The old code slept 3s and read once; that is what produced a false negative.
+NPM_LIVE="?"
+for i in 1 2 3 4 5; do
+  NPM_LIVE=$(npm view "${PKG_NAME}" version 2>/dev/null || echo "?")
+  [ "$NPM_LIVE" = "$VERSION" ] && break
+  printf '   … npm still shows %s, retrying (%d/5)\n' "$NPM_LIVE" "$i"
+  sleep $(( i * 2 ))
+done
 [ "$NPM_LIVE" = "$VERSION" ] && ok "npm latest = ${NPM_LIVE}" || echo "   ! npm latest is ${NPM_LIVE}, expected ${VERSION}"
 
-REG_LIVE=$(curl -fsS --max-time 25 "$REG_URL" 2>/dev/null \
-  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const l=(j.servers||[]).find(x=>((x._meta||{})["io.modelcontextprotocol.registry/official"]||{}).isLatest);console.log(l?((l.server&&l.server.version)||l.version):"?")})' 2>/dev/null || echo "?")
-[ "$REG_LIVE" = "$VERSION" ] && ok "registry isLatest = ${REG_LIVE}" || echo "   ! registry isLatest is ${REG_LIVE}, expected ${VERSION}"
+# Presence first (that is what "did it publish" means), then isLatest, which
+# the registry may flip a moment later.
+if await_registry "$VERSION" 6; then
+  ok "registry has ${VERSION}"
+  REG_LIVE=$(registry_latest)
+  [ "$REG_LIVE" = "$VERSION" ] \
+    && ok "registry isLatest = ${REG_LIVE}" \
+    || echo "   ! registry has ${VERSION} but isLatest is ${REG_LIVE} — usually just indexing lag; re-check before acting"
+else
+  echo "   ! registry does not show ${VERSION} yet after retries — re-check before republishing, it may still be indexing"
+fi
 
 cat <<NEXT
 
