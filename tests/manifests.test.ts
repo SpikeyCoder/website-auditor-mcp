@@ -109,6 +109,44 @@ describe("published manifests stay in sync with the code", () => {
     expect(manifest.long_description.toLowerCase()).toMatch(/no api key|without an api key|no key/);
   });
 
+  // ── Claude Desktop directory submission requirements ──────────────
+  //
+  // The directory is a fourth channel with its own form and a human review
+  // queue (see RELEASING.md). get_sample_audit makes this a LOCAL connector,
+  // which is held to a stricter bar, and the docs are blunt about the cost of
+  // getting it wrong: "Missing or incomplete privacy policies result in
+  // immediate rejection." Audited by hand on 2026-08-04 and all passing;
+  // pinned here so the next submission is not a coin flip.
+
+  it("declares privacy policies, over HTTPS", () => {
+    expect(Array.isArray(manifest.privacy_policies)).toBe(true);
+    expect(manifest.privacy_policies.length).toBeGreaterThan(0);
+    for (const url of manifest.privacy_policies) {
+      expect(url, "privacy policy URLs must be HTTPS").toMatch(/^https:\/\//);
+    }
+  });
+
+  it("manifest_version is new enough to carry privacy_policies", () => {
+    // The field is only honoured from 0.2 onward; on an older manifest it
+    // would be silently ignored and the submission rejected for its absence.
+    const [major, minor] = String(manifest.manifest_version).split(".").map(Number);
+    expect(major > 0 || minor >= 2).toBe(true);
+  });
+
+  it("README carries a Privacy Policy section", () => {
+    const readme = readFileSync(join(root, "README.md"), "utf8");
+    expect(readme).toMatch(/^#+\s*Privacy Policy\s*$/m);
+  });
+
+  it("every served tool carries a title", () => {
+    // Directory requirement: "All tools must include a title and the
+    // applicable readOnlyHint or destructiveHint." The hints are applied in
+    // src/mcp/server.ts for every tool; the titles live on the specs here.
+    const untitled = SERVED_TOOLS.filter((t: { name: string; title?: string }) =>
+      !t.title || !String(t.title).trim());
+    expect(untitled.map((t: { name: string }) => t.name)).toEqual([]);
+  });
+
   it("the free tool named in the blurb is actually served and actually free", () => {
     // Guards against advertising a tool that was renamed or re-tiered.
     const spec = SERVED_TOOLS.find((t: { name: string }) => t.name === "get_sample_audit");
