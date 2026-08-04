@@ -10,7 +10,8 @@ days. Nothing warns you; the versions just quietly disagree.
 |---|---|---|
 | npm | `npm publish` | `npx -y website-auditor-mcp` configs (self-updating) |
 | MCP registry | `mcp-publisher publish` | the MCP registry / directory consumers |
-| `.mcpb` bundle | see below | Claude Desktop extension installs |
+| `.mcpb` bundle | see below | direct/manual installs, GitHub release |
+| **Claude Desktop directory** | **a submission form + human review** | **Claude Desktop users who installed from the in-app directory** |
 
 ## Just run the script
 
@@ -60,6 +61,11 @@ rather than assuming. The manual steps are kept for when something goes wrong.
 6. `gh release create v<x.y.z> website-auditor-mcp-<x.y.z>.mcpb` so `.mcpb`
    users have a canonical download.
 
+6b. **Submit the `.mcpb` to the Claude Desktop directory** — see the section
+   below. This one is asynchronous and human-reviewed, so it will not be done
+   when the rest of the release is. Do it, then carry on; just never assume it
+   happened.
+
 7. Confirm it actually landed, rather than assuming:
 
    ```
@@ -72,10 +78,55 @@ rather than assuming. The manual steps are kept for when something goes wrong.
    for the new string. Until one real client reports it, the release has not
    reached anybody — that is the check that would have caught this.
 
-## Note on the Claude Desktop directory
+## The Claude Desktop directory — the fourth channel
 
-Its listing lagged the MCP registry even after a successful `mcp-publisher
-publish` (1.0.6 shown against a registry `isLatest` of 1.0.10). Whether it
-polls with a lag or needs its own submission was not established. Installing
-the local `.mcpb` from Settings → Extensions bypasses it entirely and is the
-fastest way to verify a build end to end.
+**Nothing in steps 1–7 touches it.** It is a curated catalogue with its own
+submission form and a human review queue, separate from npm and from
+registry.modelcontextprotocol.io. Anthropic's docs are explicit: *"Desktop
+extensions (MCPB) use a separate submission form and don't require the
+portal."*
+
+This is why the listing sat at 1.0.6 while npm and the registry reached
+1.0.11: `mcp-publisher publish` does nothing for it, and no amount of waiting
+would have changed that. There is no propagation delay to ride out — there is a
+submission nobody had made.
+
+    https://clau.de/desktop-extention-submission
+
+Increment `version` in manifest.json and leave `name` unchanged; that is what
+marks it an update rather than a new listing. Attach the packed
+`.mcpb` from step 3.
+
+**There is no published SLA.** Anthropic states only *"Review times vary with
+queue volume."* Once a version is approved, directory-installed extensions
+update automatically — also with no stated interval. Privately distributed
+`.mcpb` files never auto-update at all.
+
+So: treat this channel as asynchronous and unbounded. Submit it, then keep
+shipping; do not block a release on it, and do not assume it followed.
+
+### Requirements, audited 2026-08-04 (all currently PASS)
+
+Local connectors are held to a stricter bar than remote ones, and the docs
+warn that *"Missing or incomplete privacy policies result in immediate
+rejection."* `get_sample_audit` makes this a local connector, so all of it
+applies:
+
+| Requirement | State |
+|---|---|
+| `privacy_policies` array in manifest.json (needs manifest_version ≥ 0.2) | PASS — `["https://website-auditor.io/privacy"]`, manifest_version 0.3 |
+| "Privacy Policy" section in README.md | PASS — README.md line ~148 |
+| HTTPS privacy URL that resolves | PASS — 200 |
+| Policy covers collection, use/storage, third-party sharing, retention, contact | PASS — all five present on the live page |
+| Every tool carries a `title` | PASS — 14/14 |
+| Every tool carries `readOnlyHint` or `destructiveHint` | PASS — set for all in src/mcp/server.ts |
+
+Re-check these before each submission rather than assuming: the privacy page
+is served by a different repo (chaos_tester), so it can regress without any
+change landing here.
+
+## Verifying a build without the directory
+
+Installing the packed `.mcpb` from Settings → Extensions bypasses the review
+queue entirely and is the fastest way to prove a build end to end. That is how
+1.0.10 was confirmed to report `server_version` and `install_id` at all.
