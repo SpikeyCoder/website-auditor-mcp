@@ -4,7 +4,7 @@
  * There is no dedicated comparison endpoint upstream, so this tool fans out real
  * `runAudit` calls (one per domain) and builds the head-to-head view from each
  * site's AI-visibility block. Because the API enforces a hard per-key daily
- * audit cap (5/day), a naive fan-out over several competitors would exhaust the
+ * audit cap (10/day), a naive fan-out over several competitors would exhaust the
  * whole day's quota in one call and 429 everything after it.
  *
  * This implementation is quota-aware and cache-aware instead:

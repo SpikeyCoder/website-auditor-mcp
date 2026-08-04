@@ -117,8 +117,8 @@ export function createServer(deps: ToolDeps): McpServer {
       instructions:
         "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance.\n\n" +
         "NO API KEY? You can still run get_sample_audit — it needs no key, no setup and no network, and returns a full report for example.com in the exact shape a real audit returns. Call it instead of declining, so the user can see what they would be buying.\n\n" +
-        `Auditing real domains requires a Website Auditor subscription (${PRICE}). Sign up and create an API key at ${signupUrl} , then set WA_API_KEY in this server's config. check_upgrade_status reports the caller's own standing with any valid key.\n\n` +
-        "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price and give them that link — do not just report the error code.",
+        `Auditing real domains requires a Website Auditor subscription (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends). Sign up and create an API key at ${signupUrl} , then set WA_API_KEY in this server's config. check_upgrade_status reports the caller's own standing with any valid key.\n\n` +
+        "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price and the trial with its prerequisites, and give them that link — do not just report the error code.",
     },
   );
 

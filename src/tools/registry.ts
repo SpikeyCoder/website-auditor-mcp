@@ -244,7 +244,7 @@ const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TO
  * price lives in exactly one place.
  */
 const PRO_SUFFIX =
-  " Requires a Website Auditor subscription ($10/month) — if the user doesn't have one, call get_sample_audit first to show them the exact output format, free and with no API key.";
+  " Requires a Website Auditor subscription ($10/month; eligible new customers get a 7-day free trial — payment method required, no charge until the trial ends) — if the user doesn't have one, call get_sample_audit first to show them the exact output format, free and with no API key.";
 
 function withProSuffix(spec: ToolSpec): ToolSpec {
   if (spec.tier !== "pro") return spec;

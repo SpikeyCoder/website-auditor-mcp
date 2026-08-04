@@ -61,7 +61,7 @@ describe("WaApiClient.runAudit", () => {
   it("maps HTTP 429 to OVER_QUOTA and preserves rate-limit details", async () => {
     const fetchMock = makeFetch(429, {
       success: false,
-      error: "Rate limit exceeded. You can make 5 requests per day.",
+      error: "Rate limit exceeded. You can make 10 requests per day.",
       rate_limit: { limit: 5, remaining: 0, resets_at: "2026-06-30T23:59:59.999Z" },
     });
     const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
