@@ -61,18 +61,23 @@ describe("check_upgrade_status [Free]", () => {
     expect(res.data.message).toContain("set to end");
   });
 
-  it("never subscribed -> paid-subscribe upsell naming the prerequisites, no trial offer", async () => {
+  it("never subscribed -> upsell offers the trial WITH its prerequisites", async () => {
     const res = await checkUpgradeStatus({}, makeDeps({}));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.tier).toBe("free");
     expect(res.data.status).toBe("none");
     expect(res.data.message).toContain("no free API tier");
+    // The trial returned 2026-08-04. Disclosure rule: the offer never travels
+    // without the price, the payment-method requirement and the Terms — the
+    // card sentence is what keeps "free trial" distinct from a free tier.
+    expect(res.data.message).toContain("7-day free trial");
+    expect(res.data.message).toContain("$10/month");
     expect(res.data.message).toContain("payment method");
     expect(res.data.message).toContain("Terms");
-    // Trials were removed for new subscriptions (2026-07-27): the message a
-    // prospective customer sees must not mention one in any form.
-    expect(res.data.message).not.toMatch(/trial/i);
+    // "eligible" — the endpoint cannot see trial_used_at, so the message may
+    // not PROMISE a trial to someone the 12-month window would refuse.
+    expect(res.data.message.toLowerCase()).toContain("eligible");
   });
 
   it("lapsed subscription -> real status surfaced, resubscribe pointer", async () => {
@@ -139,11 +144,18 @@ describe("check_upgrade_status [Free]", () => {
     expect(res.data.message).not.toContain("trial");
   });
 
-  it("never-subscribed message carries no trial language at all (trials removed 2026-07-27)", async () => {
-    const res = await checkUpgradeStatus({}, makeDeps({}));
+  it("lapsed-subscriber message states the 12-month rule, not a blanket trial promise", async () => {
+    // A lapsed subscriber most likely used their trial recently; promising a
+    // fresh one would be false for anyone inside the 12-month window. The
+    // message states the rule and that billing otherwise starts immediately.
+    const client = {
+      getSubscription: vi.fn(async () => ({ tier: "free" as const, status: "canceled" })),
+    };
+    const res = await checkUpgradeStatus({}, makeDeps({ client }));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.message).not.toMatch(/trial/i);
-    expect(res.data.message).not.toContain("eligible new customers");
+    expect(res.data.message).toContain("12 months");
+    expect(res.data.message).toContain("billing starts immediately");
+    expect(res.data.message).toContain("payment method");
   });
 });

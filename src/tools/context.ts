@@ -81,7 +81,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +
         `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
-        `To audit real domains, subscribe (${PRICE}) and create a key at ${upgradeUrl} , then set WA_API_KEY in this server's config.`,
+        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} , then set WA_API_KEY in this server's config.`,
       { upgrade_url: upgradeUrl },
     );
   }
@@ -124,7 +124,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
 
   return err(
     "PRO_REQUIRED",
-    `This tool requires an active Website Auditor subscription (${PRICE}). ` +
+    `This tool requires an active Website Auditor subscription (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends). ` +
       `Subscribe at ${upgradeUrl} to unlock audits, AI-visibility checks, monitoring, deltas, benchmarks and competitor comparison. ` +
       `In the meantime get_sample_audit works with no subscription and shows the exact output format.`,
     { upgrade_url: upgradeUrl },

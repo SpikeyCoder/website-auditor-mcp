@@ -6,10 +6,13 @@
  * /api/subscription endpoint is deliberately not Pro-gated) and never spends
  * audit quota — it isn't an audit, so it bypasses the free-tier meter.
  *
- * Trials were removed for new subscriptions on 2026-07-27, so the upsell
- * message never mentions one. The `trialing` status branch below stays: it
- * serves customers grandfathered into a trial granted before the removal,
- * until Stripe flips their status at trial end.
+ * The 7-day free trial was restored for new subscriptions on 2026-08-04
+ * (removed 2026-07-27), so the upsell messages name it — always WITH its
+ * prerequisites (price, payment method, Terms) in the same sentence, per the
+ * disclosure rule the web surfaces follow: the trial is when billing starts
+ * on the paid plan, never a second free tier. The eligibility caveat matters
+ * too: a customer who used a trial in the last 12 months is billed
+ * immediately, so the copy says "may", and checkout tells the truth.
  */
 import { fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 
@@ -66,11 +69,13 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   } else if (sub.status === "none") {
     message =
       `No active subscription — there is no free API tier, so all Website Auditor tools are locked. ` +
-      `Subscribe at ${upgradeUrl} — starting Pro requires adding a payment method and accepting the Terms.`;
+      `Subscribe at ${upgradeUrl} — eligible new customers get a 7-day free trial, then $10/month; ` +
+      `starting requires adding a payment method and accepting the Terms, with no charge until the trial ends.`;
   } else {
     message =
       `Subscription lapsed (status: ${sub.status}) — all Website Auditor tools are locked (there is no free API tier). ` +
-      `Resubscribe at ${upgradeUrl} (requires a payment method and accepting the Terms).`;
+      `Resubscribe at ${upgradeUrl} (requires a payment method and accepting the Terms; ` +
+      `a free trial is only available if your last one began more than 12 months ago — otherwise billing starts immediately).`;
   }
 
   return ok({

@@ -44,7 +44,10 @@ in the exact format a real run produces, so you can check the shape fits your
 needs first.
 
 **Pricing.** Auditing real domains needs a Website Auditor subscription at
-**$10/month**. Sign up and create an API key at
+**$10/month** — eligible new customers get a **7-day free trial** (payment
+method required to start; no charge until the trial ends; customers who used
+a trial in the last 12 months are billed immediately). Sign up and create an
+API key at
 **[api.website-auditor.io/admin_portal](https://api.website-auditor.io/admin_portal/?source=mcp)**,
 then set it as `WA_API_KEY` below. There is no free API tier — a key only
 functions with an active subscription.
@@ -81,9 +84,11 @@ Auditor account at
 **[api.website-auditor.io/admin_portal](https://api.website-auditor.io/admin_portal/?source=mcp)**
 — the admin portal, where you subscribe and manage keys.
 
-Minting a key requires an active subscription ($10/month): there is no free API
-tier, so every tool except `get_sample_audit` and `check_upgrade_status` needs
-one. `get_sample_audit` needs no key at all.
+Minting a key requires an active subscription ($10/month; eligible new
+customers get a 7-day free trial — payment method required, no charge until
+the trial ends): there is no free API tier, so every tool except
+`get_sample_audit` and `check_upgrade_status` needs one. `get_sample_audit`
+needs no key at all.
 
 Treat the key like a password — set it only in your MCP client's `env` and never
 commit it.
@@ -120,7 +125,7 @@ minute:
 - **No active subscription** (valid key, lapsed/canceled/never subscribed) →
   `PRO_REQUIRED` with the price and an upgrade link — there is no free API tier;
   `check_upgrade_status` still answers so the caller can learn why.
-- **Subscribed** (status `active`, or a legacy trial still in progress) → all tools.
+- **Subscribed** (status `active` or a trial in progress) → all tools.
 
 Errors are normalized to stable codes agents can branch on — e.g.
 `AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `OVER_QUOTA`,
