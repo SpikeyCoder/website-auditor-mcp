@@ -116,7 +116,7 @@ export function makeQuotaClient(opts: {
 
   const runAudit = vi.fn(async ({ domain }: { domain: string }): Promise<AuditResponse> => {
     if (remaining <= 0) {
-      throw new WaApiError("OVER_QUOTA", "Rate limit exceeded. You can make 5 requests per day.", {
+      throw new WaApiError("OVER_QUOTA", "Rate limit exceeded. You can make 10 requests per day.", {
         status: 429,
         details: { limit, remaining: 0, resets_at: reset },
       });

@@ -2,7 +2,7 @@
  * Hitting the daily audit cap is not an upgrade prompt.
  *
  * OVER_QUOTA is the API's 429, raised by middleware/rateLimiter.js enforcing
- * config.rateLimitPerDay = 5 audits/day. That ceiling applies to every
+ * config.rateLimitPerDay = 10 audits/day. That ceiling applies to every
  * subscriber — it is a usage limit, not a plan boundary.
  *
  * And a 429 can ONLY ever reach a subscriber. Since website-auditor-api PR #17
@@ -53,7 +53,7 @@ describe("OVER_QUOTA carries no upgrade prompt", () => {
         new Response(
           JSON.stringify({
             success: false,
-            error: "Rate limit exceeded. You can make 5 requests per day.",
+            error: "Rate limit exceeded. You can make 10 requests per day.",
             rate_limit: { limit: 5, remaining: 0, resets_at: "2026-08-05T00:00:00Z" },
           }),
           { status: 429, headers: { "content-type": "application/json" } },

@@ -9,7 +9,7 @@ Phase-0/1 tool needs.
 
 - **`GET /api/audit?businessUrl=&businessName=&businessCity=`** — the only live,
   API-key-authed endpoint. Auth via `X-API-Key` (`wa_` prefix, SHA-256 hashed in
-  Supabase `api_keys`). Hard rate limit of **5 requests/key/day** (`increment_rate_limit`
+  Supabase `api_keys`). Hard rate limit of **10 requests/key/day** (`increment_rate_limit`
   RPC) → `429` with a `rate_limit` object. Triggers the Flask engine's `POST /run`,
   polls `/api/status`, returns `/report/<run_id>/json`.
   Response envelope: `{ success, request_id, run_id, timestamp, duration_ms, audit }`
@@ -82,7 +82,7 @@ Nothing computes head-to-head scores across domains. The audit's
 but there's no multi-domain comparison.
 **MCP behavior today:** `compare_competitors` **fans out one `runAudit` per
 domain** and builds the ranking + per-engine gaps from live data — a genuine
-implementation, but each domain consumes an audit against the 5/day quota. To
+implementation, but each domain consumes an audit against the 10/day quota. To
 avoid exhausting the day in one call, the tool is quota-aware: it reads the
 remaining quota (pre-flight where possible, otherwise from each audit's
 `X-RateLimit-Remaining` header), reuses recent cached audits, caps the fan-out
