@@ -41,7 +41,11 @@ export function err(code: ErrorCode, message: string, extra: { upgrade_url?: str
 /** Map a thrown WaApiError (or unknown error) to a ToolError result. */
 export function fromApiError(e: unknown, upgradeUrl: string): ToolResult<never> {
   if (e instanceof WaApiError) {
-    const attachUpgrade = e.code === "OVER_QUOTA" || e.code === "INVALID_KEY" || e.code === "PRO_REQUIRED";
+    // OVER_QUOTA is deliberately NOT in this list. It is the shared daily audit
+    // cap, which only a subscriber can reach (there is no free API tier), so an
+    // upgrade link there sells someone their own plan. See the 429 branch in
+    // api/client.ts. These two ARE plan boundaries: no key, or no subscription.
+    const attachUpgrade = e.code === "INVALID_KEY" || e.code === "PRO_REQUIRED";
     return err(e.code, e.message, {
       upgrade_url: e.upgradeUrl ?? (attachUpgrade ? upgradeUrl : undefined),
       details: e.details,
