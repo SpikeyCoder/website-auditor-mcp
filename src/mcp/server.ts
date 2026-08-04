@@ -27,7 +27,13 @@ import { upgradeLink, PRICE } from "../tools/upgrade.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
-export const SERVER_VERSION = "1.0.10";
+// Imported AND re-exported: line ~99 needs a local binding for the server's
+// own `initialize` response, and every existing
+// `import { SERVER_VERSION } from "../mcp/server.js"` must keep resolving.
+// The constant itself lives in src/version.ts so api/client.ts can stamp it on
+// requests without importing this module and closing a cycle.
+import { SERVER_VERSION } from "../version.js";
+export { SERVER_VERSION };
 
 // Dispatch by tool name. Each handler receives the validated args + deps.
 const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) => Promise<ToolResult<unknown>>> = {

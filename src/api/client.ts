@@ -35,6 +35,7 @@ import type {
   ReportLinks,
 } from "./types.js";
 import { WaApiError } from "./errors.js";
+import { versionHeader } from "../version.js";
 import { computeChanges } from "./mappers.js";
 import { normalizeDomain, deriveBusinessName } from "./domain.js";
 
@@ -167,7 +168,7 @@ export class WaApiClient implements WaApiClientLike {
     url.searchParams.set("businessName", params.businessName?.trim() || deriveBusinessName(host));
     url.searchParams.set("businessCity", params.businessCity?.trim() || CITY_SENTINEL);
 
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = { Accept: "application/json", ...versionHeader() };
     if (this.cfg.apiKey) headers["X-API-Key"] = this.cfg.apiKey;
 
     const controller = new AbortController();
@@ -446,7 +447,7 @@ export class WaApiClient implements WaApiClientLike {
    * a WaApiError, and returns the parsed body.
    */
   private async requestJson(method: string, url: URL, jsonBody?: unknown): Promise<unknown> {
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = { Accept: "application/json", ...versionHeader() };
     if (this.cfg.apiKey) headers["X-API-Key"] = this.cfg.apiKey;
     if (jsonBody !== undefined) headers["Content-Type"] = "application/json";
 
