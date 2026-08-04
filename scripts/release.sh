@@ -111,44 +111,91 @@ MCP_TOKEN="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-publisher/token.json"
   || die "mcp-publisher has no saved credentials at ${MCP_TOKEN}. Run: mcp-publisher login github  — checked here rather than after npm, because npm cannot be un-published."
 
 # PRESENT IS NOT THE SAME AS VALID. Registry tokens are short-lived JWTs, and
-# an expired one is what actually caused the 1.0.11 release to go out to npm
-# and stop: the file was there, the precondition passed, npm published
-# irreversibly, and only then did the registry reject the stale credential.
-# The exp claim is right there in the token, so read it.
+# an expired one is what caused the 1.0.11 release to go out to npm and stop:
+# the file was there, the precondition passed, npm published irreversibly, and
+# only then did the registry reject the stale credential.
 #
-# A 5-minute floor, not zero: the steps between here and the registry publish
-# (typecheck, full suite, build, npm publish, OTP) take minutes, so a token
-# valid "right now" can still be dead by the time it is used.
-# NB: no top-level `return` here — node -e does not wrap the script in a
-# function, so `return` is a parse error and the whole check silently degrades
-# to "opaque". It did exactly that on the first attempt.
-TOKEN_STATE=$(node -e '
-  const fs = require("fs");
-  let out = "opaque";
-  try {
-    const t = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const parts = (t.token || "").split(".");
-    if (parts.length === 3) {
-      const c = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-      if (c.exp) {
-        const left = Math.floor((c.exp * 1000 - Date.now()) / 1000);
-        out = left <= 0 ? "expired" : (left < 300 ? "expiring:" + left : "valid:" + left);
-      }
-    }
-  } catch (e) { /* opaque */ }
-  console.log(out);
-' "$MCP_TOKEN" 2>/dev/null || echo "opaque")
+# THE 5-MINUTE FLOOR THAT USED TO LIVE HERE WAS UNSATISFIABLE. Measured against
+# a real token: exp - iat = 300 seconds. The issued lifetime IS five minutes, so
+# a gate demanding 300s remaining could only pass in the zeroth second after
+# login. Every run aborted, and "refresh it first" could not help — a brand-new
+# token is already only 300s. Do not reintroduce a floor at or near 300.
+#
+# The deeper problem is that NO token can survive this script. Typecheck, the
+# full suite, the build, npm publish and an OTP prompt take well over five
+# minutes, so freshness at the top says nothing about validity at the bottom.
+# Checking earlier cannot fix that; only checking LATER can.
+#
+# So the expiry test moved to just before the registry publish (see the
+# just-in-time refresh below), where a fresh 300s token has one command to
+# survive instead of an entire release. What stays here is the check that
+# actually belongs in preconditions: has this machine ever authenticated, and
+# can it re-authenticate when the time comes.
+#
+# NB: no top-level `return` in the node snippet — node -e does not wrap the
+# script in a function, so `return` is a parse error and the whole check
+# silently degrades to "opaque". It did exactly that on the first attempt.
+#
+# REGISTRY_PUBLISH_FLOOR is the margin the registry publish itself needs: one
+# HTTPS request, seconds not minutes. It is deliberately far below the 300s
+# issued lifetime so that a token minted moments ago reads as usable.
+REGISTRY_PUBLISH_FLOOR=90
 
-case "$TOKEN_STATE" in
-  expired)
-    die "the mcp-publisher token has EXPIRED. Run: mcp-publisher login github — caught before npm, because an expired registry token is exactly what half-published 1.0.11." ;;
-  expiring:*)
-    die "the mcp-publisher token expires in ${TOKEN_STATE#expiring:}s, which will not survive the test run, build, npm publish and OTP prompt ahead of it. Refresh it first: mcp-publisher login github" ;;
-  valid:*)
-    ok "mcp-publisher token valid for $(( ${TOKEN_STATE#valid:} / 60 )) more minutes" ;;
-  *)
-    ok "mcp-publisher token present (expiry not readable)" ;;
-esac
+# Self-check, because getting this wrong is silent and total: a floor at or
+# above the 300s issued lifetime makes every run abort with "refresh it first",
+# and refreshing cannot help. That shipped once and blocked releases outright.
+TOKEN_ISSUED_LIFETIME=300
+[ "$REGISTRY_PUBLISH_FLOOR" -lt "$TOKEN_ISSUED_LIFETIME" ] \
+  || die "release.sh bug: REGISTRY_PUBLISH_FLOOR (${REGISTRY_PUBLISH_FLOOR}s) is >= the ${TOKEN_ISSUED_LIFETIME}s a registry token is issued with, so no token can ever satisfy it and every release will abort. Lower the floor."
+
+token_state() {
+  node -e '
+    const fs = require("fs");
+    let out = "opaque";
+    try {
+      const t = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const parts = (t.token || "").split(".");
+      if (parts.length === 3) {
+        const c = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+        if (c.exp) {
+          const left = Math.floor((c.exp * 1000 - Date.now()) / 1000);
+          const floor = Number(process.argv[2]);
+          out = left <= 0 ? "expired" : (left < floor ? "expiring:" + left : "valid:" + left);
+        }
+      }
+    } catch (e) { /* opaque */ }
+    console.log(out);
+  ' "$MCP_TOKEN" "$REGISTRY_PUBLISH_FLOOR" 2>/dev/null || echo "opaque"
+}
+
+TOKEN_STATE=$(token_state)
+
+# Expiry here is INFORMATIONAL ONLY. The token will be re-minted just before it
+# is used; all that matters now is that re-minting is possible at all, which
+# needs a terminal for the GitHub device flow. Catching a headless shell here —
+# before npm — is what keeps a missing registry step from becoming a
+# half-published release.
+if [ -t 0 ]; then
+  case "$TOKEN_STATE" in
+    expired|expiring:*)
+      ok "mcp-publisher token is stale — it will be refreshed just before the registry publish" ;;
+    valid:*)
+      ok "mcp-publisher token has $(( ${TOKEN_STATE#valid:} ))s left — refreshed later if it runs down" ;;
+    *)
+      ok "mcp-publisher token present (expiry not readable)" ;;
+  esac
+else
+  # No TTY: `mcp-publisher login github` cannot run, so the token on disk is the
+  # only one this release will ever have. Now the old strict floor is the RIGHT
+  # test — and it will essentially always fail, which is the honest answer:
+  # a five-minute credential cannot survive a ten-minute release unattended.
+  case "$TOKEN_STATE" in
+    valid:*)
+      ok "mcp-publisher token has $(( ${TOKEN_STATE#valid:} ))s left (non-interactive; cannot refresh)" ;;
+    *)
+      die "the mcp-publisher token is stale and this shell has no TTY, so the GitHub device flow cannot run. Registry tokens live only 300s, so an unattended release effectively cannot hold one. Run 'npm run release' from a terminal you can type into. Nothing has been published." ;;
+  esac
+fi
 
 # Already published? Publishing is irreversible, so refuse rather than error out
 # halfway. Each channel is reported separately: one may legitimately be ahead if
@@ -242,6 +289,34 @@ fi
 
 if [ "$REG_HAS" = 0 ]; then
   say "Publishing to the MCP registry"
+
+  # JUST-IN-TIME CREDENTIAL. This is the only place freshness can honestly be
+  # asserted. Registry tokens live 300s from issue, and everything above —
+  # typecheck, suite, build, npm publish, OTP — reliably outlasts that, so the
+  # token checked in preconditions is routinely dead by the time we arrive here.
+  # That is precisely how 1.0.11 went out to npm and stopped.
+  #
+  # Re-minting costs one device-flow prompt and buys a full 300s for a single
+  # HTTPS request. npm has already published at this point, so refusing to
+  # refresh would strand the release half-done — the exact failure being
+  # prevented. Anything short of the floor gets a new token.
+  case "$(token_state)" in
+    valid:*)
+      : ;;  # comfortably alive; publish straight away
+    *)
+      printf '   registry token is short-lived (300s) and has run down — re-authenticating\n'
+      if [ -t 0 ]; then
+        mcp-publisher login github \
+          || die "mcp-publisher login failed. npm ALREADY HAS ${VERSION}; finish with 'mcp-publisher login github && mcp-publisher publish'. Do NOT re-run this script."
+        case "$(token_state)" in
+          valid:*) ok "registry token refreshed" ;;
+          *) printf '   ! token still reads stale after login; attempting the publish anyway\n' ;;
+        esac
+      else
+        die "the registry token needs refreshing and this shell has no TTY. npm ALREADY HAS ${VERSION}; finish from a terminal with 'mcp-publisher login github && mcp-publisher publish'. Do NOT re-run this script."
+      fi ;;
+  esac
+
   if ! mcp-publisher publish; then
     # A non-zero exit is NOT proof the publish failed. The registry indexes
     # asynchronously, and the CLI can report an error on a request that landed

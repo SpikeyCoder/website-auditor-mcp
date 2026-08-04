@@ -58,6 +58,19 @@ rather than assuming. The manual steps are kept for when something goes wrong.
 5. `mcp-publisher publish` — needs `mcp-publisher login github` first. **This is
    the step that was missed three releases running.**
 
+   **Registry tokens live 300 seconds from issue.** That is the whole lifetime,
+   not the remainder — so logging in at the start of a release and publishing at
+   the end never works: typecheck, the suite, the build, `npm publish` and the
+   OTP prompt together take far longer than five minutes. Log in *immediately
+   before* this step, not before step 1.
+
+   `scripts/release.sh` does this for you: preconditions only check that the
+   machine has credentials at all and that there is a TTY to re-authenticate
+   with, then it re-mints the token just before publishing. An earlier version
+   demanded 300s of remaining life up front, which no token can ever have, and
+   every release aborted on a message telling you to refresh a token that was
+   already as fresh as tokens get.
+
 6. `gh release create v<x.y.z> website-auditor-mcp-<x.y.z>.mcpb` so `.mcpb`
    users have a canonical download.
 
