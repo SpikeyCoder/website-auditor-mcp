@@ -17,7 +17,9 @@
  *     `quota` block + a `summary` — competitors are never silently dropped, and
  *     scores are never fabricated for a domain that wasn't audited.
  *   - Zero remaining quota (can't even audit the primary domain) is an
- *     actionable OVER_QUOTA error with the reset time and upgrade path.
+ *     actionable OVER_QUOTA error carrying the reset time. Not an upgrade
+ *     prompt: the cap applies to every subscription, so there is nothing to
+ *     upgrade to — see the 429 branch in api/client.ts.
  */
 import type {
   Comparison,
