@@ -83,6 +83,30 @@ export function topCompetitor(av: AiVisibilityBlock): string | null {
   return best;
 }
 
+/**
+ * The engine's name-provenance block, defensively read.
+ *
+ * chaos_tester #334 ships `identification.name_warning` / `name_verified` /
+ * `name_source`, but a report produced before that deploy — or replayed from
+ * the 24h answer cache — has no block at all, and a hostile/garbled payload
+ * must not throw inside a mapper. Anything that is not the expected shape
+ * reads as "nothing to say", never as a fabricated caveat.
+ */
+function nameProvenance(av: AiVisibilityBlock): {
+  warning?: string;
+  verified?: boolean;
+  source?: string;
+} {
+  const block = av.identification;
+  if (!block || typeof block !== "object" || Array.isArray(block)) return {};
+  const warning = typeof block.name_warning === "string" ? block.name_warning.trim() : "";
+  return {
+    warning: warning || undefined, // "" means verified — omit rather than emit empty
+    verified: typeof block.name_verified === "boolean" ? block.name_verified : undefined,
+    source: typeof block.name_source === "string" && block.name_source ? block.name_source : undefined,
+  };
+}
+
 export function toAiVisibility(report: AuditReport): AiVisibility {
   const av = report.ai_visibility ?? {};
   const score = av.overall_score ?? 0;
@@ -101,14 +125,28 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   const competitor = topCompetitor(av);
   const name = av.business_info?.business_name ?? report.base_url;
   const simulatedNote = av.is_simulated ? " (estimated — live AI queries were unavailable)" : "";
+  const provenance = nameProvenance(av);
+  // Folded into the sentence, not just carried as a field: the caller is a
+  // model, and it reads `summary`. Same reasoning as simulatedNote above.
+  const nameNote = provenance.warning ? ` NOTE: ${provenance.warning}` : "";
   const summary =
     competitor && competitor.length > 0
-      ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}`
-      : `${name} scores ${score}/100 for AI visibility across ChatGPT, Perplexity, Claude and Gemini.${simulatedNote}`;
+      ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}${nameNote}`
+      : `${name} scores ${score}/100 for AI visibility across ChatGPT, Perplexity, Claude and Gemini.${simulatedNote}${nameNote}`;
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
-  return { score, by_engine, appears_by_engine, top_competitor: competitor, summary, trend: null };
+  return {
+    score,
+    by_engine,
+    appears_by_engine,
+    top_competitor: competitor,
+    summary,
+    trend: null,
+    ...(provenance.warning ? { name_warning: provenance.warning } : {}),
+    ...(provenance.verified !== undefined ? { name_verified: provenance.verified } : {}),
+    ...(provenance.source ? { name_source: provenance.source } : {}),
+  };
 }
 
 /** Pass-rate (0–100) of results for a given module, or null if none ran. */
@@ -157,6 +195,7 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
     }));
 
   const report_url = `${opts.siteUrl.replace(/\/+$/, "")}/report/${report.run_id}`;
+  const provenance = nameProvenance(av);
 
   return {
     scores: {
@@ -167,6 +206,9 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
     },
     top_issues,
     report_url,
+    // Only when unverified. ai_visibility above is scored on queries built
+    // around the business name, so this caveat qualifies that number.
+    ...(provenance.warning ? { name_warning: provenance.warning } : {}),
   };
 }
 

@@ -65,6 +65,22 @@ export interface AiVisibilityBlock {
   is_simulated?: boolean;
   has_api_key?: boolean;
   site_signals?: Record<string, unknown>;
+  /**
+   * How the business was identified (chaos_tester #334). Optional because a
+   * report produced before that deploy — or replayed from cache — has no such
+   * block, and absent must read as "no warning" rather than a crash.
+   */
+  identification?: {
+    confidence?: string;
+    identification_sources?: string[];
+    /** "detected" | "user_supplied" | "domain_fallback". */
+    name_source?: string;
+    /** Stricter than confidence: corroborated, or externally verified. */
+    name_verified?: boolean;
+    /** Actionable text when the name is unverified; "" when it is not. */
+    name_warning?: string;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
@@ -142,6 +158,17 @@ export interface AiVisibility {
   trend: AiVisibilityTrend | null;
   /** Present exactly when `trend` is null: the human-readable reason. */
   trend_note?: string;
+  /**
+   * Set ONLY when the business name could not be verified. The score is
+   * computed from queries built around that name, so an unverified name means
+   * the whole result may describe a different business. Also folded into
+   * `summary`, because a field the model never reads changes nothing.
+   */
+  name_warning?: string;
+  /** Present when the engine reported it: corroborated or externally verified. */
+  name_verified?: boolean;
+  /** Present when the engine reported it: "detected" | "user_supplied" | "domain_fallback". */
+  name_source?: string;
 }
 
 export interface AuditIssue {
@@ -157,6 +184,13 @@ export interface AuditSummary {
   scores: { ai_visibility: number | null; seo: number | null; security: number | null; performance: number | null };
   top_issues: AuditIssue[];
   report_url: string;
+  /**
+   * Set ONLY when the business name could not be verified — the AI-visibility
+   * score is built from queries around that name, so an unverified name puts
+   * the whole score in question. run_audit carries it because it is the tool
+   * most agents reach for first.
+   */
+  name_warning?: string;
 }
 
 export interface EngineChange {
