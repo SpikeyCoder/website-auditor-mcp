@@ -85,6 +85,50 @@ describe("OVER_QUOTA carries no upgrade prompt", () => {
     expect(e.details).toMatchObject({ resets_at: "2026-08-05T00:00:00Z" });
   });
 
+  it("renders the reset time into the message, not only into details", async () => {
+    // `details` is machine-readable and does reach the model, but `message` is
+    // the line a client shows the customer and the only part most agents quote.
+    // "Rate limit exceeded. You can make 10 requests per day." tells them they
+    // are blocked without telling them until when — and now that the upsell is
+    // gone, the reset time is the only remedy left to offer. compare_competitors
+    // already answers this way; the direct 429 should not be worse.
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: false,
+            error: "Rate limit exceeded. You can make 10 requests per day.",
+            rate_limit: { limit: 10, remaining: 0, resets_at: "2026-08-05T23:59:59.999Z" },
+          }),
+          { status: 429, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const client = new WaApiClient(cfg, { fetch: fetchMock as unknown as typeof fetch });
+    const e = await client.runAudit({ domain: "example.com" }).catch((err) => err);
+    expect(e.message).toContain("Rate limit exceeded. You can make 10 requests per day.");
+    expect(e.message).toContain("2026-08-05T23:59:59.999Z");
+    expect(e.message).toMatch(/re-?run|try again/i);
+    // Still no purchase in the remedy.
+    expect(e.message).not.toMatch(/upgrade|subscribe/i);
+  });
+
+  it("omits the reset clause when the 429 carries no rate_limit block", async () => {
+    // Never render "resets at undefined". The API always sends rate_limit on a
+    // 429 today, but a proxy or a future error shape may not.
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ success: false, error: "Rate limit exceeded." }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = new WaApiClient(cfg, { fetch: fetchMock as unknown as typeof fetch });
+    const e = await client.runAudit({ domain: "example.com" }).catch((err) => err);
+    expect(e.code).toBe("OVER_QUOTA");
+    expect(e.message).toBe("Rate limit exceeded.");
+    expect(e.message).not.toMatch(/undefined|null|resets at/i);
+  });
+
   it("fromApiError does not synthesise an upgrade URL for OVER_QUOTA", () => {
     const res = fromApiError(new WaApiError("OVER_QUOTA", "Rate limit exceeded."), cfg.upgradeUrl);
     expect(res.ok).toBe(false);

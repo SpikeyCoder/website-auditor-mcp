@@ -520,14 +520,23 @@ export class WaApiClient implements WaApiClientLike {
         // Cap reached. The caller is already Pro, so this is not an upgrade
         // prompt — the fix is to untrack a domain, surfaced in the message.
         return new WaApiError("LIMIT_REACHED", message, { status });
-      case 429:
+      case 429: {
         // Same reasoning as the 409 above, one status code along. This is the
         // server's shared daily audit cap (rateLimitPerDay), not a plan
         // boundary — and since website-auditor-api PR #17 removed the free API
         // tier, only an existing subscriber can reach it at all. Offering them
-        // an upgrade offers the plan they already pay for. The remedy is the
-        // reset time carried in rate_limit, so that is what goes in details.
-        return new WaApiError("OVER_QUOTA", message, { status, details: b.rate_limit });
+        // an upgrade offers the plan they already pay for.
+        //
+        // With the upsell gone, the reset time is the whole remedy, so it goes
+        // in the MESSAGE as well as in details. details serves callers that
+        // track quota programmatically (compare_competitors); the message is
+        // what a client actually shows the customer, and the API's own text
+        // stops at "you can make N requests per day" — blocked, with no "until
+        // when". Left in details alone it is a fact nobody reads out.
+        const resetsAt = quotaResetsAt(b.rate_limit);
+        const text = resetsAt ? `${message} It resets at ${resetsAt}. Re-run after that.` : message;
+        return new WaApiError("OVER_QUOTA", text, { status, details: b.rate_limit });
+      }
       case 504:
         // Self-describing; needs no timing heuristic.
         return new WaApiError("TIMEOUT", message, { status });
@@ -548,6 +557,21 @@ export class WaApiClient implements WaApiClientLike {
         return new WaApiError("UPSTREAM_ERROR", message, { status, details: b.details });
     }
   }
+}
+
+/**
+ * The reset timestamp out of a 429's `rate_limit` block, or null if absent.
+ *
+ * `resets_at` is what the API sends (middleware/rateLimiter.js, an end-of-UTC-day
+ * ISO string); `reset` is also accepted because that is the name the
+ * header-derived {@link RateLimit} shape uses, and both reach quota consumers.
+ */
+function quotaResetsAt(rateLimit: unknown): string | null {
+  if (!rateLimit || typeof rateLimit !== "object") return null;
+  const r = rateLimit as { resets_at?: unknown; reset?: unknown };
+  if (typeof r.resets_at === "string") return r.resets_at;
+  if (typeof r.reset === "string") return r.reset;
+  return null;
 }
 
 /** Coerce a value to a finite number, defaulting to 0 (used for numeric fields). */
