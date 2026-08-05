@@ -80,11 +80,11 @@
     },
     {
       "name": "get_ai_visibility",
-      "description": "Check AI visibility [read-only]. Check how visible a website is to AI assistants right now. Returns an overall AI-visibility score (0-100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. Includes 7- and 30-day trend data from stored snapshot history. Requires an active subscription."
+      "description": "Check AI visibility [read-only]. Check how visible a website is to AI assistants right now. Returns an overall AI-visibility score (0-100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. Includes 7- and 30-day trend data from stored snapshot history. When name_warning is present, the business name behind the score could not be verified — relay that caveat rather than presenting the score as settled fact, and offer to re-run with an explicit business name. Requires an active subscription."
     },
     {
       "name": "run_audit",
-      "description": "Run a full audit [read-only]. Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Returns a scored summary across categories and a link to the full report. Requires an active subscription."
+      "description": "Run a full audit [read-only]. Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Returns a scored summary across categories and a link to the full report. When name_warning is present, the business name the AI-visibility score was measured against could not be verified — relay that caveat rather than presenting the score as settled fact. Requires an active subscription."
     },
     {
       "name": "get_changes",
