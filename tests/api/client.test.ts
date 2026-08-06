@@ -88,14 +88,25 @@ describe("WaApiClient.runAudit", () => {
     await expect(client.runAudit({ domain: "example.com" })).rejects.toMatchObject({ code: "TIMEOUT" });
   });
 
-  it("derives businessName from the domain and sends a validation-safe businessCity", async () => {
+  it("sends only the domain when the caller named neither business nor city", async () => {
+    // REPLACES "derives businessName from the domain and sends a
+    // validation-safe businessCity". Both workarounds are gone.
+    //
+    // The derived name was not harmless filler: upstream, a supplied
+    // business_name OVERRIDES detection and is stamped `user_supplied`, so
+    // "Acme-corp" was scored and reported as though a human had confirmed it,
+    // and chaos_tester #334's name_warning could never fire. The " " city
+    // existed to satisfy a naive `if (!businessCity)` check that was hardened
+    // on 2026-08-01, turning the sentinel into a guaranteed 400.
+    //
+    // api PR #42 makes both optional and normalises blank to absent, so the
+    // honest request is the minimal one. See tests/api/businessParams.test.ts.
     const fetchMock = makeFetch(200, { success: true, run_id: "x", audit: reachableReport() });
     const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
     await client.runAudit({ domain: "acme-corp.com" });
     const url = new URL(String(fetchMock.mock.calls[0]![0]));
-    expect(url.searchParams.get("businessName")).toBeTruthy();
-    // businessCity must be present & non-empty so the API's validation passes
-    expect((url.searchParams.get("businessCity") ?? "").length).toBeGreaterThan(0);
+    expect(url.searchParams.has("businessName")).toBe(false);
+    expect(url.searchParams.has("businessCity")).toBe(false);
     expect(url.searchParams.get("businessUrl")).toBe("acme-corp.com");
   });
 

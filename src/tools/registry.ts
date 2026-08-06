@@ -27,6 +27,24 @@ export interface ToolSpec {
 
 const domainArg = z.string().describe('The website domain, e.g. "example.com".');
 
+// Optional overrides for the two inputs that decide WHAT QUESTION the audit
+// asks. Both were previously unreachable: the schemas accepted `domain` alone,
+// so the client filled them in — a hostname slug for the name and a whitespace
+// sentinel for the city. A supplied name OVERRIDES detection upstream and is
+// stamped `user_supplied`, so an invented one silenced the name_warning it
+// should have triggered. Omit them and the engine detects and labels what it
+// found; supply them and the caller is on record as the source.
+const businessNameArg = z.string().optional().describe(
+  "Optional. The business's real name, if you know it. Leave it out and the "
+  + "audit detects the name from the site and flags it when unverified — a "
+  + "guessed name is scored as if confirmed, so supply one only when it is "
+  + "actually known.");
+const businessLocationArg = z.string().optional().describe(
+  "Optional. The city the business trades in, e.g. \"Hilo, HI\". Leave it out "
+  + "and the audit detects it; when nothing is detectable the questions widen "
+  + "to the country or drop the place entirely, which is right for a national "
+  + "or global business and wrong for a local one.");
+
 // ─── Phase 0 (MVP) ─────────────────────────────────────────────────────────
 
 export const P0_TOOLS: ToolSpec[] = [
@@ -37,7 +55,11 @@ export const P0_TOOLS: ToolSpec[] = [
     title: "Check AI visibility",
     description:
       'Check how visible a website is to AI assistants right now. Use this whenever someone asks "does ChatGPT/Perplexity/Claude/Gemini recommend this business," "is my site showing up in AI answers," "what\'s my AI visibility / GEO score," or wants a quick read on whether an AI assistant would surface a given domain. Returns an overall AI-visibility score (0–100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. The result also includes trend data: 7- and 30-day score movement computed from the domain\'s stored snapshot history. If `name_warning` is present, the business name behind the score could not be verified — relay that caveat rather than presenting the score as settled fact, and offer to re-run with an explicit business name. Requires an active subscription.',
-    inputSchema: { domain: domainArg },
+    inputSchema: {
+      domain: domainArg,
+      business_name: businessNameArg,
+      business_location: businessLocationArg,
+    },
   },
   {
     name: "run_audit",
@@ -46,7 +68,11 @@ export const P0_TOOLS: ToolSpec[] = [
     title: "Run a full audit",
     description:
       'Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Use this when someone asks to "audit," "scan," "check," or "review" a website\'s health or SEO, or wants a complete report rather than just the AI-visibility number. Returns a scored summary across categories and a link to the full report. If `name_warning` is present, the business name the AI-visibility score was measured against could not be verified — relay that caveat rather than presenting the score as settled fact. Requires an active subscription.',
-    inputSchema: { domain: domainArg },
+    inputSchema: {
+      domain: domainArg,
+      business_name: businessNameArg,
+      business_location: businessLocationArg,
+    },
   },
   {
     name: "get_changes",
