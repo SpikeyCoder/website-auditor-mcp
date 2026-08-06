@@ -17,6 +17,10 @@ import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } fr
 
 export interface GetAiVisibilityArgs {
   domain: string;
+  /** Optional; omitted means "detect it, and warn if unverified". */
+  business_name?: string;
+  /** Optional; omitted means "detect it, then scope by what was found". */
+  business_location?: string;
 }
 
 /** Fill `trend`/`trend_note` on a mapped result. Never throws.
@@ -43,7 +47,11 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
 
   let response;
   try {
-    response = await deps.client.runAudit({ domain: args.domain });
+    response = await deps.client.runAudit({
+      domain: args.domain,
+      businessName: args.business_name,
+      businessCity: args.business_location,
+    });
   } catch (e) {
     return fromApiError(e, deps.config.upgradeUrl);
   }
