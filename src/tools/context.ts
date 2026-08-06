@@ -9,7 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
-import { upgradeLink, PRICE } from "./upgrade.js";
+import { upgradeLink, tagSource, PRICE } from "./upgrade.js";
 import type { EventSink } from "../telemetry/events.js";
 
 export interface ToolDeps {
@@ -58,8 +58,13 @@ export function fromApiError(e: unknown, upgradeUrl: string): ToolResult<never> 
     // upgrade link there sells someone their own plan. See the 429 branch in
     // api/client.ts. These two ARE plan boundaries: no key, or no subscription.
     const attachUpgrade = e.code === "INVALID_KEY" || e.code === "PRO_REQUIRED";
+    // Tagged HERE rather than by the 13 call sites that pass a raw
+    // config.upgradeUrl, so no tool can emit an unattributed signup link — see
+    // tagSource in upgrade.js. The API's own upgrade_url is tagged too: a 401
+    // followed to the portal is an MCP-driven signup however the link was made.
+    const target = e.upgradeUrl ?? (attachUpgrade ? upgradeUrl : undefined);
     return err(e.code, e.message, {
-      upgrade_url: e.upgradeUrl ?? (attachUpgrade ? upgradeUrl : undefined),
+      upgrade_url: target === undefined ? undefined : tagSource(target),
       details: e.details,
     });
   }

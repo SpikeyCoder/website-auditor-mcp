@@ -27,11 +27,27 @@ export const PRICE = "$10/month";
  * it, and degrades to the raw configured value if it isn't a parseable URL.
  */
 export function upgradeLink(config: WaConfig): string {
+  return tagSource(config.upgradeUrl);
+}
+
+/**
+ * The same tagging, applied to a URL that did not come from config — chiefly
+ * the `upgrade_url` the API itself returns on a 401/403, which is just as much
+ * an MCP-driven signup as a link we composed.
+ *
+ * Split out of upgradeLink so fromApiError can attribute every error-path link
+ * in one place. Doing it there rather than at its 13 call sites means a new
+ * tool cannot forget: there is nothing left to remember.
+ *
+ * Idempotent, and never overrides a `source` that is already present, so it is
+ * safe to apply more than once or to a link that was tagged elsewhere.
+ */
+export function tagSource(rawUrl: string): string {
   try {
-    const url = new URL(config.upgradeUrl);
+    const url = new URL(rawUrl);
     if (!url.searchParams.has("source")) url.searchParams.set("source", "mcp");
     return url.toString();
   } catch {
-    return config.upgradeUrl;
+    return rawUrl;
   }
 }

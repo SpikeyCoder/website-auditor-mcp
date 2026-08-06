@@ -15,7 +15,7 @@
  * immediately, so the copy says "may", and checkout tells the truth.
  */
 import { fromApiError, ok, RESTART_NOTE, type ToolDeps, type ToolResult } from "./context.js";
-import { PRICE } from "./upgrade.js";
+import { PRICE, upgradeLink } from "./upgrade.js";
 
 export interface UpgradeStatus {
   tier: "none" | "free" | "pro";
@@ -30,7 +30,10 @@ export interface UpgradeStatus {
 }
 
 export async function checkUpgradeStatus(_args: Record<string, never>, deps: ToolDeps): Promise<ToolResult<UpgradeStatus>> {
-  const upgradeUrl = deps.config.upgradeUrl;
+  // upgradeLink, not the raw config value: this is the tool people run BECAUSE
+  // they have no working key, so its link is among the likeliest to be followed
+  // — and was the one guaranteed not to attribute the signup it produced.
+  const upgradeUrl = upgradeLink(deps.config);
 
   if (!deps.config.apiKey) {
     return ok({

@@ -32,6 +32,31 @@ server just makes them available to agents.
 | `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score, when each was last checked and next runs, and the most recent change. |
 | `check_upgrade_status` | Any valid key | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms). Consumes no audit quota. |
 
+### Naming the business (optional)
+
+`get_ai_visibility` and `run_audit` both accept two optional arguments that
+decide *what question* the AI-visibility check actually asks:
+
+| Argument | Omitted | Supplied |
+|---|---|---|
+| `business_name` | Detected from the site, and flagged with `name_warning` when it could not be verified | Taken as fact and recorded as caller-supplied — which suppresses the warning |
+| `business_location` | Detected from the site; if nothing is found the questions widen to the country, or drop the place entirely | Scopes the questions to that place |
+
+**Supply a name only when you actually know it.** A supplied name overrides
+detection and is treated as confirmed, so a guess is scored exactly as if a
+human had verified it — and silences the warning that would have told you
+otherwise. Leaving it out is the safer default: detection is transparent about
+its own uncertainty.
+
+The same applies to location, in the other direction. Omitting it is correct
+for a national or global business and wrong for a local one, since a local
+business measured without a place is measured against the wrong queries.
+
+```text
+"Check AI visibility for hawaiibackroad.com,
+ the business is Big Island Backroad Adventures in Hilo, HI"
+```
+
 ---
 
 ## Install & configure
@@ -93,6 +118,12 @@ needs no key at all.
 Treat the key like a password — set it only in your MCP client's `env` and never
 commit it.
 
+**Restart after setting or changing the key.** `WA_API_KEY` is read once, when
+the server starts, so a key added while the client is running is invisible to
+it — in Claude Desktop, quit and reopen the app. Without the restart the tools
+keep returning the same `AUTH_REQUIRED` you just acted on, which looks
+identical to the key not working.
+
 ### Configuration (environment variables)
 
 | Var | Default | Purpose |
@@ -100,7 +131,7 @@ commit it.
 | `WA_API_KEY` | _(required)_ | Per-user API key (starts with `wa_`). |
 | `WA_API_BASE_URL` | `https://api.website-auditor.io` | The Website Auditor API this server wraps. |
 | `WA_SITE_URL` | `https://website-auditor.io` | Used to build shareable report links. |
-| `WA_UPGRADE_URL` | `https://api.website-auditor.io/admin_portal/` | Surfaced in auth/quota errors. |
+| `WA_UPGRADE_URL` | `https://api.website-auditor.io/admin_portal/` | Where auth and subscription errors point you. `?source=mcp` is appended so a signup that started here is attributable; set your own `source` to override. Not surfaced on quota errors — the daily cap is not an upsell. |
 | `WA_REQUEST_TIMEOUT_MS` | `120000` | Timeout for API calls. |
 | `WA_AUDIT_CACHE_TTL_MS` | `86400000` | Reuse a domain's audit within this window instead of spending quota (used by `compare_competitors`). Defaults to 24h. |
 | `WA_SUBSCRIPTION_CACHE_TTL_MS` | `60000` | How long a resolved Pro/free tier is cached per key before re-checking the subscription. |
