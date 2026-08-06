@@ -34,6 +34,18 @@ export function ok<T>(data: T): ToolResult<T> {
   return { ok: true, data };
 }
 
+/**
+ * The step after "set WA_API_KEY", without which nothing changes.
+ *
+ * `loadConfig(process.env)` runs once, at startup (src/index.ts), so a key set
+ * while this server is running is invisible to it. Every message that tells
+ * someone to set the key must carry this, or it describes a procedure that
+ * ends with the identical error it began with — see tests/keyRequiresRestart.
+ */
+export const RESTART_NOTE =
+  "The key is read once at startup, so restart your MCP client after setting it " +
+  "(in Claude Desktop: quit and reopen the app) — until then this server keeps using the old value.";
+
 export function err(code: ErrorCode, message: string, extra: { upgrade_url?: string; details?: unknown } = {}): ToolResult<never> {
   return { ok: false, error: { code, message, ...extra } };
 }
@@ -81,7 +93,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +
         `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
-        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} , then set WA_API_KEY in this server's config.`,
+        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} , then set WA_API_KEY in this server's config. ${RESTART_NOTE}`,
       { upgrade_url: upgradeUrl },
     );
   }
@@ -109,7 +121,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     return err(
       "INVALID_KEY",
       `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
-        `so if yours has lapsed, resubscribe there first. Then set the new key as WA_API_KEY.`,
+        `so if yours has lapsed, resubscribe there first. Then set the new key as WA_API_KEY. ${RESTART_NOTE}`,
       { upgrade_url: upgradeUrl },
     );
   }
