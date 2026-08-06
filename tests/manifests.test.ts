@@ -153,4 +153,43 @@ describe("published manifests stay in sync with the code", () => {
     expect(spec, "get_sample_audit is advertised but not served").toBeTruthy();
     expect(spec.tier).toBe("free");
   });
+
+  // ── The unverified-name caveat reaches BOTH description surfaces ──
+  //
+  // #29 taught the runtime descriptions about `name_warning`, and the runtime
+  // is what the model reads — but manifest.json is what the Desktop directory
+  // renders, and it is also the copy a reviewer reads when deciding whether
+  // the listing describes the product honestly. A tool that can return a score
+  // measured against the wrong business should say so on every surface that
+  // describes it, not only the one the model happens to load.
+  //
+  // Pinned as a LINKAGE, not as fixed wording: whichever tools the registry
+  // caveats, the manifest must caveat too. Adding the caveat to a third tool
+  // later cannot silently leave the listing behind.
+
+  const CAVEATED = () =>
+    SERVED_TOOLS.filter((t: { description: string }) => /name_warning/.test(t.description));
+
+  it("some tool actually carries the caveat (the guard has something to guard)", () => {
+    expect(CAVEATED().map((t: { name: string }) => t.name).sort()).toEqual([
+      "get_ai_visibility",
+      "run_audit",
+    ]);
+  });
+
+  it("every caveated tool carries it in the manifest listing too", () => {
+    for (const spec of CAVEATED()) {
+      const listed = manifest.tools.find((t: { name: string }) => t.name === spec.name);
+      expect(listed, `${spec.name} is served but not listed`).toBeTruthy();
+      expect(listed.description, `${spec.name} manifest description`).toContain("name_warning");
+      // The caveat is only useful if it says what to distrust and what to do:
+      // naming the field alone reads as an API note, not a warning.
+      expect(listed.description.toLowerCase(), `${spec.name} manifest description`).toMatch(
+        /business name/,
+      );
+      expect(listed.description.toLowerCase(), `${spec.name} manifest description`).toMatch(
+        /not (be )?verif|could not be verified|unverified/,
+      );
+    }
+  });
 });
