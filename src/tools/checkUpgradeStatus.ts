@@ -14,7 +14,8 @@
  * too: a customer who used a trial in the last 12 months is billed
  * immediately, so the copy says "may", and checkout tells the truth.
  */
-import { fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
+import { fromApiError, ok, RESTART_NOTE, type ToolDeps, type ToolResult } from "./context.js";
+import { PRICE } from "./upgrade.js";
 
 export interface UpgradeStatus {
   tier: "none" | "free" | "pro";
@@ -38,7 +39,16 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       current_period_end: null,
       cancel_at_period_end: false,
       upgrade_url: upgradeUrl,
-      message: `No API key is configured. Create a free account and API key at ${upgradeUrl}, then set WA_API_KEY.`,
+      // Not "a free account and API key": the account is free, the key is not
+      // — POST /api/keys is behind requireProSession. Read as one phrase it
+      // promises a working key for nothing, which strands the reader one step
+      // earlier than the missing restart does. This branch also covers people
+      // who ARE subscribed and simply haven't set a key, so it states the
+      // requirement rather than pitching the trial (the never-subscribed
+      // branch below does that, with the full disclosure).
+      message:
+        `No API key is configured. Create one at ${upgradeUrl} — minting a key requires an ` +
+        `active subscription (${PRICE}) — then set it as WA_API_KEY in this server's config. ${RESTART_NOTE}`,
     });
   }
 
