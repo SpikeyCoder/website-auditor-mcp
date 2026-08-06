@@ -160,7 +160,15 @@ describe("DefaultSubscriptionProvider.resolve — failure handling", () => {
       throw new WaApiError("INVALID_KEY", "Invalid API key.");
     });
     const p = new DefaultSubscriptionProvider(cfg({ apiKey: "wa_bad" }), src);
-    expect(await p.resolve("wa_bad")).toEqual({ tier: "invalid", verified: true, message: "Invalid API key." });
+    // `rejection: "rejected"` records that the API looked this key up and
+    // refused it, as opposed to it never having been one of ours — the two
+    // reach the same gate but are different events.
+    expect(await p.resolve("wa_bad")).toEqual({
+      tier: "invalid",
+      verified: true,
+      rejection: "rejected",
+      message: "Invalid API key.",
+    });
   });
 
   it("wraps an unexpected (non-WaApiError) throw as UNVERIFIED free when cold", async () => {

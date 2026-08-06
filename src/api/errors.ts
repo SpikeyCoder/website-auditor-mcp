@@ -5,7 +5,8 @@
 
 export type ErrorCode =
   | "AUTH_REQUIRED" // no API key configured — the backend requires one
-  | "INVALID_KEY" // key present but rejected by the API (401)
+  | "INVALID_KEY" // key present and rejected by the API (401) — unknown or revoked
+  | "MALFORMED_KEY" // key present but not a Website Auditor key at all (no `wa_` prefix)
   | "PRO_REQUIRED" // a Pro tool was called without an active subscription
   | "SUBSCRIPTION_UNVERIFIED" // couldn't confirm subscription state (outage) — retryable, NOT a downgrade
   | "OVER_QUOTA" // shared daily audit cap hit (429) — every subscriber has it; not a plan boundary
