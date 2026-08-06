@@ -132,17 +132,29 @@ interface ClientDeps {
 }
 
 /**
- * The upstream `/api/audit` requires a non-empty `businessCity` (naive
- * `if (!businessCity)` validation). The MCP tools only receive a `domain`, and
- * the audit re-detects the real location from the site, so we pass a
- * validation-safe sentinel that does NOT override detection. The upstream
- * treats a whitespace-only value as "no override" (it `.strip()`s it), so a
- * single space satisfies validation without polluting the location.
+ * The TODO here is done: api PR #42 makes businessName/businessCity optional
+ * and normalises a blank to absent, so the workaround is gone.
  *
- * TODO(website-auditor-api): make businessName/businessCity optional so the MCP
- * doesn't need this workaround.
+ * WHAT IT USED TO DO, AND WHY IT HAD TO GO. The old upstream check was a naive
+ * `if (!businessCity)`, so this client sent `" "` to satisfy it and
+ * `deriveBusinessName(host)` for the name. Both were actively harmful:
+ *
+ *   * A supplied business_name OVERRIDES detection upstream and is stamped
+ *     `user_supplied` — the most trusted provenance there is — so a hostname
+ *     slug like "Hawaiibackroad" was scored and reported as though a human had
+ *     confirmed it, and chaos_tester #334's name_warning could never fire.
+ *   * The `" "` sentinel is the exact value that put a Hawaii tour company in
+ *     Council Bluffs, and after the 2026-08-01 hardening it became a
+ *     guaranteed 400.
+ *
+ * Absent now means absent: the parameter is not sent at all, so the engine
+ * detects the business and labels what it found. Sending "" would be the same
+ * bug wearing a different value.
  */
-const CITY_SENTINEL = " ";
+function setIfProvided(url: URL, key: string, value: string | undefined): void {
+  const trimmed = (value ?? "").trim();
+  if (trimmed) url.searchParams.set(key, trimmed);
+}
 
 /**
  * Stripe subscription statuses that grant Pro. Mirrors the server's own
@@ -165,8 +177,8 @@ export class WaApiClient implements WaApiClientLike {
 
     const url = new URL(`${this.cfg.apiBaseUrl}/api/audit`);
     url.searchParams.set("businessUrl", params.domain);
-    url.searchParams.set("businessName", params.businessName?.trim() || deriveBusinessName(host));
-    url.searchParams.set("businessCity", params.businessCity?.trim() || CITY_SENTINEL);
+    setIfProvided(url, "businessName", params.businessName);
+    setIfProvided(url, "businessCity", params.businessCity);
 
     const headers: Record<string, string> = { Accept: "application/json", ...versionHeader() };
     if (this.cfg.apiKey) headers["X-API-Key"] = this.cfg.apiKey;
