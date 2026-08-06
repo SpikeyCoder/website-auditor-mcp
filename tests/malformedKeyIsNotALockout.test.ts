@@ -58,7 +58,7 @@ describe("a key without the wa_ prefix", () => {
     expect(await p.resolve("sk-proj-not-ours")).toEqual({
       tier: "invalid",
       verified: true,
-      rejection: "malformed",
+      rejection: "MALFORMED_KEY",
       message: MALFORMED_KEY_MESSAGE,
     });
   });

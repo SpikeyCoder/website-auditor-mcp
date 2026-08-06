@@ -34,7 +34,7 @@ import type {
   SchemaResult,
   ReportLinks,
 } from "./types.js";
-import { WaApiError } from "./errors.js";
+import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
 import { computeChanges } from "./mappers.js";
 import { normalizeDomain, deriveBusinessName } from "./domain.js";
@@ -516,7 +516,13 @@ export class WaApiClient implements WaApiClientLike {
   private static readonly GATEWAY_TIMEOUT_FLOOR_MS = 30_000;
 
   private mapErrorResponse(status: number, body: unknown, elapsedMs = 0): WaApiError {
-    const b = (body ?? {}) as { error?: string; details?: unknown; rate_limit?: unknown };
+    const b = (body ?? {}) as {
+      error?: string;
+      details?: unknown;
+      rate_limit?: unknown;
+      /** Why a 401 happened, machine-readable (website-auditor-api PR #44). */
+      reason?: unknown;
+    };
     const message = b.error || `Website Auditor API returned HTTP ${status}.`;
     const upgradeUrl = this.cfg.upgradeUrl;
 
@@ -524,7 +530,14 @@ export class WaApiClient implements WaApiClientLike {
       case 400:
         return new WaApiError("INVALID_INPUT", message, { status, details: b.details });
       case 401:
-        return new WaApiError("INVALID_KEY", message, { status, upgradeUrl });
+        // The API states the cause in `reason`; `message` says the same thing
+        // in prose and stays the text the user reads. Before the field existed
+        // the only ways to tell a revoked key from a mistyped one were parsing
+        // that prose or timing the response — a bad prefix is rejected before
+        // the database is touched, so it returns in ~1ms against ~200ms for a
+        // real lookup. keyRejectionFromReason falls back to INVALID_KEY, which
+        // is what this line did unconditionally until now.
+        return new WaApiError(keyRejectionFromReason(b.reason), message, { status, upgradeUrl });
       case 402:
       case 403:
         return new WaApiError("PRO_REQUIRED", message, { status, upgradeUrl });

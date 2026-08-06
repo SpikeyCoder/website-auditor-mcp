@@ -27,7 +27,7 @@
  * The `SubscriptionProvider` interface is the seam: tools depend only on it.
  */
 import type { Tier, WaConfig } from "../config.js";
-import { WaApiError } from "../api/errors.js";
+import { WaApiError, isKeyRejection, type KeyRejectionCode } from "../api/errors.js";
 
 /** Every Website Auditor API key starts with this. Enforced by the API too. */
 export const API_KEY_PREFIX = "wa_";
@@ -48,18 +48,19 @@ export interface TierResolution {
    * Which kind of rejection produced `tier: "invalid"`, so telemetry can tell a
    * key that was never one of ours from one the API looked up and refused.
    *
-   *   "malformed" — no `wa_` prefix. Someone pasted the wrong string: a key for
-   *                 another service, a placeholder, a truncated paste. An
-   *                 onboarding problem, and nobody's access has changed.
-   *   "rejected"  — the API looked it up and said no: unknown or revoked. A
-   *                 revoked key usually belongs to someone who is paying, so
-   *                 this is the one that can mean a customer is locked out.
+   *   MALFORMED_KEY — no `wa_` prefix, decided here without a request. Someone
+   *                   pasted the wrong string; nobody's access has changed.
+   *   UNKNOWN_KEY   — well-formed, and the API has no record of it.
+   *   REVOKED_KEY   — it existed and was turned off. Usually somebody who is
+   *                   paying, and the only one that means lost access.
+   *   INVALID_KEY   — the API rejected it without saying why (a build older
+   *                   than PR #44). Preserved rather than guessed at.
    *
    * Both produce the SAME user-facing message (the API's own text leads it);
    * this only separates them in the event stream, where they were one number
    * and could not be told apart after the fact.
    */
-  rejection?: "malformed" | "rejected";
+  rejection?: KeyRejectionCode;
   /**
    * true when the tier is a confirmed result (live lookup, no-key `none`, dev
    * override, or a last-known cached tier honored during an outage). false ONLY
@@ -133,7 +134,7 @@ export class DefaultSubscriptionProvider implements SubscriptionProvider {
       return {
         tier: "invalid",
         verified: true,
-        rejection: "malformed",
+        rejection: "MALFORMED_KEY",
         message: MALFORMED_KEY_MESSAGE,
       };
     }
@@ -159,8 +160,13 @@ export class DefaultSubscriptionProvider implements SubscriptionProvider {
       // key had been revoked to go and subscribe — advice that cannot fix their
       // problem. Report it as its own state so the gate can say "replace the
       // key" and pass the API's own remediation text through.
-      if (e instanceof WaApiError && e.code === "INVALID_KEY") {
-        return { tier: "invalid", verified: true, rejection: "rejected", message: e.message };
+      // EVERY key-rejection code, not just INVALID_KEY. The API now names the
+      // cause, so a revoked key arrives as REVOKED_KEY — and matching the old
+      // single code would drop it through to the transient branch below and
+      // answer "try again in a moment", which is the 1.0.8 bug this block was
+      // written to fix, reintroduced by making the codes more precise.
+      if (e instanceof WaApiError && isKeyRejection(e.code)) {
+        return { tier: "invalid", verified: true, rejection: e.code, message: e.message };
       }
 
       // Transient/unreachable with no cached value: never fail-open to Pro, but
