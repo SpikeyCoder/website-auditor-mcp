@@ -160,13 +160,13 @@ describe("DefaultSubscriptionProvider.resolve — failure handling", () => {
       throw new WaApiError("INVALID_KEY", "Invalid API key.");
     });
     const p = new DefaultSubscriptionProvider(cfg({ apiKey: "wa_bad" }), src);
-    // `rejection: "rejected"` records that the API looked this key up and
-    // refused it, as opposed to it never having been one of ours — the two
-    // reach the same gate but are different events.
+    // `rejection` carries the code the gate will emit. INVALID_KEY here
+    // because this WaApiError predates the API naming its 401s; a build that
+    // sends `reason` produces UNKNOWN_KEY or REVOKED_KEY instead.
     expect(await p.resolve("wa_bad")).toEqual({
       tier: "invalid",
       verified: true,
-      rejection: "rejected",
+      rejection: "INVALID_KEY",
       message: "Invalid API key.",
     });
   });

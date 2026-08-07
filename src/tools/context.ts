@@ -7,7 +7,7 @@ import type { WaApiClientLike } from "../api/client.js";
 import type { SubscriptionProvider } from "../auth/entitlements.js";
 import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
-import { WaApiError } from "../api/errors.js";
+import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
 import { upgradeLink, tagSource, PRICE } from "./upgrade.js";
 import type { EventSink } from "../telemetry/events.js";
@@ -57,7 +57,9 @@ export function fromApiError(e: unknown, upgradeUrl: string): ToolResult<never> 
     // cap, which only a subscriber can reach (there is no free API tier), so an
     // upgrade link there sells someone their own plan. See the 429 branch in
     // api/client.ts. These two ARE plan boundaries: no key, or no subscription.
-    const attachUpgrade = e.code === "INVALID_KEY" || e.code === "PRO_REQUIRED";
+    // isKeyRejection, not a code list: a new rejection code must not be able to
+    // silently lose the signup link that gets the reader out of the problem.
+    const attachUpgrade = isKeyRejection(e.code) || e.code === "PRO_REQUIRED";
     // Tagged HERE rather than by the 13 call sites that pass a raw
     // config.upgradeUrl, so no tool can emit an unattributed signup link — see
     // tagSource in upgrade.js. The API's own upgrade_url is tagged too: a 401
@@ -125,13 +127,15 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     // replacement at …", which reads like two different steps.
     const base =
       message ?? "This Website Auditor API key is not valid — it may have been revoked.";
-    // Same sentence either way; only the CODE splits. A key with no `wa_`
-    // prefix was never one of ours, so it is an onboarding slip rather than
-    // access being withdrawn — and in the event stream those were one number.
+    // Same sentence in every case; only the CODE splits, and `rejection`
+    // already IS the code — resolve() decided it from the prefix or from the
+    // API's own `reason`, so there is nothing to re-derive here.
+    //
     // Reading a paste error as "a customer is locked out" costs a support
-    // panic; reading the reverse costs a customer.
+    // panic; reading the reverse costs a customer. INVALID_KEY remains the
+    // fallback for an API that has not shipped the field yet.
     return err(
-      rejection === "malformed" ? "MALFORMED_KEY" : "INVALID_KEY",
+      rejection ?? "INVALID_KEY",
       `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
         `so if yours has lapsed, resubscribe there first. Then set the new key as WA_API_KEY. ${RESTART_NOTE}`,
       { upgrade_url: upgradeUrl },

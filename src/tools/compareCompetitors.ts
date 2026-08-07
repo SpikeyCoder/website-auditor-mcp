@@ -31,7 +31,7 @@ import type {
 } from "../api/types.js";
 import { toAiVisibility, detectUnreachable } from "../api/mappers.js";
 import { normalizeDomain } from "../api/domain.js";
-import { WaApiError } from "../api/errors.js";
+import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface CompareCompetitorsArgs {
@@ -138,7 +138,9 @@ export async function compareCompetitors(
         break;
       case "error":
         // An auth failure is systemic — every subsequent audit will fail too.
-        if (outcome.error instanceof WaApiError && outcome.error.code === "INVALID_KEY") {
+        // Any key rejection, however the API named it — a revoked key fails
+        // every remaining domain exactly as an unrecognised one does.
+        if (outcome.error instanceof WaApiError && isKeyRejection(outcome.error.code)) {
           return fromApiError(outcome.error, deps.config.upgradeUrl);
         }
         skipped.push({
