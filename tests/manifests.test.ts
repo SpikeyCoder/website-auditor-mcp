@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SERVED_TOOLS } from "../src/tools/registry.js";
+import { PROMPT_SPECS } from "../src/mcp/prompts.js";
 import { SERVER_VERSION } from "../src/mcp/server.js";
 
 /**
@@ -45,6 +46,49 @@ describe("published manifests stay in sync with the code", () => {
     const served = SERVED_TOOLS.map((t) => t.name).sort();
     const listed = manifest.tools.map((t: { name: string }) => t.name).sort();
     expect(listed).toEqual(served);
+  });
+
+  // Prompts are the one discovery surface where a HUMAN clicks instead of a
+  // model inferring, which is why #37 added them — but registering them on the
+  // server only reaches people who already connected. The bundle manifest is
+  // what the directory renders, so an undeclared prompt is invisible exactly
+  // where it was supposed to do its work. Same failure shape as the tools guard
+  // above, on the surface that matters more.
+  it("manifest.json lists exactly the prompts the server actually serves", () => {
+    const served = PROMPT_SPECS.map((p) => p.name).sort();
+    const listed = (manifest.prompts ?? []).map((p: { name: string }) => p.name).sort();
+    expect(listed).toEqual(served);
+  });
+
+  it("carries each prompt's description and the text a host would insert", () => {
+    for (const spec of PROMPT_SPECS) {
+      const listed = (manifest.prompts ?? []).find((p: { name: string }) => p.name === spec.name);
+      expect(listed, spec.name).toBeDefined();
+      expect(listed.description, spec.name).toBe(spec.description);
+      expect((listed.text ?? "").length, spec.name).toBeGreaterThan(0);
+    }
+  });
+
+  it("declares each prompt's arguments, and none for the keyless one", () => {
+    const byName: Record<string, { arguments?: string[] }> = Object.fromEntries(
+      (manifest.prompts ?? []).map((p: { name: string }) => [p.name, p]),
+    );
+    for (const spec of PROMPT_SPECS) {
+      const declared = [...(byName[spec.name]?.arguments ?? [])].sort();
+      expect(declared, spec.name).toEqual(Object.keys(spec.argsSchema ?? {}).sort());
+    }
+    // The entry point that works for every install must stay one click.
+    expect(byName["see_sample_report"]?.arguments ?? []).toHaveLength(0);
+  });
+
+  it("keeps the keyless fallback in every keyed prompt's listed text", () => {
+    // The listing is what a directory visitor reads before installing. A prompt
+    // that promises a check and then silently needs a subscription turns the
+    // storefront into a paywall — the thing 1.0.8 onwards has been undoing.
+    for (const p of (manifest.prompts ?? []) as Array<{ name: string; text: string }>) {
+      if (p.name === "see_sample_report") continue;
+      expect(p.text, p.name).toContain("get_sample_audit");
+    }
   });
 
   it("server.json's free/pro split matches the registry's tiers", () => {

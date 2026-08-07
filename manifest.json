@@ -130,5 +130,37 @@
       "name": "check_upgrade_status",
       "description": "Check upgrade status [read-only]. Reports the caller's own subscription standing: tier (none/free/pro), status, period end, and what upgrading unlocks \u2014 including that starting Pro requires a payment method and accepting the Terms. Works with any valid API key; consumes no audit quota."
     }
+  ],
+  "prompts": [
+    {
+      "name": "check_ai_visibility",
+      "description": "See whether ChatGPT, Claude, Gemini and Perplexity recommend your business \u2014 and who they name instead.",
+      "arguments": [
+        "domain"
+      ],
+      "text": "Check the AI visibility of ${arguments.domain} with Website Auditor.\n\nCall get_ai_visibility for ${arguments.domain}. Then tell me in plain language: the overall score, which of ChatGPT, Claude, Gemini and Perplexity name the business and which do not, and which competitor is being named in its place.\n\nIf no API key is configured, call get_sample_audit instead so I can see exactly what the real check returns, and tell me what it would take to run it for real."
+    },
+    {
+      "name": "audit_my_site",
+      "description": "AI visibility plus SEO, security headers, broken links and performance, in one report.",
+      "arguments": [
+        "domain"
+      ],
+      "text": "Run a full Website Auditor audit of ${arguments.domain}.\n\nCall run_audit for ${arguments.domain}, then summarise the result by category \u2014 AI visibility, SEO, security headers, broken links and performance \u2014 and list the three fixes that would matter most, highest impact first.\n\nIf no API key is configured, call get_sample_audit instead so I can see exactly what the real check returns, and tell me what it would take to run it for real."
+    },
+    {
+      "name": "compare_to_competitor",
+      "description": "See where a rival gets named in AI answers and you don't.",
+      "arguments": [
+        "domain",
+        "competitor"
+      ],
+      "text": "Compare ${arguments.domain} against ${arguments.competitor} in AI assistant answers.\n\nCall compare_competitors with ${arguments.domain} as the domain and ${arguments.competitor} as the competitor. Then tell me where ${arguments.competitor} gets named and ${arguments.domain} does not, and what is different about how each one is described.\n\nIf no API key is configured, call get_sample_audit instead so I can see exactly what the real check returns, and tell me what it would take to run it for real."
+    },
+    {
+      "name": "see_sample_report",
+      "description": "Walk through a complete Website Auditor report for example.com. No API key, no setup.",
+      "text": "Show me what a Website Auditor report looks like.\n\nCall get_sample_audit \u2014 it needs no API key and no setup. Walk me through the sections: what the AI-visibility score measures, what the per-assistant breakdown is telling me, and what the SEO, security and performance checks cover. Then tell me what I would need in order to run this on my own site."
+    }
   ]
 }
