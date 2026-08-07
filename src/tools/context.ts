@@ -88,7 +88,9 @@ export function fromApiError(e: unknown, upgradeUrl: string): ToolResult<never> 
  * during an outage. No key at all is AUTH_REQUIRED, not an upsell.
  */
 export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | null> {
-  const { tier, verified, message } = await deps.subscriptions.resolve(deps.config.apiKey);
+  const { tier, verified, message, rejection } = await deps.subscriptions.resolve(
+    deps.config.apiKey,
+  );
   if (isPro(tier)) return null;
 
   const upgradeUrl = upgradeLink(deps.config);
@@ -123,8 +125,13 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     // replacement at …", which reads like two different steps.
     const base =
       message ?? "This Website Auditor API key is not valid — it may have been revoked.";
+    // Same sentence either way; only the CODE splits. A key with no `wa_`
+    // prefix was never one of ours, so it is an onboarding slip rather than
+    // access being withdrawn — and in the event stream those were one number.
+    // Reading a paste error as "a customer is locked out" costs a support
+    // panic; reading the reverse costs a customer.
     return err(
-      "INVALID_KEY",
+      rejection === "malformed" ? "MALFORMED_KEY" : "INVALID_KEY",
       `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
         `so if yours has lapsed, resubscribe there first. Then set the new key as WA_API_KEY. ${RESTART_NOTE}`,
       { upgrade_url: upgradeUrl },
