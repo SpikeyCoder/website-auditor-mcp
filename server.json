@@ -3,7 +3,7 @@
   "name": "io.github.SpikeyCoder/website-auditor-mcp",
   "title": "Website Auditor",
   "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "icon": "icon.png",
   "websiteUrl": "https://website-auditor.io",
   "repository": {
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "website-auditor-mcp",
-      "version": "1.0.14",
+      "version": "1.0.15",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -23,7 +23,7 @@
       "environmentVariables": [
         {
           "name": "WA_API_KEY",
-          "description": "Optional: get_sample_audit works with no key and returns a full report in the real output format. Every other tool requires a key, and minting one requires an active Website Auditor subscription ($10/month; eligible new customers get a 7-day free trial — payment method required, no charge until the trial ends) — sign up at https://api.website-auditor.io/admin_portal/?source=mcp. check_upgrade_status reports your standing with any valid key.",
+          "description": "Optional: get_sample_audit works with no key and returns a full report in the real output format. Every other tool requires a key, and minting one requires an active Website Auditor subscription ($10/month; eligible new customers get a 7-day free trial \u2014 payment method required, no charge until the trial ends) \u2014 sign up at https://api.website-auditor.io/admin_portal/?source=mcp. check_upgrade_status reports your standing with any valid key.",
           "isRequired": false,
           "isSecret": true
         },
