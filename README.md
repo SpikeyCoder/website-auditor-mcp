@@ -32,6 +32,22 @@ server just makes them available to agents.
 | `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score, when each was last checked and next runs, and the most recent change. |
 | `check_upgrade_status` | Any valid key | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms). Consumes no audit quota. |
 
+## Prompts
+
+Clients that support MCP prompts (Claude Desktop, claude.ai) render these as
+something you can pick from a menu, so you don't have to phrase the request
+yourself or know which tool to ask for.
+
+| Prompt | Needs a key? | What it does |
+|---|---|---|
+| **See a sample report** | **No** | Walks through a complete report for `example.com`. No arguments, no setup — one click from any install. |
+| **Check my AI visibility** | Pro | Runs `get_ai_visibility` for a domain you name, then explains the score, which assistants name the business, and who is named instead. |
+| **Run a full site audit** | Pro | Runs `run_audit` for a domain and summarises it by category, with the three fixes that matter most. |
+| **Compare me to a competitor** | Pro | Runs `compare_competitors` for your domain against a named rival, and explains where they get named and you don't. |
+
+Each Pro prompt falls back to `get_sample_audit` when no API key is configured,
+so you always get output rather than an error.
+
 ### Naming the business (optional)
 
 `get_ai_visibility` and `run_audit` both accept two optional arguments that

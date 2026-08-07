@@ -23,7 +23,9 @@ import { generateSchema } from "../tools/generateSchema.js";
 import { getReport } from "../tools/getReport.js";
 import { checkUpgradeStatus } from "../tools/checkUpgradeStatus.js";
 import { getSampleAudit } from "../tools/sampleAudit.js";
-import { upgradeLink, PRICE } from "../tools/upgrade.js";
+import { upgradeLink } from "../tools/upgrade.js";
+import { buildInstructions } from "./instructions.js";
+import { PROMPT_SPECS } from "./prompts.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
 
 export const SERVER_NAME = "website-auditor";
@@ -103,22 +105,11 @@ export function createServer(deps: ToolDeps): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       // Injected into the model's system prompt at handshake, which makes this
-      // the highest-leverage copy in the package — and previously the reason the
-      // funnel leaked. It used to open with "Every tool requires an active
-      // Website Auditor subscription — there is no free API tier." A model
-      // reading that with no key configured simply told the user to subscribe
-      // WITHOUT calling anything: no tool call, no error payload, no link in the
-      // chat, and no telemetry row. Production agreed — 102 keyless sessions
-      // produced exactly 1 tool call.
-      //
-      // So it now leads with what CAN be done and names the sign-up URL inline,
-      // so a keyless user gets a runnable demo and a clickable link even if the
-      // model never calls a tool at all.
-      instructions:
-        "Website Auditor — AI Visibility & Site Audit. Check and monitor how a website shows up in AI assistants (ChatGPT, Perplexity, Claude, Gemini) plus SEO, security and performance.\n\n" +
-        "NO API KEY? You can still run get_sample_audit — it needs no key, no setup and no network, and returns a full report for example.com in the exact shape a real audit returns. Call it instead of declining, so the user can see what they would be buying.\n\n" +
-        `Auditing real domains requires a Website Auditor subscription (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends). Sign up and create an API key at ${signupUrl} , then set WA_API_KEY in this server's config. check_upgrade_status reports the caller's own standing with any valid key.\n\n` +
-        "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price and the trial with its prerequisites, and give them that link — do not just report the error code.",
+      // the highest-leverage copy in the package — and twice now the reason the
+      // funnel leaked. The full history, and why the string is shaped the way it
+      // is, lives in ./instructions.ts; the ordering and proportion it must keep
+      // are pinned by tests/mcp/instructionTriggers.test.ts.
+      instructions: buildInstructions(signupUrl),
     },
   );
 
@@ -174,6 +165,29 @@ export function createServer(deps: ToolDeps): McpServer {
         return toCallResult(result);
       },
     );
+  }
+
+  // Prompts are the only discovery surface in this package that a HUMAN drives:
+  // hosts render them as clickable affordances, so unlike the tool list they do
+  // not depend on the model first connecting the conversation to the capability.
+  // See ./prompts.ts for why that distinction is the whole point.
+  for (const spec of PROMPT_SPECS) {
+    const message = (args: Record<string, string>) => ({
+      messages: [{ role: "user" as const, content: { type: "text" as const, text: spec.render(args) } }],
+    });
+    // Two arities: with an argsSchema the SDK hands the callback the parsed
+    // args, without one it hands it only the request extra. Registering the
+    // argument-free prompt through the first form would make hosts render an
+    // empty form for the one prompt whose whole value is being a single click.
+    if (spec.argsSchema) {
+      server.registerPrompt(
+        spec.name,
+        { title: spec.title, description: spec.description, argsSchema: spec.argsSchema },
+        (args) => message(args as Record<string, string>),
+      );
+    } else {
+      server.registerPrompt(spec.name, { title: spec.title, description: spec.description }, () => message({}));
+    }
   }
 
   return server;
