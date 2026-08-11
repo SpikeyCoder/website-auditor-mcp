@@ -19,6 +19,12 @@ export interface ToolDeps {
   config: WaConfig;
   /** Telemetry sink for P0 success-metric events (fire-and-forget). */
   events: EventSink;
+  /**
+   * Which entry point built these deps — stamped on telemetry events so the
+   * dashboard can split the stdio channel (npx/.mcpb installs) from the hosted
+   * HTTP endpoint. Optional: absent means a build predating the field (stdio).
+   */
+  transport?: "stdio" | "http";
 }
 
 export interface ToolError {
@@ -51,7 +57,7 @@ export function err(code: ErrorCode, message: string, extra: { upgrade_url?: str
 }
 
 /** Map a thrown WaApiError (or unknown error) to a ToolError result. */
-export function fromApiError(e: unknown, upgradeUrl: string): ToolResult<never> {
+export function fromApiError(e: unknown, config: WaConfig): ToolResult<never> {
   if (e instanceof WaApiError) {
     // OVER_QUOTA is deliberately NOT in this list. It is the shared daily audit
     // cap, which only a subscriber can reach (there is no free API tier), so an
@@ -60,11 +66,23 @@ export function fromApiError(e: unknown, upgradeUrl: string): ToolResult<never> 
     // isKeyRejection, not a code list: a new rejection code must not be able to
     // silently lose the signup link that gets the reader out of the problem.
     const attachUpgrade = isKeyRejection(e.code) || e.code === "PRO_REQUIRED";
-    // Tagged HERE rather than by the 13 call sites that pass a raw
-    // config.upgradeUrl, so no tool can emit an unattributed signup link — see
-    // tagSource in upgrade.js. The API's own upgrade_url is tagged too: a 401
-    // followed to the portal is an MCP-driven signup however the link was made.
-    const target = e.upgradeUrl ?? (attachUpgrade ? upgradeUrl : undefined);
+    // Tagged HERE rather than by the call sites (they pass the whole config),
+    // so no tool can emit an unattributed signup link — see tagSource in
+    // upgrade.js. The API's own upgrade_url is tagged too: a 401 followed to
+    // the portal is an MCP-driven signup however the link was made.
+    //
+    // Under "info" style the API's own link is REPLACED, not passed through:
+    // the API always answers with the portal, which is exactly the checkout
+    // link the style exists to keep out of responses. A link still appears
+    // whenever one would have (attachUpgrade or an API-provided URL) — it just
+    // points at the informational page (upgradeLink is style-aware).
+    const wouldCarryLink = e.upgradeUrl !== undefined || attachUpgrade;
+    const target =
+      config.upsellStyle === "info"
+        ? wouldCarryLink
+          ? upgradeLink(config)
+          : undefined
+        : (e.upgradeUrl ?? (attachUpgrade ? config.upgradeUrl : undefined));
     return err(e.code, e.message, {
       upgrade_url: target === undefined ? undefined : tagSource(target),
       details: e.details,

@@ -31,7 +31,7 @@ import { WaApiClient } from "../src/api/client.js";
 import { WaApiError } from "../src/api/errors.js";
 import { fromApiError } from "../src/tools/context.js";
 import { compareCompetitors } from "../src/tools/compareCompetitors.js";
-import { makeDeps, makeQuotaClient } from "./helpers.js";
+import { makeDeps, makeQuotaClient, testConfig } from "./helpers.js";
 import { reachableReport } from "./fixtures/reports.js";
 
 const cfg = {
@@ -130,7 +130,7 @@ describe("OVER_QUOTA carries no upgrade prompt", () => {
   });
 
   it("fromApiError does not synthesise an upgrade URL for OVER_QUOTA", () => {
-    const res = fromApiError(new WaApiError("OVER_QUOTA", "Rate limit exceeded."), cfg.upgradeUrl);
+    const res = fromApiError(new WaApiError("OVER_QUOTA", "Rate limit exceeded."), testConfig());
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("OVER_QUOTA");
@@ -139,7 +139,7 @@ describe("OVER_QUOTA carries no upgrade prompt", () => {
 
   it("but PRO_REQUIRED and INVALID_KEY still get one — those ARE plan boundaries", () => {
     for (const code of ["PRO_REQUIRED", "INVALID_KEY"] as const) {
-      const res = fromApiError(new WaApiError(code, "nope"), cfg.upgradeUrl);
+      const res = fromApiError(new WaApiError(code, "nope"), testConfig());
       expect(res.ok).toBe(false);
       if (res.ok) return;
       expect(res.error.upgrade_url).toContain(UPGRADE);

@@ -22,6 +22,7 @@ async function main(): Promise<void> {
     subscriptions: new DefaultSubscriptionProvider(config, client),
     cache: new InMemoryAuditCache({ ttlMs: config.auditCacheTtlMs }),
     events: config.metricsEnabled ? new HttpEventSink(config) : new NoopEventSink(),
+    transport: "stdio",
   };
 
   const server = createServer(deps);

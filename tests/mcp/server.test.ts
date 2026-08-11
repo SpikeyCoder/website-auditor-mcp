@@ -38,24 +38,31 @@ describe("MCP server (end-to-end over in-memory transport)", () => {
     expect(av.description).toContain("does ChatGPT/Perplexity/Claude/Gemini recommend");
   });
 
-  it("marks track_site + untrack_site as mutating (readOnlyHint false); reads stay read-only", async () => {
+  it("carries accurate per-tool annotations — all three hints on every tool", async () => {
+    // Accuracy matters, not just presence: mislabeled annotations are a listed
+    // rejection reason in the OpenAI plugin review, in BOTH directions.
+    //   track_site   — mutates, but only enrolls/pauses monitoring: reversible,
+    //                  nothing deleted → NOT destructive. Own-account state only
+    //                  → not open-world.
+    //   untrack_site — removes the tracking and its slot, ending the history
+    //                  get_changes reads → destructive. Own-account state only.
+    //   get_sample_audit — bundled fixture, no key, no network → closed world.
+    //   everything else  — reads the external API about arbitrary domains.
     const { client } = await connect();
     const { tools } = await client.listTools();
-    for (const name of ["track_site", "untrack_site"]) {
-      expect(tools.find((t) => t.name === name)!.annotations?.readOnlyHint).toBe(false);
-    }
-    for (const name of [
-      "get_ai_visibility",
-      "list_tracked_sites",
-      "get_monitoring_status",
-      "get_benchmark",
-      "get_recommendations",
-      "generate_schema",
-      "get_report",
-    ]) {
-      const t = tools.find((x) => x.name === name)!;
-      expect(t.annotations?.readOnlyHint).toBe(true);
-      expect(t.annotations?.openWorldHint).toBe(true);
+    const expected: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }> = {
+      track_site: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      untrack_site: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+      get_sample_audit: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    };
+    for (const tool of tools) {
+      const want = expected[tool.name] ?? { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
+      expect({ name: tool.name, ...tool.annotations }).toEqual({
+        name: tool.name,
+        title: tool.annotations?.title,
+        ...want,
+      });
+      expect(tool.annotations?.title).toBeTruthy();
     }
   });
 

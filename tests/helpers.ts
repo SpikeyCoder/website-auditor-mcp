@@ -24,6 +24,8 @@ export function testConfig(over: Partial<WaConfig> = {}): WaConfig {
     siteUrl: "https://website-auditor.io",
     apiKey: "wa_test",
     upgradeUrl: "https://api.website-auditor.io/admin_portal/",
+    upsellStyle: "link",
+    upsellInfoUrl: "https://website-auditor.io",
     requestTimeoutMs: 120000,
     auditCacheTtlMs: 24 * 60 * 60 * 1000,
     subscriptionCacheTtlMs: 60_000,

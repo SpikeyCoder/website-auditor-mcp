@@ -56,7 +56,7 @@ export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<To
         message: `Stopped weekly monitoring for ${res.domain}.`,
       });
     } catch (e) {
-      return fromApiError(e, deps.config.upgradeUrl);
+      return fromApiError(e, deps.config);
     }
   }
 
@@ -75,6 +75,6 @@ export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<To
       message,
     });
   } catch (e) {
-    return fromApiError(e, deps.config.upgradeUrl);
+    return fromApiError(e, deps.config);
   }
 }

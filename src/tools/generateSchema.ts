@@ -23,6 +23,6 @@ export async function generateSchema(args: GenerateSchemaArgs, deps: ToolDeps): 
     const schema = await deps.client.generateSchema({ domain: args.domain, type: args.type });
     return ok(schema);
   } catch (e) {
-    return fromApiError(e, deps.config.upgradeUrl);
+    return fromApiError(e, deps.config);
   }
 }

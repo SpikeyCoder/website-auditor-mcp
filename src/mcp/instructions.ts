@@ -27,8 +27,34 @@
  * billing can never precede or outweigh the trigger guidance again.
  */
 import { PRICE } from "../tools/upgrade.js";
+import type { UpsellStyle } from "../config.js";
 
-export function buildInstructions(signupUrl: string): string {
+export function buildInstructions(signupUrl: string, style: UpsellStyle = "link"): string {
+  // "info" style (see config.ts): same capability lead, same triggers, same
+  // guard rails, same keyless path, and the SAME price/trial disclosure — only
+  // the billing paragraphs change, from "sign up at <portal>" to "plans are
+  // described at <info page>", because marketplace rules (OpenAI plugin
+  // review) allow explaining a paid plan but forbid initiating the purchase.
+  // The trigger-before-billing ordering and proportion tests cover BOTH styles.
+  const billing =
+    style === "info"
+      ? `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
+        "a 7-day free trial — payment method required to start, no charge until the trial ends). Plans " +
+        `are described at ${signupUrl} — subscribing and creating an API key happen on the website, outside ` +
+        "this conversation. Once you have a key, set WA_API_KEY in this server's config and restart the " +
+        "client. check_upgrade_status reports the caller's own standing with any valid key."
+      : `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
+        "a 7-day free trial — payment method required to start, no charge until the trial ends). Sign up " +
+        `and create an API key at ${signupUrl} , then set WA_API_KEY in this server's config and restart ` +
+        "the client. check_upgrade_status reports the caller's own standing with any valid key.";
+
+  const errorGuidance =
+    style === "info"
+      ? "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price, the trial and its " +
+        `prerequisites, and where plans are described (${signupUrl}) — never just the error code.`
+      : "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, give the user the price, the trial and its " +
+        "prerequisites, and that link — never just the error code.";
+
   return [
     "Website Auditor — check whether AI assistants actually recommend a business. " +
       "It puts the questions a real customer would ask to ChatGPT, Claude, Gemini and Perplexity, " +
@@ -52,12 +78,8 @@ export function buildInstructions(signupUrl: string): string {
       "for example.com in the exact shape a real audit returns. Call it instead of declining, so the " +
       "user sees the output before deciding anything.",
 
-    `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
-      "a 7-day free trial — payment method required to start, no charge until the trial ends). Sign up " +
-      `and create an API key at ${signupUrl} , then set WA_API_KEY in this server's config and restart ` +
-      "the client. check_upgrade_status reports the caller's own standing with any valid key.",
+    billing,
 
-    "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, give the user the price, the trial and its " +
-      "prerequisites, and that link — never just the error code.",
+    errorGuidance,
   ].join("\n\n");
 }

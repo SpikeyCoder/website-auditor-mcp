@@ -90,7 +90,7 @@ describe("every rejection code is treated as a rejection", () => {
   });
 
   it.each(codes)("%s still carries the upgrade link through fromApiError", (code) => {
-    const result = fromApiError(new WaApiError(code, "nope"), "https://portal.example.test");
+    const result = fromApiError(new WaApiError(code, "nope"), cfg());
     expect(result.error?.upgrade_url, code).toBeTruthy();
   });
 

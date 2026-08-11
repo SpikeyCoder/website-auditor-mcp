@@ -16,9 +16,9 @@ Status, audited 2026-08-11:
 | Phase | State |
 |---|---|
 | 1. Package the plugin | **DONE** — `codex-plugin/`, installable from this repo |
-| 2. Hosted HTTP MCP server | not started — gates everything below |
-| 3. Compliance pass | not started — two known blockers, see below |
-| 4. Portal submission | not started |
+| 2. Hosted HTTP MCP server | **code DONE** (`src/http.ts`, `npm run start:http`) — deploy + DNS/TLS + auth decision remain |
+| 3. Compliance pass | **code DONE** (annotations accurate; `WA_UPSELL_STYLE=info`) — ToS page + demo account remain |
+| 4. Portal submission | not started — needs the Phase 2/3 remainders plus OpenAI org verification |
 
 ## The plugin package (Phase 1)
 
@@ -53,39 +53,56 @@ without a plugin update. Bump the plugin version only when the plugin itself
 (manifest, skills) changes. It is NOT one of the six strings the release
 process keeps in agreement, and `tests/manifests.test.ts` does not check it.
 
-## Phase 2 — the hosted server (gates submission)
+## Phase 2 — the hosted server
 
-Submission requires "a public, production URL" — a Streamable HTTP endpoint,
-e.g. `https://mcp.website-auditor.io/mcp`. The SDK in use (≥1.29) supports the
-transport; this is an entry point + deployment next to the API, not a rewrite.
+**The code exists**: `src/http.ts` serves the same 14 tools over stateless
+Streamable HTTP (`npm run start:http`, port from `WA_HTTP_PORT`/`PORT`).
+Multi-tenant by construction — the key arrives per request
+(`Authorization: Bearer wa_…`, or `X-API-Key`), deps are per-key bundles with
+idle eviction so the audit + subscription caches keep doing their job, a
+stray `WA_API_KEY` in the host env is discarded rather than becoming the
+anonymous identity, keyless requests get the sample-audit surface, and
+telemetry events carry `transport: "http"` (**the API's mcp_events ingest
+needs that column before real traffic**). It also serves
+`/.well-known/openai-apps-challenge` (token from `WA_APPS_CHALLENGE_TOKEN`,
+verbatim and alone) and `/healthz`. Pinned by `tests/http/server.test.ts`
+over a real socket with the SDK's own HTTP client.
 
-Also required on that host:
+Known stateless trade-off: clientInfo arrives only in `initialize` POSTs, so
+`tool_call` telemetry from this entry point usually lacks `client_name`
+(`session_init` still records it).
 
-- **Domain verification**: serve the portal-generated token at
-  `https://<host>/.well-known/openai-apps-challenge` — the token alone, no JSON.
-- **Auth decision**: keyless `get_sample_audit` + authenticated Pro tools.
-  Plan for OAuth against admin-portal accounts; confirm the portal's allowed
-  auth modes when configuring. Reviewer demo credentials must work "without
-  MFA, SMS, email confirmation, or private-network access."
+What remains is deployment, not code:
 
-## Phase 3 — compliance: the two known blockers
+- Stand it up at `https://mcp.website-auditor.io` (DNS + TLS + process next to
+  the API), with `WA_UPSELL_STYLE=info` — see Phase 3.
+- **Auth decision**: bearer keys work today; the portal's allowed auth modes
+  decide whether OAuth against admin-portal accounts is required for listing.
+  Build that against the portal's actual auth-config screen, not guesses.
+  Reviewer demo credentials must work "without MFA, SMS, email confirmation,
+  or private-network access."
 
-1. **Upsell links violate the monetization rules as-is.** OpenAI prohibits
-   plugins selling "digital products, subscriptions" and says "no direct
-   checkout links or transactional pages"; a plugin "may explain unavailable
-   features under current plans but cannot initiate purchases." Our tool
-   responses carry `upgrade_url` → the admin-portal checkout in ~53 places.
-   Fix without forking behavior: the hosted deployment sets `WA_UPGRADE_URL`
-   to a neutral pricing-information page and the response copy explains rather
-   than links-to-buy. The Claude-directory behavior stays as shipped.
-2. **`openWorldHint` is missing on most tools.** Every tool needs accurate
-   `readOnlyHint`, `destructiveHint` AND `openWorldHint`; only 3 of 14 tools
-   set the third. All our tools are `openWorldHint: false` (nothing posts
-   publicly). One pass in `src/mcp/server.ts`, then rides the next npm release.
+## Phase 3 — compliance
 
-Also required, currently missing: a **terms-of-service URL** (the portal wants
-website, support, privacy AND terms URLs; we have no public terms page — the
-subscription flow's terms live inside the portal).
+1. **DONE — checkout links are a config switch now.** `WA_UPSELL_STYLE=info`
+   (see config.ts) keeps every price/trial disclosure but points every link —
+   including `upgrade_url`s the API itself returns on 401/403 — at the
+   informational `WA_UPSELL_INFO_URL` (default: the site homepage) instead of
+   the portal. The hosted deployment sets it; stdio installs keep `link`, the
+   byte-identical historical behavior. Pinned by
+   `tests/tools/upsellStyle.test.ts`. Residual: gate/status message VERBS
+   still say "subscribe at" — the target is informational, which is the
+   load-bearing part; revisit wording against actual review feedback.
+2. **DONE — annotations are accurate, not just present.** All three hints were
+   already on every tool; the VALUES were the risk ("incorrect annotations"
+   is a listed rejection reason): track_site claimed destructive for
+   enrolling monitoring, and track/untrack claimed open-world for touching
+   only the caller's own account. Corrected and pinned tool-by-tool in
+   `tests/mcp/server.test.ts`. Rides the next npm release.
+
+Still required, currently missing: a **terms-of-service URL** (the portal
+wants website, support, privacy AND terms URLs; we have no public terms page —
+the subscription flow's terms live inside the portal).
 
 ## Phase 4 — the portal
 
