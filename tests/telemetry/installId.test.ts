@@ -95,3 +95,47 @@ describe("anonymous install id", () => {
     expect(id).toBeUndefined();
   });
 });
+
+describe("WA_INSTALL_ID override (hosted deployments on ephemeral filesystems)", () => {
+  const OVERRIDE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+  it("wins over the file and writes nothing — N instances collapse into 1 install", () => {
+    const dir = tempHome();
+    process.env.WA_INSTALL_ID = OVERRIDE;
+    try {
+      __resetInstallIdCacheForTests();
+      expect(resolveInstallId(testConfig(), dir)).toBe(OVERRIDE);
+      expect(existsSync(join(dir, "install-id"))).toBe(false);
+    } finally {
+      delete process.env.WA_INSTALL_ID;
+      __resetInstallIdCacheForTests();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores a malformed override rather than propagating it into the metrics", () => {
+    const dir = tempHome();
+    process.env.WA_INSTALL_ID = "not-a-uuid";
+    try {
+      __resetInstallIdCacheForTests();
+      const id = resolveInstallId(testConfig(), dir);
+      expect(id).not.toBe("not-a-uuid");
+      expect(id).toMatch(/^[0-9a-f-]{36}$/); // fell through to the file path
+    } finally {
+      delete process.env.WA_INSTALL_ID;
+      __resetInstallIdCacheForTests();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("still yields nothing when telemetry is disabled — opt-out beats the override", () => {
+    process.env.WA_INSTALL_ID = OVERRIDE;
+    try {
+      __resetInstallIdCacheForTests();
+      expect(resolveInstallId(testConfig({ metricsEnabled: false }))).toBeUndefined();
+    } finally {
+      delete process.env.WA_INSTALL_ID;
+      __resetInstallIdCacheForTests();
+    }
+  });
+});

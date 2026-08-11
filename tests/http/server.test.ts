@@ -155,13 +155,15 @@ describe("MCP over Streamable HTTP", () => {
 });
 
 describe("plain HTTP surface", () => {
-  it("GET /healthz reports ok + version", async () => {
+  it("GET /health and /healthz report ok + version (GFE swallows /healthz on run.app)", async () => {
     const { url } = await listen();
-    const res = await fetch(`${url}/healthz`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; version: string };
-    expect(body.ok).toBe(true);
-    expect(body.version).toMatch(/^\d+\.\d+\.\d+$/);
+    for (const path of ["/health", "/healthz"]) {
+      const res = await fetch(`${url}${path}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; version: string };
+      expect(body.ok).toBe(true);
+      expect(body.version).toMatch(/^\d+\.\d+\.\d+$/);
+    }
   });
 
   it("serves the domain-verification token exactly and alone", async () => {
