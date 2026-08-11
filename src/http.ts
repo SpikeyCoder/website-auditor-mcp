@@ -47,7 +47,10 @@ import type { ToolDeps } from "./tools/context.js";
 
 const MCP_PATH = "/mcp";
 const CHALLENGE_PATH = "/.well-known/openai-apps-challenge";
-const HEALTH_PATH = "/healthz";
+// Both spellings: Google's frontend intercepts /healthz on run.app hosts and
+// answers its own 404 before the request reaches the container — /health is
+// the one probes must use there. /healthz kept for everything that isn't GFE.
+const HEALTH_PATHS = new Set(["/health", "/healthz"]);
 /** JSON-RPC over HTTP has no business being large; audits carry domains, not payloads. */
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -201,7 +204,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
 
-    if (url.pathname === HEALTH_PATH && req.method === "GET") {
+    if (HEALTH_PATHS.has(url.pathname) && req.method === "GET") {
       sendJson(res, 200, { ok: true, version: SERVER_VERSION });
       return;
     }

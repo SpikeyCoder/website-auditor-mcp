@@ -60,6 +60,18 @@ export function resolveInstallId(config: WaConfig, dir: string = defaultDir()): 
   if (resolved) return cached;
   resolved = true;
 
+  // Explicit override for deployments where the filesystem is ephemeral —
+  // chiefly the hosted HTTP endpoint, where every Cloud Run cold start would
+  // otherwise mint a fresh id and each instance would count as a new install.
+  // One deployment configures one id: N instances collapse into 1 "install",
+  // which is the honest reading of a hosted service. Same validation as the
+  // file path; a malformed value is ignored rather than propagated.
+  const override = process.env.WA_INSTALL_ID?.trim().toLowerCase();
+  if (override && UUID_RE.test(override)) {
+    cached = override;
+    return cached;
+  }
+
   const path = join(dir, FILE_NAME);
 
   try {
