@@ -34,6 +34,7 @@
     ],
     "websiteURL": "https://website-auditor.io",
     "privacyPolicyURL": "https://website-auditor.io/privacy",
+    "termsOfServiceURL": "https://website-auditor.io/terms",
     "defaultPrompt": [
       "Show me a sample website audit report",
       "Check whether ChatGPT and other AI assistants recommend my website",

@@ -16,9 +16,9 @@ Status, audited 2026-08-11:
 | Phase | State |
 |---|---|
 | 1. Package the plugin | **DONE** — `codex-plugin/`, installable from this repo |
-| 2. Hosted HTTP MCP server | **code DONE** (`src/http.ts`, `npm run start:http`) — deploy + DNS/TLS + auth decision remain |
-| 3. Compliance pass | **code DONE** (annotations accurate; `WA_UPSELL_STYLE=info`) — ToS page + demo account remain |
-| 4. Portal submission | not started — needs the Phase 2/3 remainders plus OpenAI org verification |
+| 2. Hosted HTTP MCP server | **DEPLOYED** — Cloud Run `website-auditor-mcp` (us-central1, `WA_UPSELL_STYLE=info`, pinned `WA_INSTALL_ID`), verified live. Domain mapping for mcp.website-auditor.io created; awaiting the Cloudflare CNAME `mcp → ghs.googlehosted.com` (DNS-only) for TLS to issue |
+| 3. Compliance pass | **DONE except demo account** — annotations accurate, info upsell live, minimization sweep pinned (`tests/mcp/responseMinimization.test.ts`), terms URL live and in the manifest, privacy PR open. Demo-account provisioning blocked on an operator approval (see below) |
+| 4. Portal submission | ready once DNS + demo account land; test cases pre-drafted in docs/SUBMISSION-TESTS.md; needs OpenAI org identity verification + Apps Management=Write (owner-only) |
 
 ## The plugin package (Phase 1)
 
