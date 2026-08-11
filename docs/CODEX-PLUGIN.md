@@ -11,14 +11,29 @@
    one hard prerequisite we do not meet yet: **a hosted Streamable HTTP MCP
    server**. The directory does not accept bundled stdio servers.
 
-Status, audited 2026-08-11:
+Status: **SUBMITTED FOR REVIEW 2026-08-11.** All four phases complete.
 
 | Phase | State |
 |---|---|
 | 1. Package the plugin | **DONE** — `codex-plugin/`, installable from this repo |
-| 2. Hosted HTTP MCP server | **DEPLOYED** — Cloud Run `website-auditor-mcp` (us-central1, `WA_UPSELL_STYLE=info`, pinned `WA_INSTALL_ID`), verified live. Domain mapping for mcp.website-auditor.io created; awaiting the Cloudflare CNAME `mcp → ghs.googlehosted.com` (DNS-only) for TLS to issue |
-| 3. Compliance pass | **DONE except demo account** — annotations accurate, info upsell live, minimization sweep pinned (`tests/mcp/responseMinimization.test.ts`), terms URL live and in the manifest, privacy PR open. Demo-account provisioning blocked on an operator approval (see below) |
-| 4. Portal submission | ready once DNS + demo account land; test cases pre-drafted in docs/SUBMISSION-TESTS.md; needs OpenAI org identity verification + Apps Management=Write (owner-only) |
+| 2. Hosted HTTP MCP server | **LIVE** — https://mcp.website-auditor.io/mcp (Cloud Run `website-auditor-mcp`, us-central1, `WA_UPSELL_STYLE=info`, pinned `WA_INSTALL_ID`, `WA_APPS_CHALLENGE_TOKEN` serving the domain-verification token) |
+| 3. Compliance pass | **DONE** — accurate annotations (42 justifications filed in the portal), info upsell live, minimization tests, terms/privacy/contact URLs live, reviewer demo account seeded with real monitoring history |
+| 4. Portal submission | **SUBMITTED** — "We'll notify you when a decision is made." No published SLA; submit-and-keep-shipping applies |
+
+Submission facts a future update needs:
+
+- **Listing auth is No Auth**: every ChatGPT user gets the keyless surface
+  (sample + explanations); Pro flows were demonstrated via the recorded demo
+  (hosted at storage.googleapis.com/website-auditor-public-assets/) running
+  against the single-tenant demo instance (`website-auditor-mcp-demo`, PR #41).
+  Moving the listing to portal-side OAuth later = new version + rescan.
+- **Updates are snapshot-versioned**: change the server → Scan Tools again →
+  bump the portal version → resubmit → publish on approval. Tool metadata and
+  skills do NOT track the live server.
+- **Reviewer-suggested for next version**: `outputSchema` on every tool.
+- The Cloud Scheduler weekly-trackings job, the demo account, and the
+  `mcp_transports` view all exist because of this work — see the api repo and
+  chaos-tester project history from 2026-08-11.
 
 ## The plugin package (Phase 1)
 

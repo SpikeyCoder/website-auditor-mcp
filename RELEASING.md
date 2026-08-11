@@ -21,11 +21,12 @@ README has the config — so `npm publish` already reaches them, and their
 
 The adjacent surface that DOES take submissions is the **plugin catalog shared
 by ChatGPT and Codex** (the in-product directory users browse, search and
-`@`-invoke; plugins can bundle MCP servers). Getting listed means packaging
-this server as a Codex *plugin* and going through the OpenAI Platform
-submission flow and review — a separate, deliberate project, not part of this
-release train. If that ever ships, it becomes a genuine fifth channel with its
-own review queue, exactly like the Claude Desktop directory.
+`@`-invoke; plugins can bundle MCP servers). **Submitted for review
+2026-08-11** (docs/CODEX-PLUGIN.md has the full submission record). Per this
+file's own rule: do not assume it landed — the listing exists only when OpenAI
+says so, and once it does, it becomes a genuine fifth channel here with its
+own review queue and a rescan required per release, exactly like the Claude
+Desktop directory.
 
 ## Just run the script
 
