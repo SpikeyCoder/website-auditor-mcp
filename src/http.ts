@@ -63,6 +63,17 @@ export interface HttpServerOptions {
   config: WaConfig;
   /** Served verbatim at the well-known path; unset ⇒ the route 404s. */
   challengeToken?: string;
+  /**
+   * SINGLE-TENANT DEPLOYMENTS ONLY (demo instances, personal self-hosting):
+   * requests carrying no credentials act as this key instead of getting the
+   * anonymous surface. Requests that DO present a key still use their own.
+   * Never set this on the public multi-tenant endpoint — it would hand every
+   * anonymous caller the configured account, which is exactly the accident
+   * the base-config apiKey strip above exists to prevent. The strip still
+   * applies: an env WA_API_KEY is discarded; only this explicit option (env
+   * WA_HTTP_DEFAULT_KEY) opts in.
+   */
+  defaultApiKey?: string;
   /** Test seam. Production builds real deps; tests inject recorders/mocks. */
   depsFactory?: (config: WaConfig) => ToolDeps;
   /** Tenant-bundle bounds. Oldest-idle bundles are dropped past either. */
@@ -245,7 +256,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    const deps = tenants.forKey(apiKeyFrom(req));
+    const deps = tenants.forKey(apiKeyFrom(req) ?? options.defaultApiKey);
     // Fresh server+transport per request over long-lived tenant deps: the
     // stateless Streamable HTTP pattern. Closed with the response so an
     // abandoned connection cannot leak either.
@@ -269,6 +280,7 @@ async function main(): Promise<void> {
   const server = createWaHttpServer({
     config,
     challengeToken: process.env.WA_APPS_CHALLENGE_TOKEN?.trim() || undefined,
+    defaultApiKey: process.env.WA_HTTP_DEFAULT_KEY?.trim() || undefined,
   });
   server.listen(port, () => {
     console.error(

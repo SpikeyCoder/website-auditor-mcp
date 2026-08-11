@@ -154,6 +154,20 @@ describe("MCP over Streamable HTTP", () => {
   });
 });
 
+describe("defaultApiKey (single-tenant/demo deployments)", () => {
+  it("credential-less requests act as the configured key; presented keys still win", async () => {
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({ depsFactory: factory, defaultApiKey: "wa_demo_default" });
+    const anon = await connectClient(url);
+    await anon.listTools();
+    await anon.close();
+    const keyed = await connectClient(url, { Authorization: "Bearer wa_their_own" });
+    await keyed.listTools();
+    await keyed.close();
+    expect(seenKeys).toEqual(["wa_demo_default", "wa_their_own"]);
+  });
+});
+
 describe("plain HTTP surface", () => {
   it("GET /health and /healthz report ok + version (GFE swallows /healthz on run.app)", async () => {
     const { url } = await listen();
