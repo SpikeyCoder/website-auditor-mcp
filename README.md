@@ -137,6 +137,14 @@ WA_API_KEY = "wa_your_key_here"
 Codex doesn't render MCP prompts, so the [Prompts](#prompts) above won't appear
 as menu entries there — ask in words instead (*"show me a sample audit"*).
 
+Or install the packaged **Codex plugin**, which bundles the same server and
+restores the prompts as skills (which Codex does render):
+
+```bash
+codex plugin marketplace add SpikeyCoder/website-auditor-mcp
+codex plugin add website-auditor@spikeycoder
+```
+
 Restart the client and the tools appear.
 
 ### Getting an API key
