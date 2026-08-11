@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server for **[website-auditor.io](https://website-auditor.io)** —
 AI-visibility (GEO) and site-audit tools you can call from any MCP client
-(Claude Desktop, Claude Code, Cursor, and other agents).
+(Claude Desktop, Claude Code, Cursor, Codex, and other agents).
 
 Ask an agent *"does ChatGPT recommend my business?"*, *"what's my AI-visibility
 score?"*, *"audit example.com"*, or *"how do I stack up against my competitors?"*
@@ -36,7 +36,9 @@ server just makes them available to agents.
 
 Clients that support MCP prompts (Claude Desktop, claude.ai) render these as
 something you can pick from a menu, so you don't have to phrase the request
-yourself or know which tool to ask for.
+yourself or know which tool to ask for. In clients that don't surface prompts
+(Codex, currently), nothing is lost but the menu — ask in words and the same
+tools run.
 
 | Prompt | Needs a key? | What it does |
 |---|---|---|
@@ -115,6 +117,25 @@ functions with an active subscription.
 ```bash
 claude mcp add website-auditor -e WA_API_KEY=wa_your_key_here -- npx -y website-auditor-mcp
 ```
+
+**Codex** — the CLI, IDE extension and ChatGPT desktop app all read the same
+`~/.codex/config.toml`, so one of these covers all three:
+
+```bash
+codex mcp add website-auditor --env WA_API_KEY=wa_your_key_here -- npx -y website-auditor-mcp
+```
+
+```toml
+[mcp_servers.website-auditor]
+command = "npx"
+args = ["-y", "website-auditor-mcp"]
+
+[mcp_servers.website-auditor.env]
+WA_API_KEY = "wa_your_key_here"
+```
+
+Codex doesn't render MCP prompts, so the [Prompts](#prompts) above won't appear
+as menu entries there — ask in words instead (*"show me a sample audit"*).
 
 Restart the client and the tools appear.
 

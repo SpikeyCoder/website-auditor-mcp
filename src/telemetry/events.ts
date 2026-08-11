@@ -73,6 +73,7 @@ export const HUMAN_FACING_CLIENTS: readonly string[] = [
   "claude-ai", // Claude Desktop / claude.ai
   "claude-code", // Claude Code (human-in-terminal)
   "claude-desktop",
+  "codex", // Codex CLI / IDE / ChatGPT desktop app — reports "codex-mcp-client"
   "cursor", // Cursor IDE
   "windsurf", // Windsurf / Codeium IDE
   "vscode",

@@ -13,6 +13,13 @@ days. Nothing warns you; the versions just quietly disagree.
 | `.mcpb` bundle | see below | direct/manual installs, GitHub release |
 | **Claude Desktop directory** | **a submission form + human review** | **Claude Desktop users who installed from the in-app directory** |
 
+**Codex is not a fifth channel — don't go looking for one.** OpenAI has no
+directory or submission process for Codex (verified 2026-08-10; the ChatGPT
+apps directory is a different thing, for hosted remote servers only). Codex
+users install straight from npm via `codex mcp add` / `~/.codex/config.toml` —
+the README has the config — so `npm publish` already reaches them, and their
+`npx -y` installs self-update like everyone else's.
+
 ## Just run the script
 
 ```
