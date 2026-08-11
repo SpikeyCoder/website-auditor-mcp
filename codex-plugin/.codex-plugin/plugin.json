@@ -1,0 +1,47 @@
+{
+  "name": "website-auditor",
+  "version": "0.1.0",
+  "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
+  "author": {
+    "name": "Kevin Armstrong / SpikeyCoder",
+    "url": "https://website-auditor.io"
+  },
+  "homepage": "https://website-auditor.io",
+  "repository": "https://github.com/SpikeyCoder/website-auditor-mcp",
+  "license": "Elastic-2.0",
+  "keywords": [
+    "ai-visibility",
+    "geo",
+    "generative-engine-optimization",
+    "seo",
+    "website-audit",
+    "chatgpt",
+    "perplexity",
+    "claude",
+    "gemini"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Website Auditor",
+    "shortDescription": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
+    "longDescription": "Ask whether AI assistants actually recommend your business. Website Auditor puts the questions a real customer would ask to ChatGPT, Claude, Gemini and Perplexity, reports which businesses get named, and adds SEO, security-header, broken-link and performance checks — an overall AI-visibility score (0-100), a per-engine breakdown, competitor comparisons, and ongoing monitoring. Try it before subscribing: the sample report needs no API key and no setup.",
+    "developerName": "SpikeyCoder",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://website-auditor.io",
+    "privacyPolicyURL": "https://website-auditor.io/privacy",
+    "defaultPrompt": [
+      "Show me a sample website audit report",
+      "Check whether ChatGPT and other AI assistants recommend my website",
+      "Audit my website's AI visibility, SEO, security and performance"
+    ],
+    "brandColor": "#00AEEF",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "screenshots": []
+  }
+}

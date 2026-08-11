@@ -30,7 +30,7 @@ export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<Tool
       businessCity: args.business_location,
     });
   } catch (e) {
-    return fromApiError(e, deps.config.upgradeUrl);
+    return fromApiError(e, deps.config);
   }
 
   if (detectUnreachable(response.report)) {

@@ -22,6 +22,11 @@ export interface SessionInitEvent {
   client_name?: string;
   client_version?: string;
   is_agent_originated: boolean;
+  /** Entry point: "stdio" (npx/.mcpb installs) or "http" (hosted endpoint).
+   *  Absent on events from builds predating the field — read absent as stdio.
+   *  NOTE: the API's mcp_events ingest must tolerate/store this field; add the
+   *  column server-side before pointing real traffic at the hosted endpoint. */
+  transport?: "stdio" | "http";
 }
 
 export interface ToolCallEvent {
@@ -33,6 +38,8 @@ export interface ToolCallEvent {
   success: boolean;
   error_code?: string;
   duration_ms: number;
+  /** See SessionInitEvent.transport. */
+  transport?: "stdio" | "http";
 }
 
 export type McpEvent = SessionInitEvent | ToolCallEvent;
@@ -73,6 +80,7 @@ export const HUMAN_FACING_CLIENTS: readonly string[] = [
   "claude-ai", // Claude Desktop / claude.ai
   "claude-code", // Claude Code (human-in-terminal)
   "claude-desktop",
+  "codex", // Codex CLI / IDE / ChatGPT desktop app — reports "codex-mcp-client"
   "cursor", // Cursor IDE
   "windsurf", // Windsurf / Codeium IDE
   "vscode",

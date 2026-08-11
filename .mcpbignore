@@ -19,6 +19,11 @@ docs/
 .gitignore
 server.json
 
+# Codex plugin packaging — a separate distribution surface, never part of the
+# Claude Desktop bundle.
+codex-plugin/
+.agents/
+
 # Icon source — only the rendered icon.png ships in the bundle.
 logo.svg
 

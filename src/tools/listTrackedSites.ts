@@ -34,6 +34,6 @@ export async function listTrackedSites(_args: Record<string, never>, deps: ToolD
       summary,
     });
   } catch (e) {
-    return fromApiError(e, deps.config.upgradeUrl);
+    return fromApiError(e, deps.config);
   }
 }

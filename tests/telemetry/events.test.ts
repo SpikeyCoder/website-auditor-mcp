@@ -6,7 +6,7 @@ import { testConfig } from "../helpers.js";
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe("classifyAgentOrigin (agent-origin heuristic)", () => {
-  it.each(["claude-ai", "Claude-AI", "cursor", "Cursor", "windsurf", "vscode", "Visual Studio Code", "zed"])(
+  it.each(["claude-ai", "Claude-AI", "codex-mcp-client", "cursor", "Cursor", "windsurf", "vscode", "Visual Studio Code", "zed"])(
     "treats known human-facing client %s as NOT agent-originated",
     (name) => {
       expect(classifyAgentOrigin(name)).toBe(false);

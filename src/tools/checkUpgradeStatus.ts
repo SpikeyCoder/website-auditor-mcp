@@ -59,7 +59,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   try {
     sub = await deps.client.getSubscription();
   } catch (e) {
-    return fromApiError(e, upgradeUrl);
+    return fromApiError(e, deps.config);
   }
 
   const periodEnd = sub.current_period_end ?? null;

@@ -1,0 +1,19 @@
+{
+  "name": "spikeycoder",
+  "interface": {
+    "displayName": "SpikeyCoder"
+  },
+  "plugins": [
+    {
+      "name": "website-auditor",
+      "source": {
+        "source": "local",
+        "path": "./codex-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

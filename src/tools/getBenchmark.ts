@@ -28,6 +28,6 @@ export async function getBenchmark(args: GetBenchmarkArgs, deps: ToolDeps): Prom
     });
     return ok(benchmark);
   } catch (e) {
-    return fromApiError(e, deps.config.upgradeUrl);
+    return fromApiError(e, deps.config);
   }
 }

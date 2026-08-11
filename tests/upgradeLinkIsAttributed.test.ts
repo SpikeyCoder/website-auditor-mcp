@@ -63,14 +63,14 @@ describe("check_upgrade_status attributes its link", () => {
 
 describe("fromApiError attributes the links it emits", () => {
   it("tags a PRO_REQUIRED upgrade_url built from the raw config URL", () => {
-    const res = fromApiError(new WaApiError("PRO_REQUIRED", "Subscription required."), PORTAL);
+    const res = fromApiError(new WaApiError("PRO_REQUIRED", "Subscription required."), testConfig({ upgradeUrl: PORTAL }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(isAttributed(res.error.upgrade_url)).toBe(true);
   });
 
   it("tags an INVALID_KEY upgrade_url", () => {
-    const res = fromApiError(new WaApiError("INVALID_KEY", "Key revoked."), PORTAL);
+    const res = fromApiError(new WaApiError("INVALID_KEY", "Key revoked."), testConfig({ upgradeUrl: PORTAL }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(isAttributed(res.error.upgrade_url)).toBe(true);
@@ -80,7 +80,7 @@ describe("fromApiError attributes the links it emits", () => {
     const e = new WaApiError("PRO_REQUIRED", "Subscription required.", {
       upgradeUrl: "https://api.website-auditor.io/admin_portal/?plan=pro",
     });
-    const res = fromApiError(e, PORTAL);
+    const res = fromApiError(e, testConfig({ upgradeUrl: PORTAL }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(isAttributed(res.error.upgrade_url)).toBe(true);
@@ -92,7 +92,7 @@ describe("fromApiError attributes the links it emits", () => {
     // Guards the rule quotaIsNotAnUpsell.test.ts exists to protect: OVER_QUOTA
     // belongs to someone already paying, so selling them their own plan is the
     // bug. Tagging must not accidentally introduce a link here.
-    const res = fromApiError(new WaApiError("OVER_QUOTA", "Rate limit exceeded."), PORTAL);
+    const res = fromApiError(new WaApiError("OVER_QUOTA", "Rate limit exceeded."), testConfig({ upgradeUrl: PORTAL }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.upgrade_url).toBeUndefined();

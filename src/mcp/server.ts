@@ -56,12 +56,49 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   get_sample_audit: (_a, d) => getSampleAudit({}, d),
 };
 
-// Tools that MUTATE server state (not read-only). Everything else only reads.
-const MUTATING_TOOLS = new Set(["track_site", "untrack_site"]);
-
 // get_sample_audit answers entirely from a bundled fixture — no key, no network,
 // no external world. Every other tool reaches the Website Auditor API.
 const LOCAL_ONLY_TOOLS = new Set(["get_sample_audit"]);
+
+/**
+ * Per-tool annotations, accurate against BOTH the MCP spec and the OpenAI
+ * plugin-review definitions — each is a listed rejection reason when wrong, and
+ * "conservatively true" is as wrong there as false:
+ *
+ *   readOnlyHint    — true unless the tool mutates server-side state. Only
+ *                     track_site / untrack_site do.
+ *   destructiveHint — "can delete, overwrite, revoke access, or act
+ *                     irreversibly". track_site only ENROLLS (or pauses)
+ *                     monitoring — reversible, nothing deleted — so it is NOT
+ *                     destructive. untrack_site removes the tracking and frees
+ *                     the slot, ending the history get_changes reads → true.
+ *   openWorldHint   — read tools query the external Website Auditor API about
+ *                     arbitrary internet domains (an open world) → true, except
+ *                     the bundled sample. track/untrack change only the
+ *                     caller's own account state, nothing publicly visible →
+ *                     false.
+ *
+ * Pinned tool-by-tool in tests/mcp/server.test.ts.
+ */
+function annotationsFor(spec: { name: string; title: string }): {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  openWorldHint: boolean;
+} {
+  if (spec.name === "track_site") {
+    return { title: spec.title, readOnlyHint: false, destructiveHint: false, openWorldHint: false };
+  }
+  if (spec.name === "untrack_site") {
+    return { title: spec.title, readOnlyHint: false, destructiveHint: true, openWorldHint: false };
+  }
+  return {
+    title: spec.title,
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: !LOCAL_ONLY_TOOLS.has(spec.name),
+  };
+}
 
 /** Format a normalized ToolResult as an MCP tool result. */
 export function toCallResult(result: ToolResult<unknown>): CallToolResult {
@@ -109,7 +146,7 @@ export function createServer(deps: ToolDeps): McpServer {
       // funnel leaked. The full history, and why the string is shaped the way it
       // is, lives in ./instructions.ts; the ordering and proportion it must keep
       // are pinned by tests/mcp/instructionTriggers.test.ts.
-      instructions: buildInstructions(signupUrl),
+      instructions: buildInstructions(signupUrl, deps.config.upsellStyle),
     },
   );
 
@@ -124,21 +161,17 @@ export function createServer(deps: ToolDeps): McpServer {
       client_name: clientInfo?.name,
       client_version: clientInfo?.version,
       is_agent_originated: classifyAgentOrigin(clientInfo?.name),
+      transport: deps.transport,
     });
   };
 
   for (const spec of SERVED_TOOLS) {
     const handler = HANDLERS[spec.name];
     if (!handler) continue;
-    // track_site / untrack_site mutate server state (enroll/remove a tracking),
-    // so they are NOT read-only — they carry destructiveHint. Every other served
-    // tool only reads and carries readOnlyHint. Every tool also carries a human
-    // `title` and openWorldHint (all tools reach the external Website Auditor API).
-    // These annotations are required for the Claude connector directory.
-    const isMutating = MUTATING_TOOLS.has(spec.name);
-    const annotations = isMutating
-      ? { title: spec.title, readOnlyHint: false, destructiveHint: true, openWorldHint: true }
-      : { title: spec.title, readOnlyHint: true, openWorldHint: !LOCAL_ONLY_TOOLS.has(spec.name) };
+    // Every tool carries a human `title` plus all three hint annotations —
+    // required by the Claude connector directory and the OpenAI plugin review
+    // alike. The values are per-tool; see annotationsFor above.
+    const annotations = annotationsFor(spec);
     server.registerTool(
       spec.name,
       {
@@ -161,6 +194,7 @@ export function createServer(deps: ToolDeps): McpServer {
           success: result.ok,
           error_code: errorCodeOf(result),
           duration_ms: Date.now() - startedAt,
+          transport: deps.transport,
         });
         return toCallResult(result);
       },

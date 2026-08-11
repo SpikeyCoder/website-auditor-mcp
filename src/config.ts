@@ -13,6 +13,20 @@
 // to buy a subscription they already have.
 export type Tier = "none" | "free" | "pro" | "invalid";
 
+/**
+ * How auth/upgrade surfaces talk about the paid plan.
+ *
+ *   "link" — the default, and the behavior every existing install has: errors
+ *            and instructions carry the sign-up/portal link (WA_UPGRADE_URL).
+ *   "info" — for deployments under marketplace rules that forbid checkout
+ *            links (the OpenAI plugin directory prohibits "direct checkout
+ *            links or transactional pages" while allowing plans to be
+ *            explained): price and trial terms are still stated, but every
+ *            link points at the informational `upsellInfoUrl` instead — and
+ *            checkout links the API itself returns are replaced too.
+ */
+export type UpsellStyle = "link" | "info";
+
 export interface WaConfig {
   /** Base URL of the website-auditor-api portal (the service we wrap). */
   apiBaseUrl: string;
@@ -22,6 +36,14 @@ export interface WaConfig {
   apiKey?: string;
   /** Where callers are sent to subscribe/upgrade. Surfaced in error payloads. */
   upgradeUrl: string;
+  /** See UpsellStyle. Default "link". */
+  upsellStyle: UpsellStyle;
+  /**
+   * The informational page "info"-style deployments link to instead of the
+   * portal. Defaults to the site homepage; never defaults to `upgradeUrl` —
+   * that default is the checkout the style exists to avoid.
+   */
+  upsellInfoUrl: string;
   /** Timeout (ms) for calls to the API portal. */
   requestTimeoutMs: number;
   /**
@@ -67,13 +89,20 @@ function parseTier(value: string | undefined): Tier | undefined {
   return value === "free" || value === "pro" || value === "none" ? value : undefined;
 }
 
+function parseUpsellStyle(value: string | undefined): UpsellStyle {
+  return value?.trim().toLowerCase() === "info" ? "info" : "link";
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): WaConfig {
   const apiKey = env.WA_API_KEY?.trim();
+  const siteUrl = stripTrailingSlash(env.WA_SITE_URL?.trim() || "https://website-auditor.io");
   return {
     apiBaseUrl: stripTrailingSlash(env.WA_API_BASE_URL?.trim() || "https://api.website-auditor.io"),
-    siteUrl: stripTrailingSlash(env.WA_SITE_URL?.trim() || "https://website-auditor.io"),
+    siteUrl,
     apiKey: apiKey ? apiKey : undefined,
     upgradeUrl: env.WA_UPGRADE_URL?.trim() || "https://api.website-auditor.io/admin_portal/",
+    upsellStyle: parseUpsellStyle(env.WA_UPSELL_STYLE),
+    upsellInfoUrl: stripTrailingSlash(env.WA_UPSELL_INFO_URL?.trim() || "") || siteUrl,
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),

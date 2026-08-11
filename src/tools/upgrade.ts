@@ -25,9 +25,15 @@ export const PRICE = "$10/month";
  *
  * Preserves any query string already on WA_UPGRADE_URL rather than clobbering
  * it, and degrades to the raw configured value if it isn't a parseable URL.
+ *
+ * Style-aware: under `upsellStyle: "info"` (see config.ts) this returns the
+ * informational page instead of the portal — EVERY surface that links a reader
+ * toward the paid plan flows through here, which is what makes the style a
+ * config switch rather than a fork. Still tagged: on the info page the
+ * parameter is inert, but a reader who continues to the portal carries it.
  */
 export function upgradeLink(config: WaConfig): string {
-  return tagSource(config.upgradeUrl);
+  return tagSource(config.upsellStyle === "info" ? config.upsellInfoUrl : config.upgradeUrl);
 }
 
 /**
