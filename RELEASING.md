@@ -108,8 +108,17 @@ rather than assuming. The manual steps are kept for when something goes wrong.
    ```
    npm view website-auditor-mcp version
    curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=website-auditor&limit=100" \
-     | python3 -c "import json,sys;[print(s.get('version'),(s.get('_meta') or {}).get('io.modelcontextprotocol.registry/official',{}).get('isLatest')) for s in json.load(sys.stdin)['servers']]"
+     | python3 -c "import json,sys;[print(e['server']['version'],(e.get('_meta') or {}).get('io.modelcontextprotocol.registry/official',{}).get('isLatest')) for e in json.load(sys.stdin)['servers']]"
    ```
+
+   Expect exactly one `True` — the version you just published. **The registry
+   nests the record under a `server` key** (`{"server": {...}, "_meta": {...}}`).
+   An earlier version of this snippet read `version` off the outer object, so it
+   printed `None` for every entry no matter what was published, and answered
+   "did it land?" with a column of nulls that looked like a registry outage
+   rather than a broken query. Caught during the 1.0.17 release. If this ever
+   prints `None` again, the response shape moved — fix the query before
+   concluding anything about the release.
 
    Then watch `mcp_events.server_version` and `api_request_logs.mcp_version`
    for the new string. Until one real client reports it, the release has not
