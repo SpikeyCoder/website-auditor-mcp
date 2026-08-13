@@ -12,10 +12,10 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createWaHttpServer, httpOptionsFromEnv, type HttpServerOptions } from "../../src/http.js";
+import { createWaHttpServer, httpOptionsFromEnv, portFromEnv, type HttpServerOptions } from "../../src/http.js";
 import { loadConfig, type WaConfig } from "../../src/config.js";
 import type { ToolDeps } from "../../src/tools/context.js";
-import { makeDeps, testConfig, RecordingEventSink } from "../helpers.js";
+import { makeDeps, testConfig, RecordingEventSink, UNEXPANDED_PLACEHOLDERS } from "../helpers.js";
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -136,8 +136,11 @@ describe("MCP over Streamable HTTP", () => {
 
   it("discards exactly what loadConfig discards", async () => {
     // The anti-drift assertion: both transports call normalizeApiKey, so this
-    // fails if either grows its own idea of what counts as a key.
-    for (const placeholder of ["${WA_API_KEY}", "{{WA_API_KEY}}", "${env:WA_API_KEY}", "$WA_API_KEY"]) {
+    // fails if either grows its own idea of what counts as a key. Iterates the
+    // SHARED list config.test.ts uses — it used to hand-copy a subset, which
+    // silently left `${input:apiKey}` unverified over HTTP and made "exactly"
+    // a claim the test could not back.
+    for (const placeholder of UNEXPANDED_PLACEHOLDERS) {
       expect(loadConfig({ WA_API_KEY: placeholder }).apiKey, `stdio: ${placeholder}`).toBeUndefined();
 
       const { factory, seenKeys } = recordingFactory();
@@ -233,15 +236,33 @@ describe("defaultApiKey (single-tenant/demo deployments)", () => {
     expect(httpOptionsFromEnv({}).defaultApiKey).toBeUndefined();
   });
 
-  it("a placeholder default key leaves anonymous callers on the sample surface", async () => {
-    // The property that wiring buys: every anonymous request on a box whose
-    // deploy template failed to expand still gets get_sample_audit, rather than
-    // "Invalid API key format" from acting as a tenant named `${...}`.
+  it("resolves the port without letting a blank WA_HTTP_PORT become NaN", () => {
+    // `??` treats "" as present, so parseInt("") → NaN → listen(NaN) throws
+    // ERR_SOCKET_BAD_PORT and the container dies on boot. .env.example ships
+    // the line as `WA_HTTP_PORT=`, so a compose env_file exported exactly that,
+    // and on Cloud Run it also swallowed the injected PORT the Dockerfile
+    // promises is honored.
+    expect(portFromEnv({ WA_HTTP_PORT: "", PORT: "8080" })).toBe(8080);
+    expect(portFromEnv({ WA_HTTP_PORT: "not-a-port", PORT: "8080" })).toBe(8080);
+    expect(portFromEnv({ WA_HTTP_PORT: "", PORT: "" })).toBe(8787);
+    expect(portFromEnv({})).toBe(8787);
+    expect(portFromEnv({ WA_HTTP_PORT: "9001" })).toBe(9001);
+    expect(portFromEnv({ PORT: "8080" })).toBe(8080);
+  });
+
+  it("normalizes a raw placeholder passed straight to the factory", async () => {
+    // createWaHttpServer is a published entry (dist/**/*.js ships, no exports
+    // map) and the listen guard exists so wrappers can import it. A wrapper
+    // passing env through unnormalized must not be able to reinstate the bug,
+    // so the invariant holds at the consumer rather than only in
+    // httpOptionsFromEnv one layer above it.
+    //
+    // This replaced a test that fed an already-normalized value back in: with
+    // the option resolving to undefined, that server was configured identically
+    // to the plain keyless case already covered above, so it could only fail
+    // when another test already had.
     const { factory, seenKeys } = recordingFactory();
-    const { url } = await listen({
-      depsFactory: factory,
-      defaultApiKey: httpOptionsFromEnv({ WA_HTTP_DEFAULT_KEY: "${WA_HTTP_DEFAULT_KEY}" }).defaultApiKey,
-    });
+    const { url } = await listen({ depsFactory: factory, defaultApiKey: "${WA_HTTP_DEFAULT_KEY}" });
     const anon = await connectClient(url);
     const res = await anon.callTool({ name: "get_sample_audit", arguments: {} });
     expect(res.isError).toBeFalsy();

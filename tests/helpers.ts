@@ -134,3 +134,20 @@ export function makeQuotaClient(opts: {
 
   return makeClient({ runAudit, getRemainingQuota });
 }
+
+/**
+ * Every client-substitution syntax isUnexpandedPlaceholder must read as "unset".
+ *
+ * One list, iterated by both the stdio test (config.test.ts) and the hosted one
+ * (http/server.test.ts). They each hand-maintained their own, which is how the
+ * HTTP side ended up silently missing `${input:apiKey}` while its comment
+ * claimed to prove the two transports "discard exactly" the same set — a
+ * drift guard that could not detect drift.
+ */
+export const UNEXPANDED_PLACEHOLDERS = [
+  "${WA_API_KEY}", // Cursor plugin variables
+  "${env:WA_API_KEY}", // VS Code / Cursor mcp.json interpolation
+  "${input:apiKey}", // VS Code input prompts
+  "{{WA_API_KEY}}", // moustache-style templating
+  "$WA_API_KEY", // bare shell-style
+] as const;

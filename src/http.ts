@@ -35,7 +35,7 @@
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { loadConfig, normalizeApiKey, type WaConfig } from "./config.js";
+import { loadConfig, normalizeApiKey, parseIntOr, type WaConfig } from "./config.js";
 import { WaApiClient } from "./api/client.js";
 import { DefaultSubscriptionProvider } from "./auth/entitlements.js";
 import { InMemoryAuditCache } from "./auth/auditCache.js";
@@ -225,6 +225,14 @@ const CORS_HEADERS: Record<string, string> = {
 
 export function createWaHttpServer(options: HttpServerOptions): Server {
   const base: WaConfig = { ...options.config, apiKey: undefined };
+  // Normalized HERE, not only where main() reads the env, because this factory
+  // is a published entry — package.json ships dist/**/*.js with no exports map,
+  // and the listen guard below exists precisely so wrappers can import it. A
+  // wrapper writing `{ defaultApiKey: env.WA_HTTP_DEFAULT_KEY }` — verbatim the
+  // line httpOptionsFromEnv replaced — would otherwise reinstate the bug this
+  // PR removes, and no test would catch it, because the guard would live one
+  // layer above the only code that consumes the value.
+  const defaultApiKey = normalizeApiKey(options.defaultApiKey);
   const tenants = new TenantDeps(
     base,
     options.depsFactory ?? defaultDepsFactory,
@@ -284,7 +292,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    const deps = tenants.forKey(apiKeyFrom(req) ?? options.defaultApiKey);
+    const deps = tenants.forKey(apiKeyFrom(req) ?? defaultApiKey);
     // Fresh server+transport per request over long-lived tenant deps: the
     // stateless Streamable HTTP pattern. Closed with the response so an
     // abandoned connection cannot leak either.
@@ -329,9 +337,25 @@ export function httpOptionsFromEnv(
   };
 }
 
+/**
+ * Listening port, with the same env-is-testable treatment as the options.
+ *
+ * `??` only falls through on null/undefined, so an EMPTY WA_HTTP_PORT counted
+ * as present: parseInt("") is NaN, listen(NaN) throws ERR_SOCKET_BAD_PORT, and
+ * the container dies on boot. .env.example ships the line as `WA_HTTP_PORT=`,
+ * so any compose `env_file:` or `set -a; . .env` exported exactly that — and on
+ * Cloud Run it also swallowed the injected PORT=8080 the Dockerfile promises is
+ * honored. parseIntOr (already used for every other numeric env in config.ts)
+ * treats blank and non-numeric alike as "unset", which is what the `??` chain
+ * was written to mean.
+ */
+export function portFromEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): number {
+  return parseIntOr(env.WA_HTTP_PORT, parseIntOr(env.PORT, 8787));
+}
+
 async function main(): Promise<void> {
   const options = httpOptionsFromEnv(process.env);
-  const port = Number.parseInt(process.env.WA_HTTP_PORT ?? process.env.PORT ?? "8787", 10);
+  const port = portFromEnv(process.env);
   const server = createWaHttpServer(options);
   server.listen(port, () => {
     console.error(

@@ -79,7 +79,7 @@ function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-function parseIntOr(value: string | undefined, fallback: number): number {
+export function parseIntOr(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) ? n : fallback;
