@@ -1,0 +1,16 @@
+{
+  "name": "spikeycoder",
+  "owner": {
+    "name": "Kevin Armstrong / SpikeyCoder"
+  },
+  "metadata": {
+    "description": "Plugins from SpikeyCoder / website-auditor.io"
+  },
+  "plugins": [
+    {
+      "name": "website-auditor",
+      "source": "./cursor-plugin",
+      "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website."
+    }
+  ]
+}

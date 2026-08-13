@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "website-auditor": {
+      "command": "npx",
+      "args": ["-y", "website-auditor-mcp"],
+      "env": {
+        "WA_API_KEY": "${WA_API_KEY}"
+      }
+    }
+  }
+}

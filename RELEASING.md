@@ -28,6 +28,15 @@ says so, and once it does, it becomes a genuine fifth channel here with its
 own review queue and a rescan required per release, exactly like the Claude
 Desktop directory.
 
+**Cursor is the same shape.** `npm publish` already reaches Cursor users
+(`~/.cursor/mcp.json`; the README carries the config and a one-click install
+link). The **Cursor Marketplace** is a reviewed plugin channel on top — the
+package exists (`cursor-plugin/`, pinned by `tests/cursorPlugin.test.ts`) but
+is **not yet submitted**; docs/CURSOR-PLUGIN.md has the steps and status.
+Once listed it joins this table too, with one mercy: the plugin bundles the
+server unpinned (`npx -y`), so npm releases flow through without re-review —
+only changes to the plugin itself (manifest, skills) re-enter the queue.
+
 ## Just run the script
 
 ```
