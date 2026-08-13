@@ -32,6 +32,11 @@ import type { UpsellStyle } from "../config.js";
 export function buildInstructions(
   signupUrl: string,
   style: UpsellStyle = "link",
+  // Defaults to stdio because ToolDeps.transport is optional and absent means a
+  // build predating the field, which was stdio-only. Getting this backwards
+  // serves "send it with each request as an Authorization header" to someone
+  // whose only channel is a config file — so it is pinned by a test rather than
+  // left to read as an arbitrary pick.
   transport: "stdio" | "http" = "stdio",
 ): string {
   // Same reason keySetupNote exists (src/tools/context.ts): "set WA_API_KEY in

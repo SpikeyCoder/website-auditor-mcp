@@ -70,11 +70,22 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   // that records a malformed_key 401, because every other Pro tool is gated
   // client-side and never reaches the network with a bad key.
   //
-  // The reader sees no difference. The API answers a bad prefix with this exact
-  // sentence, and fromApiError attaches the same signup link it would have for
-  // the 401 — MALFORMED_KEY is a key rejection, so `attachUpgrade` holds.
+  // The reader sees no difference from the 401 it replaces. The API answers a
+  // bad prefix with this exact sentence, and fromApiError attaches the same
+  // signup link — MALFORMED_KEY is a key rejection, so `attachUpgrade` holds.
+  //
+  // It carries keySetupNote because the bare sentence dead-ends. Every OTHER
+  // key failure in the package ends by saying where the key goes: gateProTool's
+  // invalid branch appends it, and so does the no-key branch above. This one
+  // did not, which left the tool whose own header calls it "the one tool a
+  // caller with a broken key is MEANT to reach" as the only surface that names
+  // the problem and not the remedy — and a typo'd key is exactly what still
+  // lands here now that a placeholder is normalized away upstream.
   if (!deps.config.apiKey.startsWith(API_KEY_PREFIX)) {
-    return fromApiError(new WaApiError("MALFORMED_KEY", MALFORMED_KEY_MESSAGE), deps.config);
+    return fromApiError(
+      new WaApiError("MALFORMED_KEY", `${MALFORMED_KEY_MESSAGE} ${keySetupNote(deps.transport)}`),
+      deps.config,
+    );
   }
 
   let sub;

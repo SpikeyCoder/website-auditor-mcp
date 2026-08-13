@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { getSampleAudit } from "../../src/tools/sampleAudit.js";
-import { testConfig } from "../helpers.js";
-import type { ToolDeps } from "../../src/tools/context.js";
+import { makeDeps, testConfig } from "../helpers.js";
+import { RESTART_NOTE, type ToolDeps } from "../../src/tools/context.js";
 import type { WaApiClientLike } from "../../src/api/client.js";
 import type { SubscriptionProvider } from "../../src/auth/entitlements.js";
 import type { AuditCache } from "../../src/auth/auditCache.js";
@@ -91,5 +91,59 @@ describe("get_sample_audit [Free, no key]", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.domain).toBe("example.com");
+  });
+});
+
+/**
+ * The note is the only copy on this tool, and this tool is the only one a
+ * keyless hosted caller can invoke — the first thing a marketplace reviewer or
+ * an unauthenticated user sees. Mutation testing found the whole hunk here
+ * revertible to its pre-branch text with CI green: nothing asserted the
+ * key-setup sentence, and the shared deps helper never sets `transport`, so the
+ * hosted branch was never reached.
+ */
+describe("get_sample_audit: the setup note", () => {
+  it("tells a keyless stdio caller where the key goes, restart included", async () => {
+    const res = await getSampleAudit({}, makeDeps({ config: { apiKey: undefined } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.note).toContain("WA_API_KEY");
+    expect(res.data.note).toMatch(/restart/i);
+  });
+
+  it("names the header for a keyless hosted caller, never the env var", async () => {
+    const res = await getSampleAudit({}, {
+      ...makeDeps({ config: { apiKey: undefined } }),
+      transport: "http" as const,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.note).toMatch(/Authorization: Bearer/);
+    expect(res.data.note).toMatch(/X-API-Key/);
+    expect(res.data.note).not.toContain("WA_API_KEY");
+    // Not "no mention of restarting" — the hosted text deliberately says there
+    // is NOTHING to restart, the sentence that closes the loop for a reader who
+    // has heard "restart your client" from every other MCP server. What must be
+    // absent is the stdio instruction itself.
+    expect(res.data.note).toContain("nothing to restart");
+    expect(res.data.note).not.toContain(RESTART_NOTE);
+  });
+
+  it("says nothing about setup to a caller who already has a key", async () => {
+    // The regression this replaces: the note was appended unconditionally, so a
+    // paying subscriber running the demo was told to set a key and restart
+    // their client — which reads as "your key isn't working".
+    for (const transport of ["stdio", "http"] as const) {
+      const res = await getSampleAudit({}, {
+        ...makeDeps({ config: { apiKey: "wa_live_key" } }),
+        transport,
+      });
+      expect(res.ok, transport).toBe(true);
+      if (!res.ok) return;
+      expect(res.data.note, transport).not.toMatch(/WA_API_KEY|restart|Authorization/);
+      // Still states what a real audit needs — the requirement is not the
+      // instruction, and dropping both would be its own kind of silence.
+      expect(res.data.note, transport).toMatch(/subscription/i);
+    }
   });
 });

@@ -17,6 +17,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
 import { createServer } from "../../src/mcp/server.js";
 import { makeDeps } from "../helpers.js";
+import { upgradeLink } from "../../src/tools/upgrade.js";
 
 const SIGNUP = "https://api.website-auditor.io/admin_portal/?source=mcp";
 const text = () => buildInstructions(SIGNUP);
@@ -130,8 +131,39 @@ describe("instructions: wiring", () => {
     // "info" style is what a hosted OpenAI-plugin deployment runs — exactly the
     // deployment where the stdio instruction cannot be carried out.
     for (const style of ["link", "info"] as const) {
-      expect(buildInstructions(SIGNUP, style, "http"), style).toMatch(/Authorization: Bearer|X-API-Key/);
+      // Both headers, not an alternation — see the note in keyRequiresRestart.
+      expect(buildInstructions(SIGNUP, style, "http"), style).toMatch(/Authorization: Bearer/);
+      expect(buildInstructions(SIGNUP, style, "http"), style).toMatch(/X-API-Key/);
       expect(buildInstructions(SIGNUP, style, "http"), style).not.toContain("WA_API_KEY");
     }
+  });
+
+  it("defaults to the stdio instruction when transport is absent", () => {
+    // ToolDeps.transport is optional — absent means a build predating the
+    // field, which was stdio-only. Flipping the default to "http" left the
+    // suite green, because the handshake test compares served output against
+    // buildInstructions(SIGNUP) and BOTH sides route through the same default,
+    // making the assertion invariant under any change to it.
+    expect(buildInstructions(SIGNUP)).toContain("WA_API_KEY");
+    expect(buildInstructions(SIGNUP)).not.toMatch(/Authorization: Bearer/);
+  });
+
+  it("carries the configured upsell style from deps, not a hardcoded one", async () => {
+    // The neighbouring argument to the one already pinned. Hardcoding "link" at
+    // the call site left the suite green: every style test calls
+    // buildInstructions directly, and the one handshake test uses a config
+    // whose style IS "link". An info-style deployment would then serve
+    // link-style instructions — "Sign up and create an API key at <portal>" —
+    // which is the purchase-initiating copy marketplace review forbids, and
+    // nothing would fail.
+    const deps = { ...makeDeps({ tier: "none", config: { upsellStyle: "info" } }), transport: "http" as const };
+    const info = await served(deps);
+    // upgradeLink resolves to the informational page under this style, so the
+    // expected string has to be built from the same config rather than SIGNUP.
+    expect(info).toBe(buildInstructions(upgradeLink(deps.config), "info", "http"));
+    expect(info).toMatch(/described at/i);
+    // The distinguishing property, stated independently of string equality:
+    // info style must not carry the purchase-initiating portal link.
+    expect(info).not.toContain("admin_portal");
   });
 });

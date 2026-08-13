@@ -49,7 +49,15 @@ export async function getSampleAudit(
       `for any site you asked about. It shows the exact response shape a real run returns — ` +
       `scored summary, per-test results, and the AI-visibility breakdown across ChatGPT, ` +
       `Perplexity, Claude and Gemini. To audit a real domain you need a Website Auditor ` +
-      `subscription (${PRICE}) and an API key. ${keySetupNote(deps.transport)}`,
+      `subscription (${PRICE}) and an API key.` +
+      // Only for a caller who has no key. This tool does no gating and no key
+      // check, so the note was appended unconditionally — which turned a
+      // statement of what a real audit requires into a setup procedure served
+      // to people who are already set up. A paying subscriber running the demo
+      // was told to set a key and restart their client, which reads as "your
+      // key isn't working", on the highest-traffic string in the package: the
+      // keyless surface a marketplace reviewer sees first.
+      (deps.config.apiKey ? "" : ` ${keySetupNote(deps.transport)}`),
     audit: sampleAuditReport(),
     price: PRICE,
     upgrade_url: upgradeLink(deps.config),

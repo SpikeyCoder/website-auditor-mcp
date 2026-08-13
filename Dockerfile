@@ -19,7 +19,11 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
-# Cloud Run injects PORT=8080; src/http.ts honors it (WA_HTTP_PORT ?? PORT).
+# Cloud Run injects PORT=8080; src/http.ts honors it. WA_HTTP_PORT wins when set
+# to something non-blank, then PORT, then 8787 — a BLANK WA_HTTP_PORT falls
+# through rather than shadowing PORT, which the old `??` chain could not express.
+# Anything present but not an integer 1-65535 stops the boot naming the variable,
+# rather than binding a port nobody asked for.
 EXPOSE 8080
 USER node
 CMD ["node", "dist/http.js"]

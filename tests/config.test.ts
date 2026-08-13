@@ -72,3 +72,33 @@ describe("loadConfig", () => {
     expect(loadConfig({ WA_METRICS_DISABLED: "0" }).metricsEnabled).toBe(true);
   });
 });
+
+describe("loadConfig: the placeholder rule covers every interpolated value", () => {
+  it("falls back to defaults when a URL arrives unexpanded", () => {
+    // The live hole behind normalizeEnvValue's "one place / every setting"
+    // docstring: only WA_API_KEY was routed through it. An unexpanded
+    // WA_UPGRADE_URL is truthy, so it beat the working default and every
+    // AUTH_REQUIRED / PRO_REQUIRED / INVALID_KEY payload shipped
+    // "create a key at ${WA_UPGRADE_URL}" as both prose and the structured
+    // upgrade_url — a dead signup link in exactly the messages this line of
+    // work exists to make followable. tagSource swallows the parse failure.
+    for (const placeholder of UNEXPANDED_PLACEHOLDERS) {
+      const cfg = loadConfig({
+        WA_UPGRADE_URL: placeholder,
+        WA_API_BASE_URL: placeholder,
+        WA_SITE_URL: placeholder,
+        WA_UPSELL_INFO_URL: placeholder,
+      });
+      expect(cfg.upgradeUrl, placeholder).toBe("https://api.website-auditor.io/admin_portal/");
+      expect(cfg.apiBaseUrl, placeholder).toBe("https://api.website-auditor.io");
+      expect(cfg.siteUrl, placeholder).toBe("https://website-auditor.io");
+      expect(cfg.upsellInfoUrl, placeholder).toBe("https://website-auditor.io");
+    }
+  });
+
+  it("still honours real URLs", () => {
+    const cfg = loadConfig({ WA_UPGRADE_URL: " https://portal.example.test/ ", WA_SITE_URL: "https://site.test/" });
+    expect(cfg.upgradeUrl).toBe("https://portal.example.test/");
+    expect(cfg.siteUrl).toBe("https://site.test");
+  });
+});

@@ -185,8 +185,17 @@ function apiKeyFrom(req: IncomingMessage): string | undefined {
     const bearer = normalizeEnvValue(/^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]);
     if (bearer) return bearer;
   }
+  // Node joins repeated headers with ", " for everything except set-cookie —
+  // it never hands us an array here, so the Array.isArray branch this replaces
+  // was dead and its "take the first" intent never ran. Two X-API-Key headers
+  // arrived as the single string "wa_alice, wa_bob", which is wa_-prefixed
+  // enough to reach the network, minted its own tenant bundle, and was
+  // forwarded verbatim upstream. Splitting restores the intended semantics for
+  // the case that actually occurs. (Authorization is different: Node keeps
+  // only the first, so duplicates never reach us at all.)
   const headerKey = req.headers["x-api-key"];
-  return normalizeEnvValue(Array.isArray(headerKey) ? headerKey[0] : headerKey);
+  const first = (Array.isArray(headerKey) ? headerKey[0] : headerKey)?.split(",")[0];
+  return normalizeEnvValue(first);
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -224,7 +233,32 @@ const CORS_HEADERS: Record<string, string> = {
 };
 
 export function createWaHttpServer(options: HttpServerOptions): Server {
-  const base: WaConfig = { ...options.config, apiKey: undefined };
+  // devTier is stripped for the same reason apiKey is, and it is the more
+  // dangerous of the two. WA_DEV_TIER is a local escape hatch that grants a
+  // tier outright, and DefaultSubscriptionProvider.resolve consults it BEFORE
+  // the `wa_` prefix check and before any network call — so on a hosted box
+  // where the operator set it (it is in .env.example), every tenant bundle
+  // inherited it and any caller sending `Bearer anything-at-all` resolved to
+  // that tier and walked through gateProTool. The upstream API still refuses
+  // the bogus key, so no audit data was served, but the client-side gate was
+  // fully bypassed and any tool answering locally would leak outright.
+  //
+  // Single-tenant env values must never become the authority for a per-request
+  // tenant. That is the interface contract on `config` above; it named apiKey
+  // because apiKey was the only one thought of.
+  // Note the asymmetry, so nobody "cleans up" the wrong half: TenantDeps.forKey
+  // spreads `{ ...base, apiKey }`, so base.apiKey is ALWAYS overridden by the
+  // per-request key and stripping it here changes nothing observable — it is
+  // belt-and-braces against a future edit to forKey, and no test can tell it
+  // from its absence. devTier has no such override, so its strip is the guard
+  // actually holding the boundary, and its removal IS caught.
+  const base: WaConfig = { ...options.config, apiKey: undefined, devTier: undefined };
+  // Normalized at the consumer for the same reason defaultApiKey is: this
+  // factory is a published entry, and the guard one layer up in
+  // httpOptionsFromEnv does not travel with it. Unexpanded, the token is
+  // truthy, so the well-known route answers 200 with the literal `${...}` and
+  // the verifier reports a MISMATCH instead of the 404 naming the real cause.
+  const challengeToken = normalizeEnvValue(options.challengeToken);
   // Normalized HERE, not only where main() reads the env, because this factory
   // is a published entry — package.json ships dist/**/*.js with no exports map,
   // and the listen guard below exists precisely so wrappers can import it. A
@@ -257,12 +291,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     }
 
     if (url.pathname === CHALLENGE_PATH && req.method === "GET") {
-      if (!options.challengeToken) {
+      if (!challengeToken) {
         res.writeHead(404, { "Content-Type": "text/plain" }).end("no challenge configured");
         return;
       }
       // The token, exactly and alone: the verifier rejects JSON wrappers.
-      res.writeHead(200, { "Content-Type": "text/plain" }).end(options.challengeToken);
+      res.writeHead(200, { "Content-Type": "text/plain" }).end(challengeToken);
       return;
     }
 
@@ -325,14 +359,15 @@ export function httpOptionsFromEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): HttpServerOptions {
   return {
-    // apiKey stripped HERE as well as in createWaHttpServer, because this is
-    // now exported: the interface's own contract is that a stray WA_API_KEY
-    // "must never become the fallback identity for unauthenticated callers",
-    // and a wrapper reading `httpOptionsFromEnv().config` to build its own deps
-    // — or simply logging the options on boot — would otherwise be handed the
-    // operator's live key. Same reasoning as the factory-level strip, applied
-    // to the other end of the same object.
-    config: { ...loadConfig(env), apiKey: undefined },
+    // apiKey and devTier stripped HERE as well as in createWaHttpServer,
+    // because this is now exported: the interface's own contract is that a
+    // stray WA_API_KEY "must never become the fallback identity for
+    // unauthenticated callers", and a wrapper reading
+    // `httpOptionsFromEnv().config` to build its own deps — or simply logging
+    // the options on boot — would otherwise be handed the operator's live key.
+    // devTier grants a tier outright and is checked before the key is even
+    // looked at; see the factory for why that is the worse of the two.
+    config: { ...loadConfig(env), apiKey: undefined, devTier: undefined },
     // Every value below takes normalizeEnvValue. The challenge token is not a
     // credential, but it has the identical failure: unexpanded, it is truthy,
     // so the well-known route answers 200 with the literal `${...}` and
@@ -357,9 +392,22 @@ export function httpOptionsFromEnv(
  * express; anything present but not a real port stops the process with the
  * value quoted. See parsePort for why each of those is a boot failure someone
  * would otherwise have to diagnose from a silent 502.
+ *
+ * The chain PICKS first and validates second, which is not a style choice. The
+ * previous shape — `parsePort(WA_HTTP_PORT, parsePort(PORT, 8787))` — read like
+ * the chain above but could not behave like it: JS evaluates arguments eagerly,
+ * so the inner call ran even when WA_HTTP_PORT was a perfectly good port, and a
+ * junk PORT threw from a branch nothing was going to use. WA_HTTP_PORT=9001
+ * with PORT=havoc (or an un-interpolated `${PORT}`, or Docker's link-style
+ * `tcp://10.0.0.5:8080`) killed the process at boot. That is worse than what it
+ * replaced: the operator who set WA_HTTP_PORT *specifically to escape a bad
+ * PORT* is the one it strands.
  */
 export function portFromEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): number {
-  return parsePort(env.WA_HTTP_PORT, parsePort(env.PORT, 8787));
+  const explicit = env.WA_HTTP_PORT?.trim();
+  return explicit
+    ? parsePort(explicit, 8787, "WA_HTTP_PORT")
+    : parsePort(env.PORT, 8787, "PORT");
 }
 
 async function main(): Promise<void> {

@@ -356,6 +356,16 @@ describe("httpOptionsFromEnv / portFromEnv (what main() reads)", () => {
     expect(httpOptionsFromEnv({ WA_API_KEY: "wa_operator_secret" }).config.apiKey).toBeUndefined();
   });
 
+  it("strips a stray WA_DEV_TIER too", () => {
+    // The one that actually grants access. resolve() consults devTier before
+    // the wa_ prefix check and before any network call, so an inherited devTier
+    // turns `Bearer anything` into a passing Pro gate for every tenant on the
+    // box. Asserted here as well as at the factory because this function is
+    // exported and a wrapper may never touch createWaHttpServer's own strip.
+    expect(httpOptionsFromEnv({ WA_DEV_TIER: "pro" }).config.devTier).toBeUndefined();
+    expect(httpOptionsFromEnv({ WA_DEV_TIER: "free" }).config.devTier).toBeUndefined();
+  });
+
   it("passes real values through untouched", () => {
     const opts = httpOptionsFromEnv({ WA_HTTP_DEFAULT_KEY: "  wa_demo  ", WA_APPS_CHALLENGE_TOKEN: " tok-123 " });
     expect(opts.defaultApiKey).toBe("wa_demo");
@@ -383,9 +393,118 @@ describe("httpOptionsFromEnv / portFromEnv (what main() reads)", () => {
     // is worse — it binds a random ephemeral port no health probe will find —
     // and "havoc" silently becoming 8787 puts a box behind a proxy on a port
     // nobody asked for, 502ing with nothing in the log.
-    for (const bad of ["70000", "-1", "0", "0.5", "havoc", "8080abc"]) {
-      expect(() => portFromEnv({ WA_HTTP_PORT: bad }), bad).toThrow(/Invalid port/);
+    //
+    // The hex/binary/exponent forms are the same class one layer down: Number()
+    // reads 0x1F90 as 8080 and 0b1111 as 15 (a privileged bind), both integers,
+    // both in range, neither what the operator wrote.
+    for (const bad of ["70000", "-1", "0", "0.5", "havoc", "8080abc", "0x1F90", "0b1111", "1e4"]) {
+      expect(() => portFromEnv({ WA_HTTP_PORT: bad }), bad).toThrow(/Invalid/);
       expect(() => portFromEnv({ WA_HTTP_PORT: bad }), bad).toThrow(new RegExp(bad.replace(".", "\\.")));
     }
+  });
+
+  it("names WHICH variable was bad, since the reader is staring at two of them", () => {
+    expect(() => portFromEnv({ WA_HTTP_PORT: "havoc" })).toThrow(/WA_HTTP_PORT/);
+    expect(() => portFromEnv({ PORT: "havoc" })).toThrow(/\bPORT\b/);
+  });
+
+  it("lets an explicit WA_HTTP_PORT override a junk PORT instead of dying", () => {
+    // The regression this replaces. `parsePort(WA_HTTP_PORT, parsePort(PORT, …))`
+    // reads like the documented chain but cannot behave like it: JS evaluates
+    // arguments eagerly, so the inner call ran even when WA_HTTP_PORT was a
+    // perfectly good port, and threw from a branch nothing was going to use.
+    // The operator who set WA_HTTP_PORT *specifically to escape a bad PORT* was
+    // the one it stranded — the process exited at boot.
+    expect(portFromEnv({ WA_HTTP_PORT: "9001", PORT: "havoc" })).toBe(9001);
+    expect(portFromEnv({ WA_HTTP_PORT: "9001", PORT: "${PORT}" })).toBe(9001);
+    expect(portFromEnv({ WA_HTTP_PORT: "9001", PORT: "tcp://10.0.0.5:8080" })).toBe(9001);
+    // …and a junk PORT still fails loudly when it IS the value being used.
+    expect(() => portFromEnv({ PORT: "havoc" })).toThrow(/Invalid/);
+  });
+});
+
+/**
+ * Guards mutation testing found missing after the placeholder work — each of
+ * these mutations left the whole suite green.
+ */
+describe("hosted transport: invariants nothing was asserting", () => {
+  it("prefers a real Bearer over a real X-API-Key", async () => {
+    // "Bearer first" was untested with TWO real keys. The existing case sends a
+    // placeholder Bearer plus a real X-API-Key, whose expected result is
+    // identical under fall-through and under "X-API-Key always wins" — so it
+    // could not tell the orders apart. Swapping the branches stayed green.
+    // Getting this wrong serves the WRONG TENANT on a multi-tenant endpoint to
+    // any client that sends both (a connector auth field plus a curl-habit
+    // header, or a proxy injecting a static one).
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({ depsFactory: factory });
+    const client = await connectClient(url, {
+      Authorization: "Bearer wa_from_bearer",
+      "X-API-Key": "wa_from_header",
+    });
+    await client.listTools();
+    expect(seenKeys).toEqual(["wa_from_bearer"]);
+    await client.close();
+  });
+
+  it("never lets an operator config key become an anonymous caller's identity", async () => {
+    // The interface's stated security invariant. Deliberately NOT labelled as a
+    // guard on the `apiKey: undefined` strip in createWaHttpServer: TenantDeps
+    // .forKey spreads `{ ...base, apiKey }`, so the per-request value overrides
+    // base unconditionally and removing that strip is invisible here — verified
+    // by mutation, it stays green. The strip is belt-and-braces; THIS asserts
+    // the property both it and forKey exist to produce.
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({
+      depsFactory: factory,
+      config: testConfig({ apiKey: "wa_operator_secret" }),
+    });
+    const anon = await connectClient(url);
+    await anon.listTools();
+    expect(seenKeys).toEqual([undefined]);
+    await anon.close();
+  });
+
+  it("strips a stray devTier too — it grants a tier without looking at the key", async () => {
+    // Worse than apiKey: resolve() consults devTier BEFORE the wa_ prefix check
+    // and before any network call, so on a hosted box with WA_DEV_TIER set,
+    // `Bearer anything-at-all` walked straight through gateProTool.
+    const seen: Array<string | undefined> = [];
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, devTier: "pro" }),
+      depsFactory: (config) => {
+        seen.push(config.devTier);
+        return { ...makeDeps({ config }), transport: "http" as const };
+      },
+    });
+    const client = await connectClient(url, { Authorization: "Bearer not-a-wa-key" });
+    await client.listTools();
+    expect(seen).toEqual([undefined]);
+    await client.close();
+  });
+
+  it("merges nothing: duplicate X-API-Key headers take the first, not the join", async () => {
+    // Node joins repeated headers with ", ", so two X-API-Key headers arrived
+    // as "wa_alice, wa_bob" — its own tenant bundle, forwarded verbatim.
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({ depsFactory: factory });
+    const client = await connectClient(url, { "X-API-Key": "wa_alice, wa_bob" });
+    await client.listTools();
+    expect(seenKeys).toEqual(["wa_alice"]);
+    await client.close();
+  });
+
+  it("serves a placeholder challenge token as 404, through the factory too", async () => {
+    // The factory-level guard, matching defaultApiKey. Unexpanded, the token is
+    // truthy: the route answered 200 with the literal `${...}` and the verifier
+    // reported a MISMATCH instead of naming the real cause.
+    const { url } = await listen({ challengeToken: "${WA_APPS_CHALLENGE_TOKEN}" });
+    const res = await fetch(`${url}/.well-known/openai-apps-challenge`);
+    expect(res.status).toBe(404);
+
+    const ok = await listen({ challengeToken: " tok-123 " });
+    const served = await fetch(`${ok.url}/.well-known/openai-apps-challenge`);
+    expect(served.status).toBe(200);
+    expect((await served.text()).trim()).toBe("tok-123");
   });
 });
