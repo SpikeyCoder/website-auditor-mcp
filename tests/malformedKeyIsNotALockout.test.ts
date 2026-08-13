@@ -23,6 +23,8 @@ import {
   MALFORMED_KEY_MESSAGE,
 } from "../src/auth/entitlements.js";
 import { gateProTool } from "../src/tools/context.js";
+import { checkUpgradeStatus } from "../src/tools/checkUpgradeStatus.js";
+import { makeDeps } from "./helpers.js";
 import type { WaConfig } from "../src/config.js";
 
 const cfg = (over: Partial<WaConfig> = {}): WaConfig =>
@@ -89,6 +91,72 @@ describe("a key without the wa_ prefix", () => {
       const result = await gateProTool(deps(key));
       expect(result?.error?.code, `for ${JSON.stringify(key)}`).toBe("MALFORMED_KEY");
     }
+  });
+});
+
+/**
+ * check_upgrade_status does not go through resolve(), so the short-circuit
+ * above never covered it — and it is precisely the tool someone with a broken
+ * key is meant to reach, so it made the call the others had stopped making.
+ *
+ * Production bore that out: for a week after 1.0.15 shipped, /api/subscription
+ * was the ONLY route in the whole API recording a malformed_key 401.
+ */
+describe("check_upgrade_status, the tool a broken key is meant to reach", () => {
+  const upgradeDeps = (apiKey: string) => makeDeps({ client: neverCalled(), config: { apiKey } });
+
+  it("answers a malformed key without calling the endpoint", async () => {
+    // neverCalled() throws if getSubscription is reached, so an ok:false result
+    // carrying the API's own wording IS the assertion that nothing was sent.
+    const res = await checkUpgradeStatus({}, upgradeDeps("sk-proj-not-ours"));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("MALFORMED_KEY");
+    expect(res.error.message).toContain(MALFORMED_KEY_MESSAGE);
+  });
+
+  it("still hands back the signup link the 401 used to carry", async () => {
+    const res = await checkUpgradeStatus({}, upgradeDeps("sk-proj-not-ours"));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.upgrade_url).toBeTruthy();
+  });
+
+  it("covers the shapes people actually paste", async () => {
+    for (const key of ["your-api-key-here", "sk-proj-abc123", "WA_1234", "wa-1234", " wa_x"]) {
+      const res = await checkUpgradeStatus({}, upgradeDeps(key));
+      expect(res.ok, `for ${JSON.stringify(key)}`).toBe(false);
+    }
+  });
+
+  it("leaves the no-key branch alone — that one is guidance, not an error", async () => {
+    // Someone who configured nothing gets the onboarding answer, not a
+    // rejection. Sweeping it into MALFORMED_KEY would bury the setup steps
+    // behind an error, which is the failure the config placeholder guard
+    // already exists to prevent.
+    const res = await checkUpgradeStatus({}, makeDeps({ client: neverCalled(), config: { apiKey: undefined } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.tier).toBe("none");
+  });
+
+  it("still reaches the API for a well-formed key", async () => {
+    // The prefix check is a fast path, not a replacement for the lookup.
+    let called = false;
+    const res = await checkUpgradeStatus(
+      {},
+      makeDeps({
+        client: {
+          getSubscription: async () => {
+            called = true;
+            return { tier: "pro" as const, status: "active" };
+          },
+        },
+        config: { apiKey: "wa_realish" },
+      }),
+    );
+    expect(called).toBe(true);
+    expect(res.ok).toBe(true);
   });
 });
 

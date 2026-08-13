@@ -14,6 +14,8 @@
  * too: a customer who used a trial in the last 12 months is billed
  * immediately, so the copy says "may", and checkout tells the truth.
  */
+import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
+import { WaApiError } from "../api/errors.js";
 import { fromApiError, ok, RESTART_NOTE, type ToolDeps, type ToolResult } from "./context.js";
 import { PRICE, upgradeLink } from "./upgrade.js";
 
@@ -53,6 +55,26 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
         `No API key is configured. Create one at ${upgradeUrl} — minting a key requires an ` +
         `active subscription (${PRICE}) — then set it as WA_API_KEY in this server's config. ${RESTART_NOTE}`,
     });
+  }
+
+  // A key that cannot be one of ours is settled here, exactly as
+  // DefaultSubscriptionProvider.resolve settles it — the API rejects a missing
+  // `wa_` prefix before it hashes or looks anything up, so the round trip can
+  // only come back 401.
+  //
+  // This tool does not go through resolve() (it reports standing rather than
+  // gating on it, and is the one tool a caller with a broken key is MEANT to
+  // reach), so the prefix short-circuit added there in 1.0.15 never covered
+  // this path. It was the last one still making the call: production
+  // api_request_logs show /api/subscription as the ONLY route in the whole API
+  // that records a malformed_key 401, because every other Pro tool is gated
+  // client-side and never reaches the network with a bad key.
+  //
+  // The reader sees no difference. The API answers a bad prefix with this exact
+  // sentence, and fromApiError attaches the same signup link it would have for
+  // the 401 — MALFORMED_KEY is a key rejection, so `attachUpgrade` holds.
+  if (!deps.config.apiKey.startsWith(API_KEY_PREFIX)) {
+    return fromApiError(new WaApiError("MALFORMED_KEY", MALFORMED_KEY_MESSAGE), deps.config);
   }
 
   let sub;
