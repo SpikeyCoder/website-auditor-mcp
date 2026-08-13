@@ -25,8 +25,8 @@ import { PRICE } from "../src/tools/upgrade.js";
 import { makeDeps } from "./helpers.js";
 
 /** Pull the message off a gate result, failing loudly if the gate let it pass. */
-async function gateMessage(tier: "none" | "invalid"): Promise<string> {
-  const res = await gateProTool(makeDeps({ tier }));
+async function gateMessage(tier: "none" | "invalid", transport?: "stdio" | "http"): Promise<string> {
+  const res = await gateProTool({ ...makeDeps({ tier }), transport });
   if (res === null) throw new Error(`gateProTool passed a "${tier}" tier — it must block`);
   if (res.ok) throw new Error("gate returned a success result");
   return res.error.message;
@@ -54,6 +54,61 @@ describe("the restart step is stated wherever a key is", () => {
     // Without this, emptying RESTART_NOTE would turn the three tests above
     // green while deleting the instruction they exist to guarantee.
     expect(RESTART_NOTE).toMatch(/restart/i);
+  });
+});
+
+/**
+ * The same rule, for the transport where the stdio answer is not merely
+ * incomplete but impossible.
+ *
+ * A hosted caller cannot "set WA_API_KEY in this server's config": that config
+ * is on a box they have no access to, and restarting their client changes
+ * nothing, because src/http.ts reads the key from a header on every request.
+ * Telling them to do it reopens the same dead end this file exists to close —
+ * pointed at a machine they cannot log into.
+ */
+describe("the hosted transport gets an instruction it can actually follow", () => {
+  const httpDeps = (over: Parameters<typeof makeDeps>[0] = {}) => ({
+    ...makeDeps(over),
+    transport: "http" as const,
+  });
+
+  const surfaces: Array<[string, () => Promise<string>]> = [
+    ["no-key AUTH_REQUIRED", () => gateMessage("none", "http")],
+    ["revoked-key INVALID_KEY", () => gateMessage("invalid", "http")],
+    [
+      "check_upgrade_status",
+      async () => {
+        const res = await checkUpgradeStatus({}, httpDeps({ config: { apiKey: undefined } }));
+        if (!res.ok) throw new Error("expected the no-key branch to be guidance, not an error");
+        return res.data.message;
+      },
+    ],
+  ];
+
+  for (const [name, message] of surfaces) {
+    it(`${name} names the header, not the env var`, async () => {
+      const m = await message();
+      expect(m).toMatch(/Authorization: Bearer|X-API-Key/);
+      expect(m).not.toContain("WA_API_KEY");
+    });
+
+    it(`${name} does not tell a hosted caller to restart`, async () => {
+      expect(await message()).not.toContain(RESTART_NOTE);
+    });
+  }
+
+  it("still says where the key goes — silence would be its own dead end", async () => {
+    // The failure this guards is over-correction: stripping the stdio sentence
+    // and leaving nothing is the same incomplete procedure with fewer words.
+    for (const [name, message] of surfaces) {
+      expect(await message(), name).toMatch(/header|connector/i);
+    }
+  });
+
+  it("keeps the stdio answer for stdio, so the fix is a branch and not a swap", async () => {
+    expect(await gateMessage("none", "stdio")).toContain(RESTART_NOTE);
+    expect(await gateMessage("none", "stdio")).toContain("WA_API_KEY");
   });
 });
 

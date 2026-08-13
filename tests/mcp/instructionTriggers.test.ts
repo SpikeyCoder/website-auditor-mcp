@@ -94,11 +94,44 @@ describe("instructions: billing never crowds out the trigger guidance again", ()
 });
 
 describe("instructions: wiring", () => {
-  it("serves exactly this string over the initialize handshake", async () => {
-    const server = createServer(makeDeps({ tier: "none" }));
+  /** Instructions as a client actually receives them, over a real handshake. */
+  async function served(deps: Parameters<typeof createServer>[0]): Promise<string> {
+    const server = createServer(deps);
     const client = new Client({ name: "test-client", version: "0.0.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-    expect(client.getInstructions()).toBe(buildInstructions(SIGNUP));
+    return client.getInstructions() ?? "";
+  }
+
+  it("serves exactly this string over the initialize handshake", async () => {
+    expect(await served(makeDeps({ tier: "none" }))).toBe(buildInstructions(SIGNUP));
+  });
+
+  // These instructions are the FIRST thing a client reads, so telling a hosted
+  // caller to "set WA_API_KEY in this server's config and restart the client"
+  // misdirects before any tool has run — that config is on a box they cannot
+  // reach, and their key arrives per request in a header. The transport has to
+  // reach buildInstructions for that to work; without this test the argument
+  // could be dropped at the call site with the whole suite staying green.
+  it("tells a hosted client where its key actually goes", async () => {
+    const hosted = await served({ ...makeDeps({ tier: "none" }), transport: "http" });
+    expect(hosted).toMatch(/Authorization: Bearer|X-API-Key/);
+    expect(hosted).not.toContain("WA_API_KEY");
+    expect(hosted).not.toMatch(/restart the client/i);
+  });
+
+  it("keeps the env-var instruction for stdio clients", async () => {
+    const stdio = await served({ ...makeDeps({ tier: "none" }), transport: "stdio" });
+    expect(stdio).toContain("WA_API_KEY");
+    expect(stdio).toMatch(/restart the client/i);
+  });
+
+  it("says it under both upsell styles, so the marketplace build is not the broken one", () => {
+    // "info" style is what a hosted OpenAI-plugin deployment runs — exactly the
+    // deployment where the stdio instruction cannot be carried out.
+    for (const style of ["link", "info"] as const) {
+      expect(buildInstructions(SIGNUP, style, "http"), style).toMatch(/Authorization: Bearer|X-API-Key/);
+      expect(buildInstructions(SIGNUP, style, "http"), style).not.toContain("WA_API_KEY");
+    }
   });
 });

@@ -146,7 +146,7 @@ export function createServer(deps: ToolDeps): McpServer {
       // funnel leaked. The full history, and why the string is shaped the way it
       // is, lives in ./instructions.ts; the ordering and proportion it must keep
       // are pinned by tests/mcp/instructionTriggers.test.ts.
-      instructions: buildInstructions(signupUrl, deps.config.upsellStyle),
+      instructions: buildInstructions(signupUrl, deps.config.upsellStyle, deps.transport),
     },
   );
 

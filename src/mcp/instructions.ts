@@ -29,7 +29,23 @@
 import { PRICE } from "../tools/upgrade.js";
 import type { UpsellStyle } from "../config.js";
 
-export function buildInstructions(signupUrl: string, style: UpsellStyle = "link"): string {
+export function buildInstructions(
+  signupUrl: string,
+  style: UpsellStyle = "link",
+  transport: "stdio" | "http" = "stdio",
+): string {
+  // Same reason keySetupNote exists (src/tools/context.ts): "set WA_API_KEY in
+  // this server's config and restart the client" is a procedure a hosted caller
+  // cannot carry out — that config is on a box they have no access to, and
+  // their key arrives per request in a header, so there is nothing to restart.
+  // These instructions are the FIRST thing a client reads, so a wrong answer
+  // here misdirects before any tool has run.
+  const keyDelivery =
+    transport === "http"
+      ? "send it with each request as an `Authorization: Bearer` or `X-API-Key` header — in an MCP " +
+        "client, the connector's authentication field"
+      : "set WA_API_KEY in this server's config and restart the client";
+
   // "info" style (see config.ts): same capability lead, same triggers, same
   // guard rails, same keyless path, and the SAME price/trial disclosure — only
   // the billing paragraphs change, from "sign up at <portal>" to "plans are
@@ -41,12 +57,12 @@ export function buildInstructions(signupUrl: string, style: UpsellStyle = "link"
       ? `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
         "a 7-day free trial — payment method required to start, no charge until the trial ends). Plans " +
         `are described at ${signupUrl} — subscribing and creating an API key happen on the website, outside ` +
-        "this conversation. Once you have a key, set WA_API_KEY in this server's config and restart the " +
-        "client. check_upgrade_status reports the caller's own standing with any valid key."
+        `this conversation. Once you have a key, ${keyDelivery}. ` +
+        "check_upgrade_status reports the caller's own standing with any valid key."
       : `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
         "a 7-day free trial — payment method required to start, no charge until the trial ends). Sign up " +
-        `and create an API key at ${signupUrl} , then set WA_API_KEY in this server's config and restart ` +
-        "the client. check_upgrade_status reports the caller's own standing with any valid key.";
+        `and create an API key at ${signupUrl} , then ${keyDelivery}. ` +
+        "check_upgrade_status reports the caller's own standing with any valid key.";
 
   const errorGuidance =
     style === "info"
