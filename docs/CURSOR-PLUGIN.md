@@ -7,10 +7,26 @@ The Cursor analogue of [CODEX-PLUGIN.md](CODEX-PLUGIN.md). Cursor 2.5
 browsed from the Customize page and one-click installed. Every listing is
 manually reviewed, and **every update is re-reviewed**.
 
-Status: **READY TO SUBMIT (2026-08-13).** Package built, verified in Cursor
-3.15.19, licensing resolved (below), and the 1.0.17 npm release is live — so a
-reviewer's first run gets the corrected keyless onboarding. What remains is the
-publisher application itself (step 2 below), which is account-bound.
+Status: **SUBMITTED FOR REVIEW 2026-08-13.** Confirmation: *"Thanks for
+applying — we've received your submission. We'll follow up at
+marketplace-publishing@cursor.com once we review your plugin."* No published
+SLA; per this repo's rule, the listing exists only when Cursor says so.
+
+Submission facts a future update needs:
+
+- **One form covers both** the publisher application and the plugin review —
+  it takes a repo URL, not an upload, so **whatever is on `main` is what gets
+  reviewed**. Keep `cursor-plugin/` submission-ready on main from here on.
+- Submitted as: org **SpikeyCoder** / handle **spikeycoder**, individual
+  owner, contact kevinmarmstrong1990@gmail.com, repo
+  `https://github.com/SpikeyCoder/website-auditor-mcp`, logo served from the
+  `website-auditor-public-assets` GCS bucket (`website-auditor-logo-512.png`,
+  the icon composited onto a white plate — the form wants a background plate
+  and the transparent original disappears on Cursor's dark UI).
+- Correspondence comes from **marketplace-publishing@cursor.com**, which is
+  also the address for questions.
+- The publish form **does not survive a reload** — it reset once mid-session.
+  Fill and submit in one sitting.
 
 ## What already reaches Cursor users without any of this
 
