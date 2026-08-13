@@ -93,8 +93,28 @@ function parseUpsellStyle(value: string | undefined): UpsellStyle {
   return value?.trim().toLowerCase() === "info" ? "info" : "link";
 }
 
+/**
+ * An unexpanded config placeholder is not a key — it is the ABSENCE of one.
+ *
+ * Clients that support variable substitution (`${WA_API_KEY}` in Cursor plugin
+ * mcp.json, `${env:…}`/`${input:…}` elsewhere) pass the placeholder through
+ * VERBATIM when the user has not set a value. Verified in Cursor 3.15.19:
+ * a first-run install spawns the server with the literal `WA_API_KEY=${WA_API_KEY}`.
+ *
+ * Read as a key, that string is merely malformed, so the user who configured
+ * nothing was told their key was invalid — accusatory, and it buried the
+ * "create one at …" onboarding behind an error. Treating it as unset restores
+ * the keyless surface these installs are supposed to land on.
+ */
+function isUnexpandedPlaceholder(value: string): boolean {
+  // Whole-string placeholder syntax only — ${X}, {X}, {{X}}, ${env:X} — plus
+  // bare $X. A real key that merely CONTAINS a brace is left alone.
+  return /^\$?\{{1,2}[^{}]*\}{1,2}$/.test(value) || /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): WaConfig {
-  const apiKey = env.WA_API_KEY?.trim();
+  const rawApiKey = env.WA_API_KEY?.trim();
+  const apiKey = rawApiKey && !isUnexpandedPlaceholder(rawApiKey) ? rawApiKey : undefined;
   const siteUrl = stripTrailingSlash(env.WA_SITE_URL?.trim() || "https://website-auditor.io");
   return {
     apiBaseUrl: stripTrailingSlash(env.WA_API_BASE_URL?.trim() || "https://api.website-auditor.io"),

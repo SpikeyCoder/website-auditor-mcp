@@ -145,6 +145,17 @@ codex plugin marketplace add SpikeyCoder/website-auditor-mcp
 codex plugin add website-auditor@spikeycoder
 ```
 
+**Cursor** — one-click install, or put the same `mcpServers` JSON as above in
+`~/.cursor/mcp.json`:
+
+[![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/install-mcp?name=website-auditor&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIndlYnNpdGUtYXVkaXRvci1tY3AiXSwiZW52Ijp7IldBX0FQSV9LRVkiOiIifX0%3D)
+
+The one-click config arrives with an empty `WA_API_KEY` — the sample report
+works as-is; fill the key in under **Settings → MCP** to audit real domains.
+There is also a packaged **Cursor plugin** (this server plus the prompts as
+skills) in [`cursor-plugin/`](cursor-plugin/); its Cursor Marketplace listing
+is pending — status in [docs/CURSOR-PLUGIN.md](docs/CURSOR-PLUGIN.md).
+
 Restart the client and the tools appear.
 
 ### Getting an API key
