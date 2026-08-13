@@ -123,9 +123,19 @@ export class DefaultSubscriptionProvider implements SubscriptionProvider {
     // change. A prefix is not.
     //
     // BELOW the dev override on purpose: WA_DEV_TIER is an explicit local
-    // escape hatch and is routinely paired with a placeholder key, so checking
-    // the prefix first would break the one workflow that never talks to the
-    // API anyway.
+    // escape hatch, routinely paired with a stand-in key like "dev-key", so
+    // checking the prefix first would break the one workflow that never talks
+    // to the API anyway.
+    //
+    // An unexpanded PLACEHOLDER stand-in is not covered and cannot be:
+    // normalizeEnvValue erases `${WA_API_KEY}` to undefined before resolve()
+    // ever sees it — on both transports, since the hosted path adopted the
+    // rule — so the `!key` return above wins and the override is unreachable.
+    // That agrees with the line above it ("only when a key is set") and with
+    // WaConfig.devTier's own "Ignored when no API key is set": a placeholder
+    // IS no key. Spelled out because this comment used to cite placeholder
+    // pairing as the reason for the ordering, which would send the next person
+    // to reorder these branches on a rationale the code no longer honors.
     //
     // The message duplicates the API's own string deliberately, so the reader
     // sees identical text whichever side answered. Pinned by a test that fails

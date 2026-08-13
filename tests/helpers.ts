@@ -148,6 +148,7 @@ export const UNEXPANDED_PLACEHOLDERS = [
   "${WA_API_KEY}", // Cursor plugin variables
   "${env:WA_API_KEY}", // VS Code / Cursor mcp.json interpolation
   "${input:apiKey}", // VS Code input prompts
+  "{WA_API_KEY}", // single-brace, no dollar — isUnexpandedPlaceholder accepts it
   "{{WA_API_KEY}}", // moustache-style templating
   "$WA_API_KEY", // bare shell-style
 ] as const;

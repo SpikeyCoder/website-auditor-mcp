@@ -135,7 +135,7 @@ describe("MCP over Streamable HTTP", () => {
   });
 
   it("discards exactly what loadConfig discards", async () => {
-    // The anti-drift assertion: both transports call normalizeApiKey, so this
+    // The anti-drift assertion: both transports call normalizeEnvValue, so this
     // fails if either grows its own idea of what counts as a key. Iterates the
     // SHARED list config.test.ts uses — it used to hand-copy a subset, which
     // silently left `${input:apiKey}` unverified over HTTP and made "exactly"
@@ -143,12 +143,19 @@ describe("MCP over Streamable HTTP", () => {
     for (const placeholder of UNEXPANDED_PLACEHOLDERS) {
       expect(loadConfig({ WA_API_KEY: placeholder }).apiKey, `stdio: ${placeholder}`).toBeUndefined();
 
-      const { factory, seenKeys } = recordingFactory();
-      const { url } = await listen({ depsFactory: factory });
-      const client = await connectClient(url, { Authorization: `Bearer ${placeholder}` });
-      await client.listTools();
-      expect(seenKeys, `http: ${placeholder}`).toEqual([undefined]);
-      await client.close();
+      // BOTH headers, not just Bearer. The X-API-Key branch had no placeholder
+      // coverage at all: reverting its normalization left the entire suite
+      // green, so a refactor could have dropped it and reinstated the bug this
+      // PR exists to remove, with CI passing.
+      for (const headers of [{ Authorization: `Bearer ${placeholder}` }, { "X-API-Key": placeholder }]) {
+        const label = `${Object.keys(headers)[0]}: ${placeholder}`;
+        const { factory, seenKeys } = recordingFactory();
+        const { url } = await listen({ depsFactory: factory });
+        const client = await connectClient(url, headers);
+        await client.listTools();
+        expect(seenKeys, label).toEqual([undefined]);
+        await client.close();
+      }
     }
   });
 
@@ -223,31 +230,6 @@ describe("defaultApiKey (single-tenant/demo deployments)", () => {
     await keyed.listTools();
     await keyed.close();
     expect(seenKeys).toEqual(["wa_demo_default", "wa_their_own"]);
-  });
-
-  it("reads WA_HTTP_DEFAULT_KEY through normalizeApiKey, so a placeholder is not an identity", () => {
-    // Asserts the WIRING, not a reconstruction of it. The first version of this
-    // test called normalizeApiKey itself and passed the result to listen(),
-    // which meant it stayed green when the unnormalized env read was put back —
-    // it was checking normalizeApiKey, a function with its own tests, and
-    // nothing about http.ts. httpOptionsFromEnv exists to make this reachable.
-    expect(httpOptionsFromEnv({ WA_HTTP_DEFAULT_KEY: "${WA_HTTP_DEFAULT_KEY}" }).defaultApiKey).toBeUndefined();
-    expect(httpOptionsFromEnv({ WA_HTTP_DEFAULT_KEY: "  wa_demo  " }).defaultApiKey).toBe("wa_demo");
-    expect(httpOptionsFromEnv({}).defaultApiKey).toBeUndefined();
-  });
-
-  it("resolves the port without letting a blank WA_HTTP_PORT become NaN", () => {
-    // `??` treats "" as present, so parseInt("") → NaN → listen(NaN) throws
-    // ERR_SOCKET_BAD_PORT and the container dies on boot. .env.example ships
-    // the line as `WA_HTTP_PORT=`, so a compose env_file exported exactly that,
-    // and on Cloud Run it also swallowed the injected PORT the Dockerfile
-    // promises is honored.
-    expect(portFromEnv({ WA_HTTP_PORT: "", PORT: "8080" })).toBe(8080);
-    expect(portFromEnv({ WA_HTTP_PORT: "not-a-port", PORT: "8080" })).toBe(8080);
-    expect(portFromEnv({ WA_HTTP_PORT: "", PORT: "" })).toBe(8787);
-    expect(portFromEnv({})).toBe(8787);
-    expect(portFromEnv({ WA_HTTP_PORT: "9001" })).toBe(9001);
-    expect(portFromEnv({ PORT: "8080" })).toBe(8080);
   });
 
   it("normalizes a raw placeholder passed straight to the factory", async () => {
@@ -334,5 +316,76 @@ describe("plain HTTP surface", () => {
   it("unknown paths 404", async () => {
     const { url } = await listen();
     expect((await fetch(`${url}/anything`)).status).toBe(404);
+  });
+});
+
+/**
+ * The env → options/port mapping main() performs.
+ *
+ * Its own describe rather than living under defaultApiKey: portFromEnv has
+ * nothing to do with that option, and filing it there meant deleting the
+ * single-tenant feature would have deleted the only guard against a
+ * blank-WA_HTTP_PORT boot crash along with it.
+ */
+describe("httpOptionsFromEnv / portFromEnv (what main() reads)", () => {
+  it("applies the placeholder rule to EVERY env value, not just the key", () => {
+    // Asserts the WIRING, not a reconstruction of it. The first version of this
+    // test called normalizeEnvValue itself and passed the result in, so it
+    // stayed green when the unnormalized env read was put back — it checked
+    // normalizeEnvValue, which has its own tests, and nothing about http.ts.
+    for (const placeholder of UNEXPANDED_PLACEHOLDERS) {
+      const opts = httpOptionsFromEnv({
+        WA_HTTP_DEFAULT_KEY: placeholder,
+        WA_APPS_CHALLENGE_TOKEN: placeholder,
+        WA_API_KEY: placeholder,
+      });
+      expect(opts.defaultApiKey, placeholder).toBeUndefined();
+      // Unexpanded, this is truthy, so the well-known route answers 200 with
+      // the literal `${...}` and OpenAI's verifier reports a token MISMATCH —
+      // pointing the operator at a wrong value instead of the 404 that says
+      // "no challenge configured".
+      expect(opts.challengeToken, placeholder).toBeUndefined();
+    }
+  });
+
+  it("strips a stray WA_API_KEY from the returned config", () => {
+    // HttpServerOptions.config's contract: a stray env key "must never become
+    // the fallback identity for unauthenticated callers". The factory strips
+    // it, but this is exported too, so a wrapper reading .config — or logging
+    // the options on boot — must not be handed the operator's live key.
+    expect(httpOptionsFromEnv({ WA_API_KEY: "wa_operator_secret" }).config.apiKey).toBeUndefined();
+  });
+
+  it("passes real values through untouched", () => {
+    const opts = httpOptionsFromEnv({ WA_HTTP_DEFAULT_KEY: "  wa_demo  ", WA_APPS_CHALLENGE_TOKEN: " tok-123 " });
+    expect(opts.defaultApiKey).toBe("wa_demo");
+    expect(opts.challengeToken).toBe("tok-123");
+    expect(httpOptionsFromEnv({}).defaultApiKey).toBeUndefined();
+    expect(httpOptionsFromEnv({}).challengeToken).toBeUndefined();
+  });
+
+  it("treats a blank port as unset at every level of the chain", () => {
+    // `??` counted "" as present, so parseInt("") → NaN → listen(NaN) throws
+    // ERR_SOCKET_BAD_PORT on boot. .env.example ships `WA_HTTP_PORT=`, so a
+    // compose env_file exported exactly that — and it also swallowed the PORT
+    // Cloud Run injects, which the Dockerfile promises is honored.
+    expect(portFromEnv({ WA_HTTP_PORT: "", PORT: "8080" })).toBe(8080);
+    expect(portFromEnv({ WA_HTTP_PORT: "   ", PORT: "8080" })).toBe(8080);
+    expect(portFromEnv({ WA_HTTP_PORT: "", PORT: "" })).toBe(8787);
+    expect(portFromEnv({})).toBe(8787);
+    expect(portFromEnv({ WA_HTTP_PORT: "9001", PORT: "8080" })).toBe(9001);
+    expect(portFromEnv({ PORT: "8080" })).toBe(8080);
+  });
+
+  it("refuses a port that would crash or silently mis-bind, naming the value", () => {
+    // A plain int parse fixes the blank case and leaves the crash: 70000 and -1
+    // are finite, and listen() rejects both the same way. 0.5 truncating to 0
+    // is worse — it binds a random ephemeral port no health probe will find —
+    // and "havoc" silently becoming 8787 puts a box behind a proxy on a port
+    // nobody asked for, 502ing with nothing in the log.
+    for (const bad of ["70000", "-1", "0", "0.5", "havoc", "8080abc"]) {
+      expect(() => portFromEnv({ WA_HTTP_PORT: bad }), bad).toThrow(/Invalid port/);
+      expect(() => portFromEnv({ WA_HTTP_PORT: bad }), bad).toThrow(new RegExp(bad.replace(".", "\\.")));
+    }
   });
 });
