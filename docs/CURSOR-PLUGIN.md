@@ -7,10 +7,10 @@ The Cursor analogue of [CODEX-PLUGIN.md](CODEX-PLUGIN.md). Cursor 2.5
 browsed from the Customize page and one-click installed. Every listing is
 manually reviewed, and **every update is re-reviewed**.
 
-Status: **PACKAGE BUILT AND VERIFIED IN CURSOR 3.15.19 (2026-08-13) — not yet
-submitted.** Submission is gated on a publisher application (step 2 below),
-which is account-bound, and should follow the 1.0.17 npm release (see the
-local-test section for why).
+Status: **READY TO SUBMIT (2026-08-13).** Package built, verified in Cursor
+3.15.19, licensing resolved (below), and the 1.0.17 npm release is live — so a
+reviewer's first run gets the corrected keyless onboarding. What remains is the
+publisher application itself (step 2 below), which is account-bound.
 
 ## What already reaches Cursor users without any of this
 
@@ -112,14 +112,24 @@ picks it up automatically with no re-review.
    same posture as the other directories: submit, keep shipping, never assume
    it landed.
 
-## The license question — resolve before submitting
+## The license question — RESOLVED 2026-08-13
 
-Cursor's stated requirement: "All plugins must be open source." This repo is
-**Elastic-2.0** — source-available, not OSI-approved open source. Whether
-review accepts that is unknown. If it objects, the least-invasive option is
-licensing `cursor-plugin/` itself (manifest + skills — the actual plugin
-content) under MIT while the server keeps Elastic-2.0. That is a business
-decision: flag it, don't relicense casually.
+Cursor's stated requirement: "All plugins must be open source." The server is
+**Elastic-2.0** — source-available, but not OSI-approved, and GitHub reports
+the repo as license `Other`, which is what a reviewer checking that box sees.
+
+**`cursor-plugin/` is therefore MIT** (`cursor-plugin/LICENSE`, declared in the
+manifest). This gives nothing away: the directory is eight files of glue —
+manifest, four skills, icon, README — with no server source in it. The server
+is fetched from npm at run time and keeps Elastic-2.0 unchanged, the same
+shape as every commercial plugin already listed (Stripe, Linear, Figma all
+point at paid services).
+
+The LICENSE file opens with a scope note so it cannot be read as covering the
+repo, and `tests/cursorPlugin.test.ts` pins the divergence as a deliberate
+pair — declared license, license text, and the server's differing license —
+so a later "consistency fix" to either side fails loudly instead of silently
+relicensing something.
 
 ## Updates — a softer snapshot than the other directories
 
