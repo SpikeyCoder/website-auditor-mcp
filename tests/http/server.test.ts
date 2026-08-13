@@ -508,3 +508,101 @@ describe("hosted transport: invariants nothing was asserting", () => {
     expect((await served.text()).trim()).toBe("tok-123");
   });
 });
+
+/**
+ * Two pre-existing weaknesses the parallel security review surfaced. Both are
+ * the same shape: something granted on the basis of ambient server state rather
+ * than anything the caller proved.
+ */
+describe("hosted transport: an anonymous caller cannot spend a subscriber's money", () => {
+  it("evicts the bundle with the least to lose, not simply the oldest", async () => {
+    // The attack the flat cap allowed: a bundle is minted for ANY distinct
+    // credential, including one that can never authenticate, so flooding
+    // maxTenants distinct bearer tokens evicted every real tenant. Bundles hold
+    // the 24h audit cache, so the subscriber's next compare_competitors
+    // re-audits domains they already paid for — an anonymous request forcing
+    // someone else to spend quota.
+    const built: string[] = [];
+    const { url } = await listen({
+      maxTenants: 4,
+      depsFactory: (config) => {
+        built.push(config.apiKey ?? "(anon)");
+        return { ...makeDeps({ config }), transport: "http" as const };
+      },
+    });
+
+    // A working tenant with a session behind it.
+    for (let i = 0; i < 3; i++) {
+      const sub = await connectClient(url, { Authorization: "Bearer wa_subscriber" });
+      await sub.listTools();
+      await sub.close();
+    }
+    expect(built.filter((k) => k === "wa_subscriber")).toHaveLength(1);
+
+    // Now flood with single-request junk keys, well past the cap.
+    for (let i = 0; i < 12; i++) {
+      const junk = await connectClient(url, { Authorization: `Bearer wa_flood_${i}` });
+      await junk.listTools();
+      await junk.close();
+    }
+
+    // The subscriber's bundle survived: asking again does not rebuild it.
+    const again = await connectClient(url, { Authorization: "Bearer wa_subscriber" });
+    await again.listTools();
+    await again.close();
+    expect(built.filter((k) => k === "wa_subscriber")).toHaveLength(1);
+  });
+});
+
+describe("hosted transport: CORS does not lend the box's identity to a web page", () => {
+  const origin = { Origin: "https://evil.example" };
+
+  it("still answers * on the public endpoint, which lends no identity", async () => {
+    // A browser page here gets the keyless surface exactly like curl — it must
+    // present a key to be anybody, and CORS never hands it one.
+    const { url } = await listen({});
+    const res = await fetch(`${url}/mcp`, { method: "OPTIONS", headers: origin });
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  it("withholds the origin when defaultApiKey makes credential-less requests somebody", async () => {
+    // With an ambient identity configured, `*` let any page the operator
+    // visited drive their demo box as that account and read the results back.
+    const { url } = await listen({ defaultApiKey: "wa_demo_default" });
+    const res = await fetch(`${url}/mcp`, { method: "OPTIONS", headers: origin });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    // The rest of the preflight is unchanged — this is about who may READ.
+    expect(res.headers.get("access-control-allow-methods")).toContain("POST");
+  });
+
+  it("lets an operator opt specific origins back in", async () => {
+    const { url } = await listen({
+      defaultApiKey: "wa_demo_default",
+      allowedOrigins: ["https://ops.example"],
+    });
+    const allowed = await fetch(`${url}/mcp`, { method: "OPTIONS", headers: { Origin: "https://ops.example" } });
+    expect(allowed.headers.get("access-control-allow-origin")).toBe("https://ops.example");
+    expect(allowed.headers.get("vary")).toContain("Origin");
+
+    const denied = await fetch(`${url}/mcp`, { method: "OPTIONS", headers: origin });
+    expect(denied.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("never blanket-allows just because an allowlist exists", async () => {
+    // The allowlist must not be read as "CORS is configured, so * is fine".
+    const { url } = await listen({
+      defaultApiKey: "wa_demo_default",
+      allowedOrigins: ["https://ops.example"],
+    });
+    const noOrigin = await fetch(`${url}/mcp`, { method: "OPTIONS" });
+    expect(noOrigin.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("reads the allowlist from WA_HTTP_ALLOWED_ORIGINS, placeholder-safe", () => {
+    expect(httpOptionsFromEnv({ WA_HTTP_ALLOWED_ORIGINS: "https://a.test, https://b.test" }).allowedOrigins)
+      .toEqual(["https://a.test", "https://b.test"]);
+    expect(httpOptionsFromEnv({ WA_HTTP_ALLOWED_ORIGINS: "${WA_HTTP_ALLOWED_ORIGINS}" }).allowedOrigins)
+      .toBeUndefined();
+    expect(httpOptionsFromEnv({}).allowedOrigins).toBeUndefined();
+  });
+});
