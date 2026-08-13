@@ -112,14 +112,36 @@ function isUnexpandedPlaceholder(value: string): boolean {
   return /^\$?\{{1,2}[^{}]*\}{1,2}$/.test(value) || /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 }
 
+/**
+ * The one place a raw string becomes a key, or nothing.
+ *
+ * Both entry points take the key from somewhere untrusted — stdio from
+ * WA_API_KEY at startup, hosted from a per-request Authorization/X-API-Key
+ * header — and both have to answer "is this a key?" the same way. Until this
+ * existed only stdio applied the placeholder rule above, so the SAME broken
+ * client config landed on the keyless onboarding surface over stdio and on
+ * "Invalid API key format. Keys start with wa_." over HTTP.
+ *
+ * Deliberately NOT a `wa_` prefix check. A key that is present and merely
+ * wrong is a different answer from no key at all — the whole four-way 401
+ * split exists to keep those apart — so normalizing a typo to "unset" would
+ * tell someone who pasted `wa-123` that they had configured nothing, and
+ * strand them one step earlier than the truth. A placeholder is the one
+ * string that genuinely IS the absence of a value rather than a bad one.
+ */
+export function normalizeApiKey(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  return isUnexpandedPlaceholder(trimmed) ? undefined : trimmed;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): WaConfig {
-  const rawApiKey = env.WA_API_KEY?.trim();
-  const apiKey = rawApiKey && !isUnexpandedPlaceholder(rawApiKey) ? rawApiKey : undefined;
+  const apiKey = normalizeApiKey(env.WA_API_KEY);
   const siteUrl = stripTrailingSlash(env.WA_SITE_URL?.trim() || "https://website-auditor.io");
   return {
     apiBaseUrl: stripTrailingSlash(env.WA_API_BASE_URL?.trim() || "https://api.website-auditor.io"),
     siteUrl,
-    apiKey: apiKey ? apiKey : undefined,
+    apiKey,
     upgradeUrl: env.WA_UPGRADE_URL?.trim() || "https://api.website-auditor.io/admin_portal/",
     upsellStyle: parseUpsellStyle(env.WA_UPSELL_STYLE),
     upsellInfoUrl: stripTrailingSlash(env.WA_UPSELL_INFO_URL?.trim() || "") || siteUrl,

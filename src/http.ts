@@ -35,7 +35,7 @@
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { loadConfig, type WaConfig } from "./config.js";
+import { loadConfig, normalizeApiKey, type WaConfig } from "./config.js";
 import { WaApiClient } from "./api/client.js";
 import { DefaultSubscriptionProvider } from "./auth/entitlements.js";
 import { InMemoryAuditCache } from "./auth/auditCache.js";
@@ -149,16 +149,34 @@ class TenantDeps {
  * send), then X-API-Key (what the wrapped API itself uses, so curl habits
  * carry over). Anything else is treated as unauthenticated, not an error —
  * the keyless surface is a feature, not a fallback.
+ *
+ * Both sources go through normalizeApiKey, the same function loadConfig uses,
+ * so the two transports cannot answer "is this a key?" differently. They did:
+ * stdio has discarded unexpanded placeholders since the Cursor 3.15.19 finding
+ * (a first-run install spawns the server with the literal `${WA_API_KEY}`) and
+ * this path did not, so one broken client config landed on the keyless
+ * onboarding surface over stdio and on "Invalid API key format. Keys start
+ * with wa_." over HTTP. Codex's `bearer_token_env_var` is the same hazard on
+ * this side: an unset variable is exactly what arrives here unexpanded.
+ *
+ * A placeholder Bearer therefore falls THROUGH to X-API-Key instead of
+ * winning as a bad value, which is what "Bearer first" always meant — first
+ * among the keys actually presented.
+ *
+ * A token that is merely not ours still comes through verbatim, and should.
+ * On this endpoint the Bearer IS the Website Auditor key, so a typo in it has
+ * to reach the malformed-key answer that names the `wa_` prefix rather than
+ * being recoded as "you configured nothing" — a placeholder is the absence of
+ * a value, a typo is a wrong one, and only the first is safe to erase.
  */
 function apiKeyFrom(req: IncomingMessage): string | undefined {
   const auth = req.headers.authorization;
   if (auth) {
-    const bearer = /^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]?.trim();
+    const bearer = normalizeApiKey(/^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]);
     if (bearer) return bearer;
   }
   const headerKey = req.headers["x-api-key"];
-  const single = Array.isArray(headerKey) ? headerKey[0] : headerKey;
-  return single?.trim() || undefined;
+  return normalizeApiKey(Array.isArray(headerKey) ? headerKey[0] : headerKey);
 }
 
 function readBody(req: IncomingMessage): Promise<string> {

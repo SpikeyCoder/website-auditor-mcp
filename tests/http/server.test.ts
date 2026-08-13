@@ -13,7 +13,7 @@ import type { Server } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createWaHttpServer, type HttpServerOptions } from "../../src/http.js";
-import type { WaConfig } from "../../src/config.js";
+import { loadConfig, type WaConfig } from "../../src/config.js";
 import type { ToolDeps } from "../../src/tools/context.js";
 import { makeDeps, testConfig, RecordingEventSink } from "../helpers.js";
 
@@ -92,6 +92,61 @@ describe("MCP over Streamable HTTP", () => {
     await client.listTools();
     expect(seenKeys).toEqual(["wa_tenant_x"]);
     await client.close();
+  });
+
+  // An unexpanded placeholder is the ABSENCE of a key, and stdio has treated it
+  // that way since the Cursor 3.15.19 finding. This path did not, so one broken
+  // config produced onboarding over stdio and "Invalid API key format" over
+  // HTTP. Codex's bearer_token_env_var is the same hazard on this side.
+  it("treats an unexpanded placeholder Bearer as no key, not a bad one", async () => {
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({ depsFactory: factory });
+    const client = await connectClient(url, { Authorization: "Bearer ${WA_API_KEY}" });
+    await client.listTools();
+    expect(seenKeys).toEqual([undefined]);
+    await client.close();
+  });
+
+  it("lets a placeholder Bearer fall through to a real X-API-Key", async () => {
+    // "Bearer first" means first among the keys actually presented — a
+    // placeholder must not win the slot and shadow a key that IS there.
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({ depsFactory: factory });
+    const client = await connectClient(url, {
+      Authorization: "Bearer ${WA_API_KEY}",
+      "X-API-Key": "wa_the_real_one",
+    });
+    await client.listTools();
+    expect(seenKeys).toEqual(["wa_the_real_one"]);
+    await client.close();
+  });
+
+  it("still passes a merely-wrong key through, so the typo can be named", async () => {
+    // The line the normalization must not cross. A key that is present and
+    // wrong has to reach the malformed-key answer naming the wa_ prefix;
+    // recoding it to "unset" would tell someone who pasted the wrong string
+    // that they had configured nothing, stranding them a step earlier.
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({ depsFactory: factory });
+    const client = await connectClient(url, { Authorization: "Bearer sk-proj-not-ours" });
+    await client.listTools();
+    expect(seenKeys).toEqual(["sk-proj-not-ours"]);
+    await client.close();
+  });
+
+  it("discards exactly what loadConfig discards", async () => {
+    // The anti-drift assertion: both transports call normalizeApiKey, so this
+    // fails if either grows its own idea of what counts as a key.
+    for (const placeholder of ["${WA_API_KEY}", "{{WA_API_KEY}}", "${env:WA_API_KEY}", "$WA_API_KEY"]) {
+      expect(loadConfig({ WA_API_KEY: placeholder }).apiKey, `stdio: ${placeholder}`).toBeUndefined();
+
+      const { factory, seenKeys } = recordingFactory();
+      const { url } = await listen({ depsFactory: factory });
+      const client = await connectClient(url, { Authorization: `Bearer ${placeholder}` });
+      await client.listTools();
+      expect(seenKeys, `http: ${placeholder}`).toEqual([undefined]);
+      await client.close();
+    }
   });
 
   it("reuses the tenant bundle across requests for the same key, builds a new one per key", async () => {
