@@ -84,6 +84,15 @@ export interface HttpServerOptions {
    * being a decision rather than a side effect. Pinned by a test.
    */
   defaultApiKey?: string;
+  /**
+   * Origins allowed to READ responses cross-origin from a browser (env
+   * WA_HTTP_ALLOWED_ORIGINS, comma-separated). Only meaningful alongside
+   * defaultApiKey: without it the endpoint lends no identity and answers `*`,
+   * and with it a blanket `*` would let any page the operator visits act as the
+   * configured account. Non-browser clients ignore CORS entirely, so this
+   * restricts nothing a real MCP client does. See allowedOriginFor.
+   */
+  allowedOrigins?: readonly string[];
   /** Test seam. Production builds real deps; tests inject recorders/mocks. */
   depsFactory?: (config: WaConfig) => ToolDeps;
   /** Tenant-bundle bounds. Oldest-idle bundles are dropped past either. */
@@ -104,9 +113,30 @@ function defaultDepsFactory(config: WaConfig): ToolDeps {
   };
 }
 
-/** Per-key ToolDeps bundles with idle-TTL + size-bound eviction. */
+/**
+ * Per-key ToolDeps bundles with idle-TTL + size-bound eviction.
+ *
+ * Eviction picks the bundle with the LEAST TO LOSE, not simply the oldest.
+ * Oldest-first made the cap an attack surface: a bundle is minted for any
+ * distinct credential, including one that can never authenticate, so an
+ * unauthenticated caller sending maxTenants distinct bearer tokens evicted
+ * every real tenant. The bundle holds the 24h audit cache, and losing it makes
+ * the subscriber's next compare_competitors re-audit domains it had already
+ * paid for — an anonymous request forcing someone else to spend quota.
+ *
+ * Request count is the proxy for stored value, because it is the one signal
+ * available here synchronously: a bundle that has served one request has an
+ * empty audit cache and an unresolved subscription, so dropping it costs
+ * nothing, while a subscriber mid-session has both. Flood bundles sit at one
+ * request each and are therefore always evicted ahead of a working tenant.
+ * lastUsedAt still breaks ties, which keeps the old behaviour among equals.
+ *
+ * The residual: an attacker willing to spend N requests per junk key can climb
+ * the ranking. That costs them linearly for a bundle holding nothing, and it no
+ * longer buys the cheap eviction the flat cap handed out — see the test.
+ */
 class TenantDeps {
-  private readonly bundles = new Map<string, { deps: ToolDeps; lastUsedAt: number }>();
+  private readonly bundles = new Map<string, { deps: ToolDeps; lastUsedAt: number; requests: number }>();
 
   constructor(
     private readonly base: WaConfig,
@@ -123,10 +153,11 @@ class TenantDeps {
     const existing = this.bundles.get(mapKey);
     if (existing) {
       existing.lastUsedAt = at;
+      existing.requests += 1;
       return existing.deps;
     }
     const deps = this.factory({ ...this.base, apiKey });
-    this.bundles.set(mapKey, { deps, lastUsedAt: at });
+    this.bundles.set(mapKey, { deps, lastUsedAt: at, requests: 1 });
     return deps;
   }
 
@@ -140,16 +171,21 @@ class TenantDeps {
       if (at - entry.lastUsedAt > this.idleTtlMs) this.bundles.delete(key);
     }
     while (this.bundles.size >= this.maxTenants) {
-      let oldestKey: string | undefined;
-      let oldestAt = Infinity;
+      // Fewest requests first, oldest as the tie-break — "least to lose", not
+      // "least recently seen". See the class comment for why the flat
+      // oldest-first rule let an anonymous caller spend a subscriber's quota.
+      let victimKey: string | undefined;
+      let victimRequests = Infinity;
+      let victimAt = Infinity;
       for (const [key, entry] of this.bundles) {
-        if (entry.lastUsedAt < oldestAt) {
-          oldestAt = entry.lastUsedAt;
-          oldestKey = key;
+        if (entry.requests < victimRequests || (entry.requests === victimRequests && entry.lastUsedAt < victimAt)) {
+          victimRequests = entry.requests;
+          victimAt = entry.lastUsedAt;
+          victimKey = key;
         }
       }
-      if (oldestKey === undefined) break;
-      this.bundles.delete(oldestKey);
+      if (victimKey === undefined) break;
+      this.bundles.delete(victimKey);
     }
   }
 }
@@ -185,8 +221,17 @@ function apiKeyFrom(req: IncomingMessage): string | undefined {
     const bearer = normalizeEnvValue(/^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]);
     if (bearer) return bearer;
   }
+  // Node joins repeated headers with ", " for everything except set-cookie —
+  // it never hands us an array here, so the Array.isArray branch this replaces
+  // was dead and its "take the first" intent never ran. Two X-API-Key headers
+  // arrived as the single string "wa_alice, wa_bob", which is wa_-prefixed
+  // enough to reach the network, minted its own tenant bundle, and was
+  // forwarded verbatim upstream. Splitting restores the intended semantics for
+  // the case that actually occurs. (Authorization is different: Node keeps
+  // only the first, so duplicates never reach us at all.)
   const headerKey = req.headers["x-api-key"];
-  return normalizeEnvValue(Array.isArray(headerKey) ? headerKey[0] : headerKey);
+  const first = (Array.isArray(headerKey) ? headerKey[0] : headerKey)?.split(",")[0];
+  return normalizeEnvValue(first);
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -217,14 +262,69 @@ function sendRpcError(res: ServerResponse, status: number, code: number, message
   sendJson(res, status, { jsonrpc: "2.0", error: { code, message }, id: null });
 }
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
+const CORS_METHODS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key, Mcp-Session-Id, MCP-Protocol-Version",
 };
 
+/**
+ * Which origin may READ the response — the one CORS decision that matters here.
+ *
+ * `*` is correct on the public multi-tenant endpoint and wrong on a box with
+ * defaultApiKey, and the difference is not the origin, it is whether the server
+ * has an identity of its own to lend. Publicly, a browser page that calls this
+ * endpoint gets the keyless surface, exactly like curl: it must present a key
+ * to be anybody, and CORS never hands it one. With defaultApiKey set, a
+ * credential-less request IS the configured account — so `*` lets any page the
+ * operator happens to visit drive their demo box as that tenant and read the
+ * results back. Classic confused deputy: no credential is stolen, the server
+ * simply supplies one to a caller who asked for nothing.
+ *
+ * `Allow-Credentials` is never sent, so cookies were never the vector, and
+ * withholding the header costs non-browser clients nothing — curl, the MCP SDK
+ * and every real client ignore CORS entirely. What it stops is a WEB PAGE
+ * reading the response.
+ *
+ * An operator who genuinely wants browser access to a single-tenant box names
+ * the origins (WA_HTTP_ALLOWED_ORIGINS) instead of getting a blanket `*` by
+ * default — opt in, and specific.
+ */
+function allowedOriginFor(
+  origin: string | undefined,
+  lendsAmbientIdentity: boolean,
+  allowlist: readonly string[],
+): string | undefined {
+  if (origin && allowlist.includes(origin)) return origin;
+  return lendsAmbientIdentity ? undefined : "*";
+}
+
 export function createWaHttpServer(options: HttpServerOptions): Server {
-  const base: WaConfig = { ...options.config, apiKey: undefined };
+  // devTier is stripped for the same reason apiKey is, and it is the more
+  // dangerous of the two. WA_DEV_TIER is a local escape hatch that grants a
+  // tier outright, and DefaultSubscriptionProvider.resolve consults it BEFORE
+  // the `wa_` prefix check and before any network call — so on a hosted box
+  // where the operator set it (it is in .env.example), every tenant bundle
+  // inherited it and any caller sending `Bearer anything-at-all` resolved to
+  // that tier and walked through gateProTool. The upstream API still refuses
+  // the bogus key, so no audit data was served, but the client-side gate was
+  // fully bypassed and any tool answering locally would leak outright.
+  //
+  // Single-tenant env values must never become the authority for a per-request
+  // tenant. That is the interface contract on `config` above; it named apiKey
+  // because apiKey was the only one thought of.
+  // Note the asymmetry, so nobody "cleans up" the wrong half: TenantDeps.forKey
+  // spreads `{ ...base, apiKey }`, so base.apiKey is ALWAYS overridden by the
+  // per-request key and stripping it here changes nothing observable — it is
+  // belt-and-braces against a future edit to forKey, and no test can tell it
+  // from its absence. devTier has no such override, so its strip is the guard
+  // actually holding the boundary, and its removal IS caught.
+  const base: WaConfig = { ...options.config, apiKey: undefined, devTier: undefined };
+  // Normalized at the consumer for the same reason defaultApiKey is: this
+  // factory is a published entry, and the guard one layer up in
+  // httpOptionsFromEnv does not travel with it. Unexpanded, the token is
+  // truthy, so the well-known route answers 200 with the literal `${...}` and
+  // the verifier reports a MISMATCH instead of the 404 naming the real cause.
+  const challengeToken = normalizeEnvValue(options.challengeToken);
   // Normalized HERE, not only where main() reads the env, because this factory
   // is a published entry — package.json ships dist/**/*.js with no exports map,
   // and the listen guard below exists precisely so wrappers can import it. A
@@ -233,6 +333,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   // PR removes, and no test would catch it, because the guard would live one
   // layer above the only code that consumes the value.
   const defaultApiKey = normalizeEnvValue(options.defaultApiKey);
+  // Normalized like every other configured value: an unexpanded template would
+  // otherwise become an "allowed origin" no browser will ever send, which fails
+  // closed but reads to the operator as a working allowlist.
+  const allowedOrigins = (options.allowedOrigins ?? [])
+    .map((o) => normalizeEnvValue(o))
+    .filter((o): o is string => Boolean(o));
   const tenants = new TenantDeps(
     base,
     options.depsFactory ?? defaultDepsFactory,
@@ -257,12 +363,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     }
 
     if (url.pathname === CHALLENGE_PATH && req.method === "GET") {
-      if (!options.challengeToken) {
+      if (!challengeToken) {
         res.writeHead(404, { "Content-Type": "text/plain" }).end("no challenge configured");
         return;
       }
       // The token, exactly and alone: the verifier rejects JSON wrappers.
-      res.writeHead(200, { "Content-Type": "text/plain" }).end(options.challengeToken);
+      res.writeHead(200, { "Content-Type": "text/plain" }).end(challengeToken);
       return;
     }
 
@@ -271,7 +377,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    for (const [name, value] of Object.entries(CORS_HEADERS)) res.setHeader(name, value);
+    for (const [name, value] of Object.entries(CORS_METHODS_HEADERS)) res.setHeader(name, value);
+    const allowOrigin = allowedOriginFor(req.headers.origin, Boolean(defaultApiKey), allowedOrigins);
+    if (allowOrigin) res.setHeader("Access-Control-Allow-Origin", allowOrigin);
+    // Vary whenever the answer could depend on the request's Origin, so a
+    // shared cache cannot serve one origin's allowance to another.
+    if (allowedOrigins.length) res.setHeader("Vary", "Origin");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204).end();
@@ -325,14 +436,15 @@ export function httpOptionsFromEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): HttpServerOptions {
   return {
-    // apiKey stripped HERE as well as in createWaHttpServer, because this is
-    // now exported: the interface's own contract is that a stray WA_API_KEY
-    // "must never become the fallback identity for unauthenticated callers",
-    // and a wrapper reading `httpOptionsFromEnv().config` to build its own deps
-    // — or simply logging the options on boot — would otherwise be handed the
-    // operator's live key. Same reasoning as the factory-level strip, applied
-    // to the other end of the same object.
-    config: { ...loadConfig(env), apiKey: undefined },
+    // apiKey and devTier stripped HERE as well as in createWaHttpServer,
+    // because this is now exported: the interface's own contract is that a
+    // stray WA_API_KEY "must never become the fallback identity for
+    // unauthenticated callers", and a wrapper reading
+    // `httpOptionsFromEnv().config` to build its own deps — or simply logging
+    // the options on boot — would otherwise be handed the operator's live key.
+    // devTier grants a tier outright and is checked before the key is even
+    // looked at; see the factory for why that is the worse of the two.
+    config: { ...loadConfig(env), apiKey: undefined, devTier: undefined },
     // Every value below takes normalizeEnvValue. The challenge token is not a
     // credential, but it has the identical failure: unexpanded, it is truthy,
     // so the well-known route answers 200 with the literal `${...}` and
@@ -345,6 +457,10 @@ export function httpOptionsFromEnv(
     // on the box land on "Invalid API key format" instead of get_sample_audit,
     // which is the first thing a marketplace reviewer sees.
     defaultApiKey: normalizeEnvValue(env.WA_HTTP_DEFAULT_KEY),
+    allowedOrigins: normalizeEnvValue(env.WA_HTTP_ALLOWED_ORIGINS)
+      ?.split(",")
+      .map((o) => o.trim())
+      .filter(Boolean),
   };
 }
 
@@ -357,9 +473,22 @@ export function httpOptionsFromEnv(
  * express; anything present but not a real port stops the process with the
  * value quoted. See parsePort for why each of those is a boot failure someone
  * would otherwise have to diagnose from a silent 502.
+ *
+ * The chain PICKS first and validates second, which is not a style choice. The
+ * previous shape — `parsePort(WA_HTTP_PORT, parsePort(PORT, 8787))` — read like
+ * the chain above but could not behave like it: JS evaluates arguments eagerly,
+ * so the inner call ran even when WA_HTTP_PORT was a perfectly good port, and a
+ * junk PORT threw from a branch nothing was going to use. WA_HTTP_PORT=9001
+ * with PORT=havoc (or an un-interpolated `${PORT}`, or Docker's link-style
+ * `tcp://10.0.0.5:8080`) killed the process at boot. That is worse than what it
+ * replaced: the operator who set WA_HTTP_PORT *specifically to escape a bad
+ * PORT* is the one it strands.
  */
 export function portFromEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): number {
-  return parsePort(env.WA_HTTP_PORT, parsePort(env.PORT, 8787));
+  const explicit = env.WA_HTTP_PORT?.trim();
+  return explicit
+    ? parsePort(explicit, 8787, "WA_HTTP_PORT")
+    : parsePort(env.PORT, 8787, "PORT");
 }
 
 async function main(): Promise<void> {

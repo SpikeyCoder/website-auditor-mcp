@@ -38,8 +38,11 @@ describe("the restart step is stated wherever a key is", () => {
   });
 
   it("says it in the revoked-key INVALID_KEY message", async () => {
-    // This path ends "Then set the new key as WA_API_KEY" — the same cliff,
-    // reached by someone who already has a subscription and rotated a key.
+    // This path ends "Then replace the key" plus the transport's own setup
+    // note — the same cliff, reached by someone who already has a subscription
+    // and rotated a key. (It used to end "Then set the new key as WA_API_KEY";
+    // that wording is now the stdio half of keySetupNote, and the hosted half
+    // never mentions the variable at all.)
     expect(await gateMessage("invalid")).toContain(RESTART_NOTE);
   });
 
@@ -50,10 +53,20 @@ describe("the restart step is stated wherever a key is", () => {
     expect(res.data.message).toContain(RESTART_NOTE);
   });
 
-  it("actually tells the reader to restart", async () => {
-    // Without this, emptying RESTART_NOTE would turn the three tests above
-    // green while deleting the instruction they exist to guarantee.
-    expect(RESTART_NOTE).toMatch(/restart/i);
+  it("actually tells the reader to restart, and says who must do it", async () => {
+    // The three tests above import RESTART_NOTE and assert the messages contain
+    // it, so they are tautological with respect to its text — this is the only
+    // thing standing between "the copy exists" and "the copy says the right
+    // thing". One bit was not enough: replacing the whole constant with "The
+    // key is read once at startup. Restarts happen automatically." passed, and
+    // that states the OPPOSITE instruction while still matching /restart/i.
+    //
+    // Pin the actual content: an imperative aimed at the reader's client, and
+    // the reason (the key is read once), since a reader who is not told why
+    // will assume the server picks it up eventually.
+    expect(RESTART_NOTE).toMatch(/restart your MCP client/i);
+    expect(RESTART_NOTE).toMatch(/read once at startup/i);
+    expect(RESTART_NOTE).not.toMatch(/automatic/i);
   });
 });
 
@@ -87,9 +100,15 @@ describe("the hosted transport gets an instruction it can actually follow", () =
   ];
 
   for (const [name, message] of surfaces) {
-    it(`${name} names the header, not the env var`, async () => {
+    it(`${name} names BOTH headers, not the env var`, async () => {
       const m = await message();
-      expect(m).toMatch(/Authorization: Bearer|X-API-Key/);
+      // Both, not an alternation. `/Authorization: Bearer|X-API-Key/` is
+      // satisfied by either half, so half the copy could be deleted with the
+      // suite green — the assertion proved "names *a* header", not "names the
+      // headers". Both are genuinely accepted (src/http.ts apiKeyFrom), and a
+      // caller whose client only exposes one of the two needs to see it.
+      expect(m).toMatch(/Authorization: Bearer/);
+      expect(m).toMatch(/X-API-Key/);
       expect(m).not.toContain("WA_API_KEY");
     });
 
@@ -103,6 +122,15 @@ describe("the hosted transport gets an instruction it can actually follow", () =
     // and leaving nothing is the same incomplete procedure with fewer words.
     for (const [name, message] of surfaces) {
       expect(await message(), name).toMatch(/header|connector/i);
+    }
+  });
+
+  it("closes the loop on restarting instead of just omitting it", async () => {
+    // A reader who has been told "restart your client" by every other MCP
+    // server needs the positive statement, not merely the absence of the stdio
+    // one — deleting this sentence left every hosted test green.
+    for (const [name, message] of surfaces) {
+      expect(await message(), name).toContain("nothing to restart");
     }
   });
 

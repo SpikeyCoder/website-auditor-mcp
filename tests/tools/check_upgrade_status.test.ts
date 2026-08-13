@@ -159,3 +159,35 @@ describe("check_upgrade_status [Free]", () => {
     expect(res.data.message).toContain("payment method");
   });
 });
+
+describe("check_upgrade_status: a malformed key is told where the key goes", () => {
+  // Every other key failure ends by saying where the key goes — gateProTool's
+  // invalid branch appends it, so does the no-key branch here. This one ended
+  // at "Invalid API key format. Keys start with wa_." and stopped, leaving the
+  // tool its own header calls "the one tool a caller with a broken key is MEANT
+  // to reach" as the only surface naming the problem and not the remedy.
+  const deps = (transport?: "stdio" | "http") => ({
+    ...makeDeps({ config: { apiKey: "sk-proj-not-ours" } }),
+    transport,
+  });
+
+  it("names the env var and the restart on stdio", async () => {
+    const res = await checkUpgradeStatus({}, deps("stdio"));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("MALFORMED_KEY");
+    expect(res.error.message).toContain("Keys start with wa_.");
+    expect(res.error.message).toContain("WA_API_KEY");
+    expect(res.error.message).toMatch(/restart/i);
+  });
+
+  it("names both headers on the hosted transport, never the env var", async () => {
+    const res = await checkUpgradeStatus({}, deps("http"));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.message).toContain("Keys start with wa_.");
+    expect(res.error.message).toMatch(/Authorization: Bearer/);
+    expect(res.error.message).toMatch(/X-API-Key/);
+    expect(res.error.message).not.toContain("WA_API_KEY");
+  });
+});

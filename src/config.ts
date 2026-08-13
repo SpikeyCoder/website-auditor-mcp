@@ -94,17 +94,21 @@ function parseUpsellStyle(value: string | undefined): UpsellStyle {
 }
 
 /**
- * An unexpanded config placeholder is not a key — it is the ABSENCE of one.
+ * An unexpanded config placeholder is not a value — it is the ABSENCE of one.
  *
- * Clients that support variable substitution (`${WA_API_KEY}` in Cursor plugin
- * mcp.json, `${env:…}`/`${input:…}` elsewhere) pass the placeholder through
- * VERBATIM when the user has not set a value. Verified in Cursor 3.15.19:
- * a first-run install spawns the server with the literal `WA_API_KEY=${WA_API_KEY}`.
+ * Clients and deploy templates that support variable substitution (`${X}` in
+ * Cursor plugin mcp.json, `${env:…}`/`${input:…}` elsewhere, `${X}` in compose
+ * and Cloud Run) pass the placeholder through VERBATIM when nothing was set.
+ * Verified in Cursor 3.15.19: a first-run install spawns the server with the
+ * literal `WA_API_KEY=${WA_API_KEY}`.
  *
- * Read as a key, that string is merely malformed, so the user who configured
- * nothing was told their key was invalid — accusatory, and it buried the
- * "create one at …" onboarding behind an error. Treating it as unset restores
- * the keyless surface these installs are supposed to land on.
+ * The key case is where this was found and is still the sharpest: read as a
+ * key, that string is merely malformed, so the user who configured nothing was
+ * told their key was invalid — accusatory, and it buried the "create one at …"
+ * onboarding behind an error. But the predicate now decides five inputs, one of
+ * which (WA_APPS_CHALLENGE_TOKEN) is not a credential at all, so the rule is
+ * stated for values generally. See normalizeEnvValue, which is the entry point;
+ * nothing should call this directly.
  */
 function isUnexpandedPlaceholder(value: string): boolean {
   // Whole-string placeholder syntax only — ${X}, {X}, {{X}}, ${env:X} — plus
@@ -160,27 +164,45 @@ export function normalizeEnvValue(raw: string | undefined): string | undefined {
  * So: absent or blank takes the fallback, anything else must be a real port or
  * the process refuses to start with the offending value quoted. main() already
  * turns a throw into a one-line fatal and exit(1).
+ *
+ * `name` is the variable the value came from, because the message is read by
+ * someone staring at a config file: "Invalid port" quoting a value they can see
+ * in two places does not say which one to edit.
+ *
+ * Digits only, deliberately. Number() accepts 0x1F90 (8080), 0b1111 (15) and
+ * 1e4 (10000) — all integers, all in range, none of them what the operator
+ * wrote. Silently reinterpreting a port is the exact class the third bullet
+ * above says this function exists to stop, and 0b1111 would try a privileged
+ * bind.
  */
-export function parsePort(raw: string | undefined, fallback: number): number {
+export function parsePort(raw: string | undefined, fallback: number, name = "port"): number {
   const trimmed = raw?.trim();
   if (!trimmed) return fallback;
-  const n = Number(trimmed);
+  const n = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN;
   if (!Number.isInteger(n) || n <= 0 || n > 65535) {
-    throw new Error(`Invalid port ${JSON.stringify(trimmed)} — expected an integer from 1 to 65535.`);
+    throw new Error(`Invalid ${name} ${JSON.stringify(trimmed)} — expected an integer from 1 to 65535.`);
   }
   return n;
 }
 
+// Every env value that can arrive interpolated goes through normalizeEnvValue,
+// which is what its docstring already claimed and what only WA_API_KEY actually
+// did. The URLs were the live hole: an unexpanded WA_UPGRADE_URL is truthy, so
+// it beat the working default and every AUTH_REQUIRED / PRO_REQUIRED /
+// INVALID_KEY payload shipped `create a key at ${WA_UPGRADE_URL}` as both prose
+// and the structured `upgrade_url` — a dead signup link in exactly the messages
+// this whole line of work exists to make followable. tagSource swallows the
+// parse failure (`catch { return rawUrl }`), so nothing surfaced it.
 export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): WaConfig {
   const apiKey = normalizeEnvValue(env.WA_API_KEY);
-  const siteUrl = stripTrailingSlash(env.WA_SITE_URL?.trim() || "https://website-auditor.io");
+  const siteUrl = stripTrailingSlash(normalizeEnvValue(env.WA_SITE_URL) || "https://website-auditor.io");
   return {
-    apiBaseUrl: stripTrailingSlash(env.WA_API_BASE_URL?.trim() || "https://api.website-auditor.io"),
+    apiBaseUrl: stripTrailingSlash(normalizeEnvValue(env.WA_API_BASE_URL) || "https://api.website-auditor.io"),
     siteUrl,
     apiKey,
-    upgradeUrl: env.WA_UPGRADE_URL?.trim() || "https://api.website-auditor.io/admin_portal/",
+    upgradeUrl: normalizeEnvValue(env.WA_UPGRADE_URL) || "https://api.website-auditor.io/admin_portal/",
     upsellStyle: parseUpsellStyle(env.WA_UPSELL_STYLE),
-    upsellInfoUrl: stripTrailingSlash(env.WA_UPSELL_INFO_URL?.trim() || "") || siteUrl,
+    upsellInfoUrl: stripTrailingSlash(normalizeEnvValue(env.WA_UPSELL_INFO_URL) || "") || siteUrl,
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),
