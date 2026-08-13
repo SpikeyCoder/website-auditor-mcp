@@ -15,7 +15,7 @@
  * would return canned numbers that read as a real audit of the caller's own
  * site — the one outcome worse than showing nothing.
  */
-import { ok, type ToolDeps, type ToolResult } from "./context.js";
+import { keySetupNote, ok, type ToolDeps, type ToolResult } from "./context.js";
 import { upgradeLink, PRICE } from "./upgrade.js";
 import { sampleAuditReport } from "./sampleData.js";
 import type { AuditReport } from "../api/types.js";
@@ -49,7 +49,7 @@ export async function getSampleAudit(
       `for any site you asked about. It shows the exact response shape a real run returns — ` +
       `scored summary, per-test results, and the AI-visibility breakdown across ChatGPT, ` +
       `Perplexity, Claude and Gemini. To audit a real domain you need a Website Auditor ` +
-      `subscription (${PRICE}) and an API key set as WA_API_KEY.`,
+      `subscription (${PRICE}) and an API key. ${keySetupNote(deps.transport)}`,
     audit: sampleAuditReport(),
     price: PRICE,
     upgrade_url: upgradeLink(deps.config),

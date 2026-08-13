@@ -112,14 +112,72 @@ function isUnexpandedPlaceholder(value: string): boolean {
   return /^\$?\{{1,2}[^{}]*\}{1,2}$/.test(value) || /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 }
 
+/**
+ * The one place a raw configured string becomes a value, or nothing.
+ *
+ * Named for values rather than keys on purpose: the rule is about how a value
+ * ARRIVED, not what it means. Every setting a client or deploy template
+ * interpolates can reach us unexpanded, and each one that skipped this grew
+ * its own bug — WA_API_KEY over HTTP (an accusatory "Invalid API key format"
+ * where stdio gave onboarding), WA_HTTP_DEFAULT_KEY (every anonymous caller on
+ * the box acting as a tenant named `${...}`), WA_APPS_CHALLENGE_TOKEN (serving
+ * the literal placeholder with a 200, so the verifier reports a token mismatch
+ * instead of the 404 that names the real cause). Three instances of one defect
+ * is the argument for a single named rule rather than a habit.
+ *
+ * Deliberately NOT a `wa_` prefix check, for the key case. A value that is
+ * present and merely wrong is a different answer from no value at all — the
+ * whole four-way 401 split exists to keep those apart — so normalizing a typo
+ * to "unset" would tell someone who pasted `wa-123` that they had configured
+ * nothing, and strand them one step earlier than the truth. A placeholder is
+ * the one string that genuinely IS the absence of a value rather than a bad
+ * one.
+ */
+export function normalizeEnvValue(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  return isUnexpandedPlaceholder(trimmed) ? undefined : trimmed;
+}
+
+/**
+ * A port from configuration, or a loud failure naming the bad value.
+ *
+ * Three failure modes, all of which reached production shapes:
+ *   * BLANK is not a value. `??` only falls through on null/undefined, so an
+ *     empty WA_HTTP_PORT counted as present: parseInt("") is NaN and
+ *     listen(NaN) throws ERR_SOCKET_BAD_PORT on boot. .env.example ships the
+ *     line as `WA_HTTP_PORT=`, so any compose env_file exported exactly that —
+ *     and it also swallowed the PORT Cloud Run injects.
+ *   * OUT OF RANGE still crashes. 70000 and -1 parse fine and are finite, and
+ *     listen() rejects both the same way, so a plain int parse fixes the blank
+ *     case while leaving the crash it was written to prevent.
+ *   * SILENTLY WRONG is worse than either. A generic int fallback turns
+ *     "havoc" into 8787 and "8080abc" into 8080, so a box behind a proxy comes
+ *     up on a port nobody asked for and 502s with nothing in the log; `0.5`
+ *     truncates to 0, which binds a random ephemeral port that no health probe
+ *     will find.
+ *
+ * So: absent or blank takes the fallback, anything else must be a real port or
+ * the process refuses to start with the offending value quoted. main() already
+ * turns a throw into a one-line fatal and exit(1).
+ */
+export function parsePort(raw: string | undefined, fallback: number): number {
+  const trimmed = raw?.trim();
+  if (!trimmed) return fallback;
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n <= 0 || n > 65535) {
+    throw new Error(`Invalid port ${JSON.stringify(trimmed)} — expected an integer from 1 to 65535.`);
+  }
+  return n;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): WaConfig {
-  const rawApiKey = env.WA_API_KEY?.trim();
-  const apiKey = rawApiKey && !isUnexpandedPlaceholder(rawApiKey) ? rawApiKey : undefined;
+  const apiKey = normalizeEnvValue(env.WA_API_KEY);
   const siteUrl = stripTrailingSlash(env.WA_SITE_URL?.trim() || "https://website-auditor.io");
   return {
     apiBaseUrl: stripTrailingSlash(env.WA_API_BASE_URL?.trim() || "https://api.website-auditor.io"),
     siteUrl,
-    apiKey: apiKey ? apiKey : undefined,
+    apiKey,
     upgradeUrl: env.WA_UPGRADE_URL?.trim() || "https://api.website-auditor.io/admin_portal/",
     upsellStyle: parseUpsellStyle(env.WA_UPSELL_STYLE),
     upsellInfoUrl: stripTrailingSlash(env.WA_UPSELL_INFO_URL?.trim() || "") || siteUrl,

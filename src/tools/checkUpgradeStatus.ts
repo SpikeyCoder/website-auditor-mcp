@@ -16,7 +16,7 @@
  */
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
-import { fromApiError, ok, RESTART_NOTE, type ToolDeps, type ToolResult } from "./context.js";
+import { fromApiError, keySetupNote, ok, type ToolDeps, type ToolResult } from "./context.js";
 import { PRICE, upgradeLink } from "./upgrade.js";
 
 export interface UpgradeStatus {
@@ -53,7 +53,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       // branch below does that, with the full disclosure).
       message:
         `No API key is configured. Create one at ${upgradeUrl} — minting a key requires an ` +
-        `active subscription (${PRICE}) — then set it as WA_API_KEY in this server's config. ${RESTART_NOTE}`,
+        `active subscription (${PRICE}). ${keySetupNote(deps.transport)}`,
     });
   }
 

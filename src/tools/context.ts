@@ -41,16 +41,49 @@ export function ok<T>(data: T): ToolResult<T> {
 }
 
 /**
- * The step after "set WA_API_KEY", without which nothing changes.
+ * The step after "set WA_API_KEY", without which nothing changes — ON STDIO.
  *
  * `loadConfig(process.env)` runs once, at startup (src/index.ts), so a key set
  * while this server is running is invisible to it. Every message that tells
  * someone to set the key must carry this, or it describes a procedure that
  * ends with the identical error it began with — see tests/keyRequiresRestart.
+ *
+ * Reach it through keySetupNote rather than inlining it: on the hosted
+ * transport the sentence is false, and the guard is the whole note, not this
+ * half of it.
  */
 export const RESTART_NOTE =
   "The key is read once at startup, so restart your MCP client after setting it " +
   "(in Claude Desktop: quit and reopen the app) — until then this server keeps using the old value.";
+
+/**
+ * Where the key goes, and what has to happen after — both transport-specific.
+ *
+ * RESTART_NOTE exists because a message ending at "set WA_API_KEY" describes an
+ * incomplete procedure: the reader edits config, asks again, and gets the
+ * byte-identical error they just acted on. On the hosted transport that whole
+ * instruction is not merely incomplete, it is impossible. "This server's
+ * config" is an env var on a box the reader has no access to, and restarting
+ * their client changes nothing, because the key never came from startup env —
+ * src/http.ts reads it from the Authorization or X-API-Key header of every
+ * request.
+ *
+ * So the dead end the restart note was written to close reopened for hosted
+ * callers, this time pointed at a machine they cannot log into. That path also
+ * got MORE reachable in this PR, not less: an unexpanded placeholder Bearer now
+ * normalizes to "no key", which is precisely the branch answering AUTH_REQUIRED.
+ *
+ * deps.transport already separates them — it has tagged tool_call telemetry
+ * since the hosted entry point shipped. This is the first user-facing copy to
+ * read it.
+ */
+export function keySetupNote(transport: ToolDeps["transport"]): string {
+  return transport === "http"
+    ? "On this server the key travels with the request: send it as `Authorization: Bearer wa_…` " +
+        "or an `X-API-Key` header — in an MCP client that is the connector's authentication field. " +
+        "It is read per request, so there is nothing to restart."
+    : `Set it as WA_API_KEY in this server's config. ${RESTART_NOTE}`;
+}
 
 export function err(code: ErrorCode, message: string, extra: { upgrade_url?: string; details?: unknown } = {}): ToolResult<never> {
   return { ok: false, error: { code, message, ...extra } };
@@ -120,7 +153,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +
         `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
-        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} , then set WA_API_KEY in this server's config. ${RESTART_NOTE}`,
+        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}`,
       { upgrade_url: upgradeUrl },
     );
   }
@@ -155,7 +188,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     return err(
       rejection ?? "INVALID_KEY",
       `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
-        `so if yours has lapsed, resubscribe there first. Then set the new key as WA_API_KEY. ${RESTART_NOTE}`,
+        `so if yours has lapsed, resubscribe there first. Then replace the key. ${keySetupNote(deps.transport)}`,
       { upgrade_url: upgradeUrl },
     );
   }

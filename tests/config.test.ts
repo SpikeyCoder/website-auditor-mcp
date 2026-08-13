@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { loadConfig } from "../src/config.js";
+import { UNEXPANDED_PLACEHOLDERS } from "./helpers.js";
 
 describe("loadConfig", () => {
   it("applies documented defaults when env is empty", () => {
@@ -42,13 +43,7 @@ describe("loadConfig", () => {
   // someone who never set a key, instead of the "no key configured, create one
   // at …" onboarding the keyless surface exists to give.
   it("treats an unexpanded client placeholder as no key at all", () => {
-    for (const placeholder of [
-      "${WA_API_KEY}", // Cursor plugin variables
-      "${env:WA_API_KEY}", // VS Code / Cursor mcp.json interpolation
-      "${input:apiKey}",
-      "{{WA_API_KEY}}", // moustache-style templating
-      "$WA_API_KEY", // bare shell-style
-    ]) {
+    for (const placeholder of UNEXPANDED_PLACEHOLDERS) {
       expect(loadConfig({ WA_API_KEY: placeholder }).apiKey, placeholder).toBeUndefined();
     }
   });

@@ -35,7 +35,7 @@
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { loadConfig, type WaConfig } from "./config.js";
+import { loadConfig, normalizeEnvValue, parsePort, type WaConfig } from "./config.js";
 import { WaApiClient } from "./api/client.js";
 import { DefaultSubscriptionProvider } from "./auth/entitlements.js";
 import { InMemoryAuditCache } from "./auth/auditCache.js";
@@ -72,6 +72,16 @@ export interface HttpServerOptions {
    * the base-config apiKey strip above exists to prevent. The strip still
    * applies: an env WA_API_KEY is discarded; only this explicit option (env
    * WA_HTTP_DEFAULT_KEY) opts in.
+   *
+   * "No credentials" INCLUDES an unexpanded placeholder, since apiKeyFrom
+   * normalizes one to undefined — so on a box with this set, a caller sending
+   * `Bearer ${WA_API_KEY}` acts as this key, where before they got the
+   * malformed-key answer. That follows from a placeholder being the absence of
+   * a value rather than a bad one, and it only reaches an operator who already
+   * opted into "anonymous callers act as this account"; on the public
+   * multi-tenant endpoint this option is unset and nothing changes. Stated
+   * because it widens who lands on the configured identity, which is worth
+   * being a decision rather than a side effect. Pinned by a test.
    */
   defaultApiKey?: string;
   /** Test seam. Production builds real deps; tests inject recorders/mocks. */
@@ -149,16 +159,34 @@ class TenantDeps {
  * send), then X-API-Key (what the wrapped API itself uses, so curl habits
  * carry over). Anything else is treated as unauthenticated, not an error —
  * the keyless surface is a feature, not a fallback.
+ *
+ * Both sources go through normalizeEnvValue, the same function loadConfig uses,
+ * so the two transports cannot answer "is this a key?" differently. They did:
+ * stdio has discarded unexpanded placeholders since the Cursor 3.15.19 finding
+ * (a first-run install spawns the server with the literal `${WA_API_KEY}`) and
+ * this path did not, so one broken client config landed on the keyless
+ * onboarding surface over stdio and on "Invalid API key format. Keys start
+ * with wa_." over HTTP. Codex's `bearer_token_env_var` is the same hazard on
+ * this side: an unset variable is exactly what arrives here unexpanded.
+ *
+ * A placeholder Bearer therefore falls THROUGH to X-API-Key instead of
+ * winning as a bad value, which is what "Bearer first" always meant — first
+ * among the keys actually presented.
+ *
+ * A token that is merely not ours still comes through verbatim, and should.
+ * On this endpoint the Bearer IS the Website Auditor key, so a typo in it has
+ * to reach the malformed-key answer that names the `wa_` prefix rather than
+ * being recoded as "you configured nothing" — a placeholder is the absence of
+ * a value, a typo is a wrong one, and only the first is safe to erase.
  */
 function apiKeyFrom(req: IncomingMessage): string | undefined {
   const auth = req.headers.authorization;
   if (auth) {
-    const bearer = /^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]?.trim();
+    const bearer = normalizeEnvValue(/^Bearer\s+(.+)$/i.exec(auth.trim())?.[1]);
     if (bearer) return bearer;
   }
   const headerKey = req.headers["x-api-key"];
-  const single = Array.isArray(headerKey) ? headerKey[0] : headerKey;
-  return single?.trim() || undefined;
+  return normalizeEnvValue(Array.isArray(headerKey) ? headerKey[0] : headerKey);
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -197,6 +225,14 @@ const CORS_HEADERS: Record<string, string> = {
 
 export function createWaHttpServer(options: HttpServerOptions): Server {
   const base: WaConfig = { ...options.config, apiKey: undefined };
+  // Normalized HERE, not only where main() reads the env, because this factory
+  // is a published entry — package.json ships dist/**/*.js with no exports map,
+  // and the listen guard below exists precisely so wrappers can import it. A
+  // wrapper writing `{ defaultApiKey: env.WA_HTTP_DEFAULT_KEY }` — verbatim the
+  // line httpOptionsFromEnv replaced — would otherwise reinstate the bug this
+  // PR removes, and no test would catch it, because the guard would live one
+  // layer above the only code that consumes the value.
+  const defaultApiKey = normalizeEnvValue(options.defaultApiKey);
   const tenants = new TenantDeps(
     base,
     options.depsFactory ?? defaultDepsFactory,
@@ -256,7 +292,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    const deps = tenants.forKey(apiKeyFrom(req) ?? options.defaultApiKey);
+    const deps = tenants.forKey(apiKeyFrom(req) ?? defaultApiKey);
     // Fresh server+transport per request over long-lived tenant deps: the
     // stateless Streamable HTTP pattern. Closed with the response so an
     // abandoned connection cannot leak either.
@@ -274,17 +310,65 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   }
 }
 
+/**
+ * The env → options mapping, separated from main() so it can be tested.
+ *
+ * main() is unreachable from a test: it is gated behind the import.meta/argv
+ * guard below, so a test can only RECONSTRUCT this mapping — and a test that
+ * reconstructs the thing it is checking proves nothing about the wiring. The
+ * first WA_HTTP_DEFAULT_KEY test did exactly that (it called normalizeEnvValue
+ * itself and passed the result in) and stayed green when the unnormalized line
+ * it existed to protect was put back. Takes `env` for the same reason
+ * loadConfig does.
+ */
+export function httpOptionsFromEnv(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): HttpServerOptions {
+  return {
+    // apiKey stripped HERE as well as in createWaHttpServer, because this is
+    // now exported: the interface's own contract is that a stray WA_API_KEY
+    // "must never become the fallback identity for unauthenticated callers",
+    // and a wrapper reading `httpOptionsFromEnv().config` to build its own deps
+    // — or simply logging the options on boot — would otherwise be handed the
+    // operator's live key. Same reasoning as the factory-level strip, applied
+    // to the other end of the same object.
+    config: { ...loadConfig(env), apiKey: undefined },
+    // Every value below takes normalizeEnvValue. The challenge token is not a
+    // credential, but it has the identical failure: unexpanded, it is truthy,
+    // so the well-known route answers 200 with the literal `${...}` and
+    // OpenAI's verifier reports a token MISMATCH — sending the operator to hunt
+    // a wrong value instead of the 404 that says "no challenge configured".
+    challengeToken: normalizeEnvValue(env.WA_APPS_CHALLENGE_TOKEN),
+    // The one that matters most: this is the identity for callers who presented
+    // NOTHING, so an unexpanded placeholder in a compose file or Cloud Run
+    // template does not mis-serve one request — it makes every anonymous caller
+    // on the box land on "Invalid API key format" instead of get_sample_audit,
+    // which is the first thing a marketplace reviewer sees.
+    defaultApiKey: normalizeEnvValue(env.WA_HTTP_DEFAULT_KEY),
+  };
+}
+
+/**
+ * Listening port, with the same env-is-testable treatment as the options.
+ *
+ * WA_HTTP_PORT wins, then Cloud Run's injected PORT, then 8787 — the chain the
+ * Dockerfile promises. Blank at either level means "not set" and falls through
+ * rather than poisoning the result, which the previous `??` chain could not
+ * express; anything present but not a real port stops the process with the
+ * value quoted. See parsePort for why each of those is a boot failure someone
+ * would otherwise have to diagnose from a silent 502.
+ */
+export function portFromEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): number {
+  return parsePort(env.WA_HTTP_PORT, parsePort(env.PORT, 8787));
+}
+
 async function main(): Promise<void> {
-  const config = loadConfig(process.env);
-  const port = Number.parseInt(process.env.WA_HTTP_PORT ?? process.env.PORT ?? "8787", 10);
-  const server = createWaHttpServer({
-    config,
-    challengeToken: process.env.WA_APPS_CHALLENGE_TOKEN?.trim() || undefined,
-    defaultApiKey: process.env.WA_HTTP_DEFAULT_KEY?.trim() || undefined,
-  });
+  const options = httpOptionsFromEnv(process.env);
+  const port = portFromEnv(process.env);
+  const server = createWaHttpServer(options);
   server.listen(port, () => {
     console.error(
-      `[website-auditor-mcp] http ready on :${port} — POST ${MCP_PATH}, API ${config.apiBaseUrl}, upsell style ${config.upsellStyle}`,
+      `[website-auditor-mcp] http ready on :${port} — POST ${MCP_PATH}, API ${options.config.apiBaseUrl}, upsell style ${options.config.upsellStyle}`,
     );
   });
 }
