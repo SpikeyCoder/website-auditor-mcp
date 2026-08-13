@@ -8,7 +8,7 @@
   },
   "homepage": "https://website-auditor.io",
   "repository": "https://github.com/SpikeyCoder/website-auditor-mcp",
-  "license": "Elastic-2.0",
+  "license": "MIT",
   "keywords": [
     "ai-visibility",
     "geo",

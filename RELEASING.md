@@ -156,7 +156,7 @@ update automatically — also with no stated interval. Privately distributed
 So: treat this channel as asynchronous and unbounded. Submit it, then keep
 shipping; do not block a release on it, and do not assume it followed.
 
-### Requirements, audited 2026-08-04 (all currently PASS)
+### Requirements, audited 2026-08-04, re-audited 2026-08-13
 
 Local connectors are held to a stricter bar than remote ones, and the docs
 warn that *"Missing or incomplete privacy policies result in immediate
@@ -171,6 +171,29 @@ applies:
 | Policy covers collection, use/storage, third-party sharing, retention, contact | PASS — all five present on the live page |
 | Every tool carries a `title` | PASS — 14/14 |
 | Every tool carries `readOnlyHint` or `destructiveHint` | PASS — set for all in src/mcp/server.ts |
+
+The **submission form itself** states four more, which this table missed
+through the 1.0.16 submission because they live on the form rather than in the
+docs. Added 2026-08-13:
+
+| Form requirement | State |
+|---|---|
+| Publicly available on GitHub | PASS |
+| Built with Node.js | PASS |
+| `author` field in manifest.json points at your GitHub profile | PASS since 1.0.18 — `https://github.com/SpikeyCoder`. Was the site URL (homepage covers that) through 1.0.17 |
+| **MIT licensed** | PASS since 2026-08-13 — the repo was relicensed from Elastic-2.0 |
+
+The MIT row had no cheap workaround: unlike the Cursor Marketplace — where
+only `cursor-plugin/` is distributed, so MIT-licensing that directory settled
+it — the `.mcpb` **is** the server, so meeting it meant relicensing. Done
+deliberately, on the understanding that this repo is the *client* for the
+Website Auditor API: the audit engine (chaos_tester) and the API
+(website-auditor-api) are separate products under their own terms, and a fork
+still needs a `wa_` key against a real account to audit anything.
+
+**The 1.0.17 bundle now in review was submitted under Elastic-2.0.** The
+relicense reaches reviewers on the next release; it is not worth resubmitting
+for on its own.
 
 Re-check these before each submission rather than assuming: the privacy page
 is served by a different repo (chaos_tester), so it can regress without any

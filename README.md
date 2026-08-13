@@ -275,6 +275,10 @@ Full privacy policy: **https://website-auditor.io/privacy**
 
 ## License
 
-[Elastic License 2.0](LICENSE) — © 2026 Kevin Armstrong / SpikeyCoder.
+[MIT](LICENSE) — © 2026 Kevin Armstrong / SpikeyCoder.
+
+This covers the MCP server in this repo: the client that talks to the Website
+Auditor API. The audit engine and the API behind it are separate products, not
+covered here, and running real audits still needs a Website Auditor account.
 
 Learn more at **[website-auditor.io](https://website-auditor.io)**.
