@@ -72,6 +72,16 @@ export interface HttpServerOptions {
    * the base-config apiKey strip above exists to prevent. The strip still
    * applies: an env WA_API_KEY is discarded; only this explicit option (env
    * WA_HTTP_DEFAULT_KEY) opts in.
+   *
+   * "No credentials" INCLUDES an unexpanded placeholder, since apiKeyFrom
+   * normalizes one to undefined — so on a box with this set, a caller sending
+   * `Bearer ${WA_API_KEY}` acts as this key, where before they got the
+   * malformed-key answer. That follows from a placeholder being the absence of
+   * a value rather than a bad one, and it only reaches an operator who already
+   * opted into "anonymous callers act as this account"; on the public
+   * multi-tenant endpoint this option is unset and nothing changes. Stated
+   * because it widens who lands on the configured identity, which is worth
+   * being a decision rather than a side effect. Pinned by a test.
    */
   defaultApiKey?: string;
   /** Test seam. Production builds real deps; tests inject recorders/mocks. */
@@ -292,23 +302,40 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   }
 }
 
-async function main(): Promise<void> {
-  const config = loadConfig(process.env);
-  const port = Number.parseInt(process.env.WA_HTTP_PORT ?? process.env.PORT ?? "8787", 10);
-  const server = createWaHttpServer({
-    config,
-    challengeToken: process.env.WA_APPS_CHALLENGE_TOKEN?.trim() || undefined,
+/**
+ * The env → options mapping, separated from main() so it can be tested.
+ *
+ * main() is unreachable from a test: it is gated behind the import.meta/argv
+ * guard below, so a test can only RECONSTRUCT this mapping — and a test that
+ * reconstructs the thing it is checking proves nothing about the wiring. The
+ * first WA_HTTP_DEFAULT_KEY test did exactly that (it called normalizeApiKey
+ * itself and passed the result in) and stayed green when the unnormalized line
+ * it existed to protect was put back. Takes `env` for the same reason
+ * loadConfig does.
+ */
+export function httpOptionsFromEnv(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): HttpServerOptions {
+  return {
+    config: loadConfig(env),
+    challengeToken: env.WA_APPS_CHALLENGE_TOKEN?.trim() || undefined,
     // normalizeApiKey, for the same reason apiKeyFrom uses it — and this one
     // matters more. It is the identity for callers who presented NOTHING, so
     // an unexpanded placeholder in a compose file or Cloud Run template does
     // not mis-serve one request: it makes every anonymous caller on the box
     // land on "Invalid API key format" instead of get_sample_audit, which is
     // the first thing a marketplace reviewer sees.
-    defaultApiKey: normalizeApiKey(process.env.WA_HTTP_DEFAULT_KEY),
-  });
+    defaultApiKey: normalizeApiKey(env.WA_HTTP_DEFAULT_KEY),
+  };
+}
+
+async function main(): Promise<void> {
+  const options = httpOptionsFromEnv(process.env);
+  const port = Number.parseInt(process.env.WA_HTTP_PORT ?? process.env.PORT ?? "8787", 10);
+  const server = createWaHttpServer(options);
   server.listen(port, () => {
     console.error(
-      `[website-auditor-mcp] http ready on :${port} — POST ${MCP_PATH}, API ${config.apiBaseUrl}, upsell style ${config.upsellStyle}`,
+      `[website-auditor-mcp] http ready on :${port} — POST ${MCP_PATH}, API ${options.config.apiBaseUrl}, upsell style ${options.config.upsellStyle}`,
     );
   });
 }

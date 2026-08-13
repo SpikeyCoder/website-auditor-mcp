@@ -12,8 +12,8 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createWaHttpServer, type HttpServerOptions } from "../../src/http.js";
-import { loadConfig, normalizeApiKey, type WaConfig } from "../../src/config.js";
+import { createWaHttpServer, httpOptionsFromEnv, type HttpServerOptions } from "../../src/http.js";
+import { loadConfig, type WaConfig } from "../../src/config.js";
 import type { ToolDeps } from "../../src/tools/context.js";
 import { makeDeps, testConfig, RecordingEventSink } from "../helpers.js";
 
@@ -222,19 +222,46 @@ describe("defaultApiKey (single-tenant/demo deployments)", () => {
     expect(seenKeys).toEqual(["wa_demo_default", "wa_their_own"]);
   });
 
-  it("a placeholder default key is no key, so anonymous callers keep the sample surface", async () => {
-    // WA_HTTP_DEFAULT_KEY goes through normalizeApiKey at the env boundary
-    // (see main()). This asserts the property that depends on it: an
-    // unexpanded placeholder must not become the identity for callers who
-    // presented nothing, or every anonymous request on a misconfigured box
-    // answers "Invalid API key format" instead of serving get_sample_audit.
+  it("reads WA_HTTP_DEFAULT_KEY through normalizeApiKey, so a placeholder is not an identity", () => {
+    // Asserts the WIRING, not a reconstruction of it. The first version of this
+    // test called normalizeApiKey itself and passed the result to listen(),
+    // which meant it stayed green when the unnormalized env read was put back —
+    // it was checking normalizeApiKey, a function with its own tests, and
+    // nothing about http.ts. httpOptionsFromEnv exists to make this reachable.
+    expect(httpOptionsFromEnv({ WA_HTTP_DEFAULT_KEY: "${WA_HTTP_DEFAULT_KEY}" }).defaultApiKey).toBeUndefined();
+    expect(httpOptionsFromEnv({ WA_HTTP_DEFAULT_KEY: "  wa_demo  " }).defaultApiKey).toBe("wa_demo");
+    expect(httpOptionsFromEnv({}).defaultApiKey).toBeUndefined();
+  });
+
+  it("a placeholder default key leaves anonymous callers on the sample surface", async () => {
+    // The property that wiring buys: every anonymous request on a box whose
+    // deploy template failed to expand still gets get_sample_audit, rather than
+    // "Invalid API key format" from acting as a tenant named `${...}`.
     const { factory, seenKeys } = recordingFactory();
-    const { url } = await listen({ depsFactory: factory, defaultApiKey: normalizeApiKey("${WA_HTTP_DEFAULT_KEY}") });
+    const { url } = await listen({
+      depsFactory: factory,
+      defaultApiKey: httpOptionsFromEnv({ WA_HTTP_DEFAULT_KEY: "${WA_HTTP_DEFAULT_KEY}" }).defaultApiKey,
+    });
     const anon = await connectClient(url);
     const res = await anon.callTool({ name: "get_sample_audit", arguments: {} });
     expect(res.isError).toBeFalsy();
     expect(seenKeys).toEqual([undefined]);
     await anon.close();
+  });
+
+  it("a placeholder Bearer counts as no credentials, so it reaches the default key", async () => {
+    // Intended consequence of normalizing, pinned so it stays a decision. A
+    // placeholder is the ABSENCE of a credential, and this option's contract is
+    // "callers with no credentials act as this key" — so they land here, where
+    // before the truthy placeholder blocked the fallback and produced a
+    // malformed-key answer. Only reachable on a box that opted in; the public
+    // multi-tenant endpoint leaves defaultApiKey unset.
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({ depsFactory: factory, defaultApiKey: "wa_demo_default" });
+    const client = await connectClient(url, { Authorization: "Bearer ${WA_API_KEY}" });
+    await client.listTools();
+    expect(seenKeys).toEqual(["wa_demo_default"]);
+    await client.close();
   });
 });
 
