@@ -151,7 +151,7 @@ update automatically — also with no stated interval. Privately distributed
 So: treat this channel as asynchronous and unbounded. Submit it, then keep
 shipping; do not block a release on it, and do not assume it followed.
 
-### Requirements, audited 2026-08-04 (all currently PASS)
+### Requirements, audited 2026-08-04, re-audited 2026-08-13
 
 Local connectors are held to a stricter bar than remote ones, and the docs
 warn that *"Missing or incomplete privacy policies result in immediate
@@ -166,6 +166,25 @@ applies:
 | Policy covers collection, use/storage, third-party sharing, retention, contact | PASS — all five present on the live page |
 | Every tool carries a `title` | PASS — 14/14 |
 | Every tool carries `readOnlyHint` or `destructiveHint` | PASS — set for all in src/mcp/server.ts |
+
+The **submission form itself** states four more, which this table missed
+through the 1.0.16 submission because they live on the form rather than in the
+docs. Added 2026-08-13:
+
+| Form requirement | State |
+|---|---|
+| Publicly available on GitHub | PASS |
+| Built with Node.js | PASS |
+| `author` field in manifest.json points at your GitHub profile | PASS since 1.0.18 — `https://github.com/SpikeyCoder`. Was the site URL (homepage covers that) through 1.0.17 |
+| **MIT licensed** | **FAIL — the server is Elastic-2.0.** A deliberate, unresolved gap, not an oversight |
+
+The MIT gap is real and has no cheap workaround: unlike the Cursor Marketplace
+— where only `cursor-plugin/` is distributed, so MIT-licensing that directory
+settled it (docs/CURSOR-PLUGIN.md) — the `.mcpb` **is** the server. Meeting
+this requirement means relicensing the product. The form frames these as what
+Anthropic is "primarily considering" rather than a hard gate, so submitting
+anyway is defensible; just know which bar is unmet rather than assuming a
+clean sheet.
 
 Re-check these before each submission rather than assuming: the privacy page
 is served by a different repo (chaos_tester), so it can regress without any

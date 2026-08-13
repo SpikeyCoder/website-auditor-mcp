@@ -182,6 +182,15 @@ describe("published manifests stay in sync with the code", () => {
     expect(readme).toMatch(/^#+\s*Privacy Policy\s*$/m);
   });
 
+  // The submission FORM states requirements the docs do not, and this suite
+  // only ever pinned the documented ones — so the author field pointed at the
+  // product site through the 1.0.16 submission while the form asked for a
+  // GitHub profile. Cheap to satisfy, invisible when wrong, and nobody tells
+  // you: exactly the shape of thing that belongs in a test.
+  it("the author field points at a GitHub profile, as the submission form requires", () => {
+    expect(manifest.author?.url).toMatch(/^https:\/\/github\.com\/[^/]+\/?$/);
+  });
+
   it("every served tool carries a title", () => {
     // Directory requirement: "All tools must include a title and the
     // applicable readOnlyHint or destructiveHint." The hints are applied in
