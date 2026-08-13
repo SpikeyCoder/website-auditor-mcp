@@ -48,9 +48,32 @@ describe("cursor-plugin manifest", () => {
   });
 
   it("listing fields agree with package.json instead of drifting from it", () => {
-    expect(manifest.license).toBe(pkg.license);
     expect(manifest.homepage).toBe(pkg.homepage);
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  // The one field that deliberately does NOT match package.json.
+  //
+  // Cursor requires listed plugins be open source; the server is Elastic-2.0,
+  // which is source-available but not OSI-approved (GitHub reports the repo as
+  // license "Other"). What ships through the marketplace is only this glue —
+  // manifest, four skills, icon, README — so it is MIT, while the server it
+  // points at arrives from npm under its own terms, unchanged.
+  //
+  // Pinned as a PAIR: the declared license, the license file that backs the
+  // claim, and the server's differing license. A future "fix" that quietly
+  // realigns either side to the other fails here instead of silently
+  // relicensing something.
+  it("is MIT on purpose, with the text present, while the server stays Elastic-2.0", () => {
+    expect(manifest.license).toBe("MIT");
+    const text = readFileSync(join(plugin, "LICENSE"), "utf8");
+    expect(text).toContain("MIT License");
+    expect(text).toContain("Kevin Armstrong");
+    // The scope note is load-bearing: without it a reader could take this
+    // LICENSE for the whole repo's.
+    expect(text).toContain("cursor-plugin/");
+    expect(text).toContain("Elastic License 2.0");
+    expect(pkg.license).toBe("Elastic-2.0");
   });
 
   it("logo is committed and referenced by relative path (submission checklist item)", () => {
