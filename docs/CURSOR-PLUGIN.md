@@ -7,8 +7,10 @@ The Cursor analogue of [CODEX-PLUGIN.md](CODEX-PLUGIN.md). Cursor 2.5
 browsed from the Customize page and one-click installed. Every listing is
 manually reviewed, and **every update is re-reviewed**.
 
-Status: **PACKAGE BUILT (`cursor-plugin/`) — not yet submitted.** Submission
-is gated on a publisher application (step 2 below), which is account-bound.
+Status: **PACKAGE BUILT AND VERIFIED IN CURSOR 3.15.19 (2026-08-13) — not yet
+submitted.** Submission is gated on a publisher application (step 2 below),
+which is account-bound, and should follow the 1.0.17 npm release (see the
+local-test section for why).
 
 ## What already reaches Cursor users without any of this
 
@@ -42,20 +44,59 @@ the npm server bundled unpinned via `npx -y`:
   the "change the prompts ⇒ change the skills in the same PR" rule from
   CODEX-PLUGIN.md is now a failing test instead of a hope.
 
-## Local test (required by the submission checklist)
+## Local test — DONE 2026-08-13 (Cursor 3.15.19)
+
+**Copy the directory; do NOT symlink it.** The upstream docs suggest
+`ln -s` for iterative development, but Cursor rejects any symlink escaping the
+local plugins directory:
+
+    loadUserLocalPlugin website-auditor rejected: symlink target
+    /Users/…/website-auditor-mcp/cursor-plugin is outside /Users/…/.cursor/plugins/local
+
+so the plugin silently never loads. What works:
 
 ```
-ln -s "$(pwd)/cursor-plugin" ~/.cursor/plugins/local/website-auditor
+cp -R cursor-plugin ~/.cursor/plugins/local/website-auditor
 ```
 
-Reload Cursor (`Developer: Reload Window`); remove the symlink to uninstall.
-Verify: the 14 tools and 4 skills load; `get_sample_audit` answers with no
-variable configured; setting `WA_API_KEY` unlocks real audits. **Also confirm
-what an unset variable expands to**: expected is an empty string (⇒ keyless
-surface). If Cursor instead leaves the literal `${WA_API_KEY}`, the server
-sees a garbage key — handled gracefully (see
-`tests/malformedKeyIsNotALockout.test.ts`) but a worse first-run, so it would
-be worth dropping the `env` block from `mcp.json` before submitting.
+Cursor rescans on its own (no restart needed) — `Cursor Plugins.log` under
+`~/Library/Application Support/Cursor/logs/<session>/window1_wb0/exthost/anysphere.cursor-agent-exec/`
+is the ground truth for whether a load succeeded. Re-copy after every change;
+nothing live-reloads from the repo.
+
+Results: **Customize → Plugins** lists *Website Auditor* `Local` with
+"website-auditor · 14 tools enabled" (green/Connected) and all 4 skills; the
+configure dialog enumerates all 14 tools. The server reached telemetry as
+`client_name: "cursor-vscode"`, `transport: "stdio"` — already classified
+human-facing by `HUMAN_FACING_CLIENTS` (substring "cursor"), no change needed.
+
+### The unset-variable question, answered: Cursor passes the placeholder VERBATIM
+
+A first-run install spawns the server with the **literal**
+`WA_API_KEY=${WA_API_KEY}` (confirmed via `ps eww` on the spawned process).
+There is no key field in the plugin's configure dialog — per Cursor's docs
+variable values come from the dashboard, which a *local* plugin has no entry
+in, so the placeholder is never substituted.
+
+Measured effect before the fix, over real stdio:
+
+| | genuinely keyless | literal placeholder |
+|---|---|---|
+| `get_sample_audit` | sample report | sample report |
+| `check_upgrade_status` | `tier: none` + "create one at …" | **error** `MALFORMED_KEY`, "Invalid API key format" |
+
+So the user who configured nothing was told their key was invalid. **Fixed in
+`src/config.ts`**: an unexpanded placeholder (`${X}`, `{X}`, `{{X}}`,
+`${env:X}`, `$X`) is read as no key at all, restoring the keyless surface —
+pinned by `tests/config.test.ts`, and re-verified end to end (the two columns
+above are now byte-identical). The `env` block therefore STAYS in `mcp.json`:
+it is what lets a subscriber's dashboard value reach the server.
+
+**Sequencing:** the plugin bundles `npx -y website-auditor-mcp`, so it runs
+the *published* npm version — the local Cursor test above ran 1.0.16, which
+still has the wart. Ship the fix (1.0.17) to npm before submitting, so a
+reviewer's first run gets the corrected onboarding; every existing plugin user
+picks it up automatically with no re-review.
 
 ## Submission steps
 

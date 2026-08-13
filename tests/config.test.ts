@@ -34,6 +34,33 @@ describe("loadConfig", () => {
     expect(cfg.subscriptionCacheTtlMs).toBe(120000);
   });
 
+  // An unexpanded placeholder means the user configured NOTHING — the client
+  // just forwarded its own syntax. Cursor 3.15.19 does exactly this on a
+  // first-run plugin install (verified 2026-08-13: the spawned process carried
+  // the literal WA_API_KEY=${WA_API_KEY}). Read as a key it is merely
+  // malformed, so check_upgrade_status answered "Invalid API key format" to
+  // someone who never set a key, instead of the "no key configured, create one
+  // at …" onboarding the keyless surface exists to give.
+  it("treats an unexpanded client placeholder as no key at all", () => {
+    for (const placeholder of [
+      "${WA_API_KEY}", // Cursor plugin variables
+      "${env:WA_API_KEY}", // VS Code / Cursor mcp.json interpolation
+      "${input:apiKey}",
+      "{{WA_API_KEY}}", // moustache-style templating
+      "$WA_API_KEY", // bare shell-style
+    ]) {
+      expect(loadConfig({ WA_API_KEY: placeholder }).apiKey, placeholder).toBeUndefined();
+    }
+  });
+
+  it("never mistakes a real key for a placeholder", () => {
+    // The guard must not swallow keys: only self-contained placeholder syntax
+    // counts, never a key that merely contains braces or a dollar sign.
+    for (const key of ["wa_live_abc123", "wa_${weird}but_real", "wa_$dollar", "{not-a-key"]) {
+      expect(loadConfig({ WA_API_KEY: key }).apiKey, key).toBe(key);
+    }
+  });
+
   it("accepts a dev tier override for local testing", () => {
     expect(loadConfig({ WA_DEV_TIER: "pro" }).devTier).toBe("pro");
     expect(loadConfig({ WA_DEV_TIER: "free" }).devTier).toBe("free");

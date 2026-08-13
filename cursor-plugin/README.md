@@ -11,14 +11,16 @@ install from Cursor's Customize page. Until then:
 
 - **One-click MCP install** (server only, no plugin machinery):
   [Install in Cursor](https://cursor.com/install-mcp?name=website-auditor&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIndlYnNpdGUtYXVkaXRvci1tY3AiXSwiZW52Ijp7IldBX0FQSV9LRVkiOiIifX0%3D)
-- **Local plugin** (development/testing):
+- **Local plugin** (development/testing) — copy it in; Cursor rejects symlinks
+  whose target sits outside `~/.cursor/plugins/local`, and the plugin then
+  never loads:
 
   ```
-  ln -s /path/to/website-auditor-mcp/cursor-plugin ~/.cursor/plugins/local/website-auditor
+  cp -R /path/to/website-auditor-mcp/cursor-plugin ~/.cursor/plugins/local/website-auditor
   ```
 
-  then reload Cursor (`Developer: Reload Window`). Remove the symlink to
-  uninstall.
+  Cursor rescans on its own. Re-copy after each change; delete the directory
+  to uninstall.
 
 No API key is needed to try it — ask for a *sample audit*. Auditing real
 domains needs a Website Auditor subscription and an API key from
