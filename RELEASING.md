@@ -176,15 +176,19 @@ docs. Added 2026-08-13:
 | Publicly available on GitHub | PASS |
 | Built with Node.js | PASS |
 | `author` field in manifest.json points at your GitHub profile | PASS since 1.0.18 — `https://github.com/SpikeyCoder`. Was the site URL (homepage covers that) through 1.0.17 |
-| **MIT licensed** | **FAIL — the server is Elastic-2.0.** A deliberate, unresolved gap, not an oversight |
+| **MIT licensed** | PASS since 2026-08-13 — the repo was relicensed from Elastic-2.0 |
 
-The MIT gap is real and has no cheap workaround: unlike the Cursor Marketplace
-— where only `cursor-plugin/` is distributed, so MIT-licensing that directory
-settled it (docs/CURSOR-PLUGIN.md) — the `.mcpb` **is** the server. Meeting
-this requirement means relicensing the product. The form frames these as what
-Anthropic is "primarily considering" rather than a hard gate, so submitting
-anyway is defensible; just know which bar is unmet rather than assuming a
-clean sheet.
+The MIT row had no cheap workaround: unlike the Cursor Marketplace — where
+only `cursor-plugin/` is distributed, so MIT-licensing that directory settled
+it — the `.mcpb` **is** the server, so meeting it meant relicensing. Done
+deliberately, on the understanding that this repo is the *client* for the
+Website Auditor API: the audit engine (chaos_tester) and the API
+(website-auditor-api) are separate products under their own terms, and a fork
+still needs a `wa_` key against a real account to audit anything.
+
+**The 1.0.17 bundle now in review was submitted under Elastic-2.0.** The
+relicense reaches reviewers on the next release; it is not worth resubmitting
+for on its own.
 
 Re-check these before each submission rather than assuming: the privacy page
 is served by a different repo (chaos_tester), so it can regress without any

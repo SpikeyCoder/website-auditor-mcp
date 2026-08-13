@@ -37,11 +37,8 @@ plain MCP install). Configuration details live in the main
 | `mcp.json` | Bundled MCP server (`npx -y website-auditor-mcp`) |
 | `skills/` | The four MCP prompts as skills — byte-identical with `codex-plugin/skills/` |
 | `assets/icon.png` | Listing icon (copy of the repo icon) |
-| `LICENSE` | MIT — **this directory only** |
 
-**Licensing:** this plugin package is MIT. The `website-auditor-mcp` server it
-bundles is fetched from npm at run time and is licensed separately under the
-Elastic License 2.0 (see [../LICENSE](../LICENSE)).
+**Licensing:** MIT, like the rest of the repo (see [../LICENSE](../LICENSE)).
 
 The skills are the same product surface as the server's MCP prompts and the
 Codex plugin's skills; `tests/cursorPlugin.test.ts` pins all three together,

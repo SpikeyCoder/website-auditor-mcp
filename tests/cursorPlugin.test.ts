@@ -52,28 +52,16 @@ describe("cursor-plugin manifest", () => {
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  // The one field that deliberately does NOT match package.json.
-  //
-  // Cursor requires listed plugins be open source; the server is Elastic-2.0,
-  // which is source-available but not OSI-approved (GitHub reports the repo as
-  // license "Other"). What ships through the marketplace is only this glue —
-  // manifest, four skills, icon, README — so it is MIT, while the server it
-  // points at arrives from npm under its own terms, unchanged.
-  //
-  // Pinned as a PAIR: the declared license, the license file that backs the
-  // claim, and the server's differing license. A future "fix" that quietly
-  // realigns either side to the other fails here instead of silently
-  // relicensing something.
-  it("is MIT on purpose, with the text present, while the server stays Elastic-2.0", () => {
+  // Cursor requires listed plugins be open source. This was briefly satisfied
+  // by MIT-licensing only this directory while the server stayed Elastic-2.0;
+  // the whole repo went MIT instead, so the plugin simply inherits and the
+  // per-directory LICENSE is gone. Kept as a guard because the requirement is
+  // real and silent: an OSI-approved license must be declared here and backed
+  // by the repo's own.
+  it("declares an OSI-approved license, matching the repo's", () => {
     expect(manifest.license).toBe("MIT");
-    const text = readFileSync(join(plugin, "LICENSE"), "utf8");
-    expect(text).toContain("MIT License");
-    expect(text).toContain("Kevin Armstrong");
-    // The scope note is load-bearing: without it a reader could take this
-    // LICENSE for the whole repo's.
-    expect(text).toContain("cursor-plugin/");
-    expect(text).toContain("Elastic License 2.0");
-    expect(pkg.license).toBe("Elastic-2.0");
+    expect(pkg.license).toBe("MIT");
+    expect(readFileSync(join(root, "LICENSE"), "utf8")).toContain("MIT License");
   });
 
   it("logo is committed and referenced by relative path (submission checklist item)", () => {

@@ -4,7 +4,7 @@
   "mcpName": "io.github.SpikeyCoder/website-auditor-mcp",
   "description": "MCP server for website-auditor.io — AI-visibility (GEO) and site-audit tools for ChatGPT, Perplexity, Claude and Gemini, callable from any MCP client.",
   "type": "module",
-  "license": "Elastic-2.0",
+  "license": "MIT",
   "author": "Kevin Armstrong / SpikeyCoder",
   "homepage": "https://website-auditor.io",
   "repository": "github:SpikeyCoder/website-auditor-mcp",

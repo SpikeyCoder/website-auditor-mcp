@@ -17,7 +17,7 @@
     "url": "https://github.com/SpikeyCoder/website-auditor-mcp"
   },
   "icon": "icon.png",
-  "license": "Elastic-2.0",
+  "license": "MIT",
   "keywords": [
     "ai-visibility",
     "geo",

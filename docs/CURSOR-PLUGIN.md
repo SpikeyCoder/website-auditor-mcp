@@ -114,22 +114,23 @@ picks it up automatically with no re-review.
 
 ## The license question — RESOLVED 2026-08-13
 
-Cursor's stated requirement: "All plugins must be open source." The server is
-**Elastic-2.0** — source-available, but not OSI-approved, and GitHub reports
+Cursor's stated requirement: "All plugins must be open source." The server was
+**Elastic-2.0** — source-available, but not OSI-approved, and GitHub reported
 the repo as license `Other`, which is what a reviewer checking that box sees.
 
-**`cursor-plugin/` is therefore MIT** (`cursor-plugin/LICENSE`, declared in the
-manifest). This gives nothing away: the directory is eight files of glue —
-manifest, four skills, icon, README — with no server source in it. The server
-is fetched from npm at run time and keeps Elastic-2.0 unchanged, the same
-shape as every commercial plugin already listed (Stripe, Linear, Figma all
-point at paid services).
+First fix was narrow: MIT-license `cursor-plugin/` alone, leaving the server
+Elastic-2.0. Then the **whole repo went MIT** (see the root `LICENSE`), for the
+Claude Desktop directory, which states the same requirement but cannot be
+satisfied that way — there, the `.mcpb` *is* the server. So the per-directory
+LICENSE is gone and the plugin simply inherits.
 
-The LICENSE file opens with a scope note so it cannot be read as covering the
-repo, and `tests/cursorPlugin.test.ts` pins the divergence as a deliberate
-pair — declared license, license text, and the server's differing license —
-so a later "consistency fix" to either side fails loudly instead of silently
-relicensing something.
+What that does and does not give away is worth restating, because it reads
+scarier than it is: this repo is the **client** for the Website Auditor API.
+The audit engine and the API live in other repos and are untouched, and a fork
+still needs a `wa_` key against a real account to audit anything.
+`tests/cursorPlugin.test.ts` keeps a guard that an OSI-approved license is
+declared and backed by the repo's own — the requirement is real and fails
+silently.
 
 ## Updates — a softer snapshot than the other directories
 
