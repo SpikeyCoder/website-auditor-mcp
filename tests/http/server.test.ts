@@ -13,7 +13,7 @@ import type { Server } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createWaHttpServer, type HttpServerOptions } from "../../src/http.js";
-import { loadConfig, type WaConfig } from "../../src/config.js";
+import { loadConfig, normalizeApiKey, type WaConfig } from "../../src/config.js";
 import type { ToolDeps } from "../../src/tools/context.js";
 import { makeDeps, testConfig, RecordingEventSink } from "../helpers.js";
 
@@ -220,6 +220,21 @@ describe("defaultApiKey (single-tenant/demo deployments)", () => {
     await keyed.listTools();
     await keyed.close();
     expect(seenKeys).toEqual(["wa_demo_default", "wa_their_own"]);
+  });
+
+  it("a placeholder default key is no key, so anonymous callers keep the sample surface", async () => {
+    // WA_HTTP_DEFAULT_KEY goes through normalizeApiKey at the env boundary
+    // (see main()). This asserts the property that depends on it: an
+    // unexpanded placeholder must not become the identity for callers who
+    // presented nothing, or every anonymous request on a misconfigured box
+    // answers "Invalid API key format" instead of serving get_sample_audit.
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({ depsFactory: factory, defaultApiKey: normalizeApiKey("${WA_HTTP_DEFAULT_KEY}") });
+    const anon = await connectClient(url);
+    const res = await anon.callTool({ name: "get_sample_audit", arguments: {} });
+    expect(res.isError).toBeFalsy();
+    expect(seenKeys).toEqual([undefined]);
+    await anon.close();
   });
 });
 

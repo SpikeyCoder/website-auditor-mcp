@@ -298,7 +298,13 @@ async function main(): Promise<void> {
   const server = createWaHttpServer({
     config,
     challengeToken: process.env.WA_APPS_CHALLENGE_TOKEN?.trim() || undefined,
-    defaultApiKey: process.env.WA_HTTP_DEFAULT_KEY?.trim() || undefined,
+    // normalizeApiKey, for the same reason apiKeyFrom uses it — and this one
+    // matters more. It is the identity for callers who presented NOTHING, so
+    // an unexpanded placeholder in a compose file or Cloud Run template does
+    // not mis-serve one request: it makes every anonymous caller on the box
+    // land on "Invalid API key format" instead of get_sample_audit, which is
+    // the first thing a marketplace reviewer sees.
+    defaultApiKey: normalizeApiKey(process.env.WA_HTTP_DEFAULT_KEY),
   });
   server.listen(port, () => {
     console.error(
