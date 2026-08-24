@@ -427,3 +427,35 @@ export interface ReportLinks {
   report_url: string;
   badge_html: string;
 }
+
+// ── GTM plan (POST /api/gtm-plan) ──────────────────────────────────────
+
+/** One chat message on the proxy's transcript wire. */
+export interface GtmChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface GtmPlanSection {
+  title: string;
+  body_lines: string[];
+}
+
+/** What POST /api/gtm-plan answers, envelope stripped. */
+export interface GtmPlanResponse {
+  plan_markdown: string;
+  plan_sections: GtmPlanSection[];
+  sources_used: string[];
+  model: string;
+}
+
+/** What the get_gtm_plan tool returns to the host model. */
+export interface GtmPlanResult {
+  domain: string;
+  plan: { markdown: string; sections: GtmPlanSection[] };
+  sources_used: string[];
+  model: string;
+  /** Additive, never an error: set when the plan had no citation evidence. */
+  evidence_note?: string;
+  summary: string;
+}

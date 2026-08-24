@@ -25,6 +25,7 @@ describe("MCP server (end-to-end over in-memory transport)", () => {
         "get_benchmark",
         "get_changes",
         "get_monitoring_status",
+        "get_gtm_plan",
         "get_recommendations",
         "get_report",
         "get_sample_audit",
@@ -105,7 +106,7 @@ describe("keyless discovery — what a developer with no API key can actually do
   it("registers every tool with no key configured, so the surface is discoverable", async () => {
     const { client } = await connect(keyless());
     const { tools } = await client.listTools();
-    expect(tools.length).toBe(14);
+    expect(tools.length).toBe(15);
   });
 
   it("instructions point a keyless model at the free demo instead of refusing", async () => {

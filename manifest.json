@@ -80,7 +80,7 @@
     },
     {
       "name": "get_ai_visibility",
-      "description": "Check AI visibility [read-only]. Check how visible a website is to AI assistants right now. Returns an overall AI-visibility score (0-100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. When the audit recorded citations, sources lists the documents the assistants actually read, ranked by cross-engine agreement and marked yours, competitor or third_party — treat competitor rows as context, not as placement targets; sources is null when nothing attributable was cited, and absent when citations were not recorded for the audit. Includes 7- and 30-day trend data from stored snapshot history. When name_warning is present, the business name behind the score could not be verified \u2014 relay that caveat rather than presenting the score as settled fact, and offer to re-run with an explicit business name. Requires an active subscription."
+      "description": "Check AI visibility [read-only]. Check how visible a website is to AI assistants right now. Returns an overall AI-visibility score (0-100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. When the audit recorded citations, sources lists the documents the assistants actually read, ranked by cross-engine agreement and marked yours, competitor or third_party \u2014 treat competitor rows as context, not as placement targets; sources is null when nothing attributable was cited, and absent when citations were not recorded for the audit. Includes 7- and 30-day trend data from stored snapshot history. When name_warning is present, the business name behind the score could not be verified \u2014 relay that caveat rather than presenting the score as settled fact, and offer to re-run with an explicit business name. Requires an active subscription."
     },
     {
       "name": "run_audit",
@@ -125,6 +125,10 @@
     {
       "name": "get_report",
       "description": "Shareable report + badge [read-only]. Get a shareable report URL and the embeddable \"Audited by Website Auditor\" badge snippet for a website. Returns a link and an HTML badge snippet. Requires Pro."
+    },
+    {
+      "name": "get_gtm_plan",
+      "description": "Build a GTM plan from the audit [read-only]. Produce a written go-to-market plan grounded in the audit's cited sources \u2014 the documents the AI assistants actually read, each marked yours, competitor or third_party (competitor sources are context, never placement targets). When no citation evidence was recorded the plan says so and grounds itself in the report's issues and stats. Supports focus, constraints, and refining a prior plan. Requires Pro."
     },
     {
       "name": "check_upgrade_status",

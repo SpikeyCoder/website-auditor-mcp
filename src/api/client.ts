@@ -33,6 +33,9 @@ import type {
   Recommendations,
   SchemaResult,
   ReportLinks,
+  GtmChatMessage,
+  GtmPlanResponse,
+  GtmPlanSection,
 } from "./types.js";
 import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
@@ -125,6 +128,12 @@ export interface WaApiClientLike {
   generateSchema(params: SchemaParams): Promise<SchemaResult>;
   /** Shareable report URL + embeddable badge snippet for a domain (Pro). */
   getReport(params: { domain: string }): Promise<ReportLinks>;
+  /**
+   * Written GTM plan grounded in the domain's citation evidence (Pro).
+   * POST /api/gtm-plan with {domain, messages}; the proxy resolves the
+   * caller's latest run for the domain server-side.
+   */
+  getGtmPlan(params: { domain: string; messages: GtmChatMessage[] }): Promise<GtmPlanResponse>;
 }
 
 interface ClientDeps {
@@ -440,6 +449,25 @@ export class WaApiClient implements WaApiClientLike {
     return {
       report_url: typeof body.report_url === "string" ? body.report_url : "",
       badge_html: typeof body.badge_html === "string" ? body.badge_html : "",
+    };
+  }
+
+  /**
+   * Written GTM plan for the caller's latest run of `domain`. Wired to
+   * `POST /api/gtm-plan` (website-auditor-api routes/chat.js). Strips the
+   * `success` envelope and coerces defensively like every method here.
+   */
+  async getGtmPlan(params: { domain: string; messages: GtmChatMessage[] }): Promise<GtmPlanResponse> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/gtm-plan`);
+    const body = (await this.requestJson("POST", url, {
+      domain: params.domain,
+      messages: params.messages,
+    })) as Partial<GtmPlanResponse>;
+    return {
+      plan_markdown: typeof body.plan_markdown === "string" ? body.plan_markdown : "",
+      plan_sections: Array.isArray(body.plan_sections) ? (body.plan_sections as GtmPlanSection[]) : [],
+      sources_used: Array.isArray(body.sources_used) ? body.sources_used.filter((s): s is string => typeof s === "string") : [],
+      model: typeof body.model === "string" ? body.model : "",
     };
   }
 
