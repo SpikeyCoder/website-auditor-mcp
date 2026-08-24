@@ -8,6 +8,7 @@ import type {
   AuditReport,
   AiVisibilityBlock,
   AiVisibility,
+  AiVisibilitySource,
   AiVisibilitySnapshot,
   AiVisibilityTrend,
   TrendWindow,
@@ -92,19 +93,73 @@ export function topCompetitor(av: AiVisibilityBlock): string | null {
  * must not throw inside a mapper. Anything that is not the expected shape
  * reads as "nothing to say", never as a fabricated caveat.
  */
+/** The defensive-read policy in one place: a payload value counts as an object
+ *  only when it is a plain record — never null, never an array. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((p) => typeof p === "string");
+}
+
 function nameProvenance(av: AiVisibilityBlock): {
   warning?: string;
   verified?: boolean;
   source?: string;
 } {
   const block = av.identification;
-  if (!block || typeof block !== "object" || Array.isArray(block)) return {};
+  if (!isRecord(block)) return {};
   const warning = typeof block.name_warning === "string" ? block.name_warning.trim() : "";
   return {
     warning: warning || undefined, // "" means verified — omit rather than emit empty
     verified: typeof block.name_verified === "boolean" ? block.name_verified : undefined,
     source: typeof block.name_source === "string" && block.name_source ? block.name_source : undefined,
   };
+}
+
+/** One well-formed ranked-sources row, re-picked to the documented six keys,
+ *  or null. Early returns narrow each field, so the returned object carries
+ *  exactly what was checked — no casts that could drift from the checks. */
+function sourceRow(row: unknown): AiVisibilitySource | null {
+  if (!isRecord(row)) return null;
+  const { domain, answers, platforms, ownership, url, title } = row;
+  if (typeof domain !== "string" || domain === "") return null;
+  if (typeof answers !== "number") return null;
+  if (!isStringArray(platforms)) return null;
+  if (ownership !== "yours" && ownership !== "competitor" && ownership !== "third_party") return null;
+  if (url !== null && typeof url !== "string") return null;
+  if (typeof title !== "string") return null;
+  return { domain, answers, platforms, ownership, url, title };
+}
+
+/** The documented cap on the ranked list — upstream promises at most ten, and
+ *  the client enforces it too so a garbled over-long payload cannot flood the
+ *  tool response (or the 24h compare cache) with unbounded rows. */
+const MAX_SOURCES = 10;
+
+/**
+ * The report's cited-sources evidence, tri-state preserved (chaos_tester #447):
+ * `{sources: [...]}` ranked list, `{sources: null}` recorded-but-uncited, `{}`
+ * when the key is absent — no readable citation records, which must never be
+ * served as a positive "cited nothing" claim. A garbled value (neither array
+ * nor null) also reads as absent: same policy as nameProvenance above — a
+ * hostile payload must not throw in a mapper, and nothing is ever fabricated.
+ *
+ * Post-condition: the key is present-and-array ONLY when it holds at least one
+ * well-formed row. Upstream never emits `[]` (it serves null, a non-empty
+ * list, or strips the key), so an array that ranks to nothing here — every
+ * row malformed — is a schema break, and serving `sources: []` for it would
+ * manufacture the exact "cited nothing" reading the tri-state forbids. It
+ * reads as absent instead.
+ */
+function citedSources(av: AiVisibilityBlock): { sources?: AiVisibilitySource[] | null } {
+  if (!Object.hasOwn(av, "sources")) return {};
+  const raw = av.sources;
+  if (raw === null) return { sources: null };
+  if (!Array.isArray(raw)) return {};
+  const kept = raw.map(sourceRow).filter((r): r is AiVisibilitySource => r !== null);
+  return kept.length > 0 ? { sources: kept.slice(0, MAX_SOURCES) } : {};
 }
 
 export function toAiVisibility(report: AuditReport): AiVisibility {
@@ -146,6 +201,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
     ...(provenance.verified !== undefined ? { name_verified: provenance.verified } : {}),
     ...(provenance.source ? { name_source: provenance.source } : {}),
+    ...citedSources(av),
   };
 }
 
@@ -197,6 +253,7 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
   const report_url = `${opts.siteUrl.replace(/\/+$/, "")}/report/${report.run_id}`;
   const provenance = nameProvenance(av);
 
+  // No `sources` here by decision, not omission — see runAudit.ts's header.
   return {
     scores: {
       ai_visibility: av.overall_score ?? null,

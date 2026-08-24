@@ -178,3 +178,93 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     expect(trend.includes_simulated).toBe(true);
   });
 });
+
+/**
+ * chaos_tester #447 added `ai_visibility.sources` — the ranked cited-documents
+ * list — to the report JSON, and the state of the key is tri-state BY CONTRACT:
+ * an array is the ranked evidence, null means the recorded answers cited
+ * nothing attributable, and an ABSENT key means no readable citation records
+ * exist at all (budget-deferred audit, a build predating citation capture, or
+ * a server-side ranking failure). The mapper must preserve all three states —
+ * collapsing absent into null would turn "never measured" into a positive
+ * "the answers cited nothing" claim.
+ */
+describe("toAiVisibility: cited sources", () => {
+  it("carries the ranked sources list through the whitelist", () => {
+    const av = toAiVisibility(reachableReport());
+    expect(Array.isArray(av.sources)).toBe(true);
+    expect(av.sources![0]).toEqual({
+      domain: "techreview.example",
+      answers: 4,
+      platforms: ["ChatGPT", "Perplexity", "Claude"],
+      ownership: "third_party",
+      url: "https://www.techreview.example/best-tech-companies-seattle/",
+      title: "Best Tech Companies In Seattle 2026",
+    });
+  });
+
+  it("preserves null — the recorded answers cited nothing attributable", () => {
+    const r = reachableReport();
+    r.ai_visibility.sources = null;
+    expect(toAiVisibility(r).sources).toBeNull();
+  });
+
+  it("omits the key when upstream omitted it — 'never recorded' is not 'cited nothing'", () => {
+    const r = reachableReport();
+    delete r.ai_visibility.sources;
+    expect("sources" in toAiVisibility(r)).toBe(false);
+  });
+
+  it("empty ai_visibility (the budget-deferral signature) -> no sources key", () => {
+    const av = toAiVisibility(reachableReport({ ai_visibility: {} }));
+    expect("sources" in av).toBe(false);
+  });
+
+  it("garbled sources (neither array nor null) reads as absent, never a crash", () => {
+    const r = reachableReport();
+    (r.ai_visibility as Record<string, unknown>).sources = '[{"domain":"x"}]';
+    expect("sources" in toAiVisibility(r)).toBe(false);
+  });
+
+  it("drops malformed rows, keeps well-formed ones, fabricates nothing", () => {
+    const r = reachableReport();
+    (r.ai_visibility as Record<string, unknown>).sources = [
+      null,
+      "junk",
+      { answers: 3 }, // no domain — nothing to attribute the row to
+      { domain: "forbes.com", answers: 2, platforms: ["ChatGPT"], ownership: "third_party", url: null, title: "" },
+    ];
+    expect(toAiVisibility(r).sources).toEqual([
+      { domain: "forbes.com", answers: 2, platforms: ["ChatGPT"], ownership: "third_party", url: null, title: "" },
+    ]);
+  });
+
+  it("a non-empty array whose rows are ALL malformed reads as absent — never a fabricated empty list", () => {
+    // Upstream never emits []: it serves null, a non-empty list, or strips the
+    // key. So an array that ranks to nothing here is a schema break, and
+    // `sources: []` would read as the positive "cited nothing" claim the
+    // tri-state forbids.
+    const r = reachableReport();
+    (r.ai_visibility as Record<string, unknown>).sources = [{ answer_count: 4 }, "junk", null];
+    expect("sources" in toAiVisibility(r)).toBe(false);
+  });
+
+  it("a literal upstream [] also reads as absent — it is a state no producer emits", () => {
+    const r = reachableReport();
+    (r.ai_visibility as Record<string, unknown>).sources = [];
+    expect("sources" in toAiVisibility(r)).toBe(false);
+  });
+
+  it("enforces the documented top-ten cap client-side", () => {
+    const r = reachableReport();
+    (r.ai_visibility as Record<string, unknown>).sources = Array.from({ length: 12 }, (_, i) => ({
+      domain: `d${i}.example`,
+      answers: 1,
+      platforms: ["ChatGPT"],
+      ownership: "third_party",
+      url: null,
+      title: "",
+    }));
+    expect(toAiVisibility(r).sources).toHaveLength(10);
+  });
+});

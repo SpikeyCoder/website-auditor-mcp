@@ -245,4 +245,40 @@ describe("published manifests stay in sync with the code", () => {
       );
     }
   });
+
+  // ── The cited-sources semantics reach BOTH description surfaces ──
+  //
+  // Same linkage discipline as name_warning above, for the same reason it was
+  // needed there: chaos_tester #447's `sources` was first documented only in
+  // the runtime description, and manifest.json — the copy the directory
+  // renders — drifted silently because nothing pinned it. Whichever tools the
+  // registry teaches about `sources`, the manifest must mention it too.
+
+  const SOURCED = () =>
+    SERVED_TOOLS.filter((t: { description: string }) => /sources/.test(t.description));
+
+  it("some tool actually documents sources (the guard has something to guard)", () => {
+    expect(SOURCED().map((t: { name: string }) => t.name).sort()).toEqual([
+      "get_ai_visibility",
+      "run_audit",
+    ]);
+  });
+
+  it("every sources-documenting tool mentions it in the manifest listing too", () => {
+    for (const spec of SOURCED()) {
+      const listed = manifest.tools.find((t: { name: string }) => t.name === spec.name);
+      expect(listed, `${spec.name} is served but not listed`).toBeTruthy();
+      expect(listed.description, `${spec.name} manifest description`).toContain("sources");
+    }
+  });
+
+  it("the primary sources surface explains the semantics, not just the key", () => {
+    // get_ai_visibility is where the evidence lives, so its listing must carry
+    // the two things a reader can get wrong: competitor rows are not targets,
+    // and null-vs-absent mean different things.
+    const listed = manifest.tools.find((t: { name: string }) => t.name === "get_ai_visibility");
+    expect(listed.description).toMatch(/competitor rows as context/i);
+    expect(listed.description).toMatch(/null/);
+    expect(listed.description).toMatch(/absent/);
+  });
 });

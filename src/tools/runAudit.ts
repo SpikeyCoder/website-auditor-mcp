@@ -5,6 +5,11 @@
  * `{ scores, top_issues[], report_url }`. Requires an active/trialing
  * subscription — there is no free API tier (api PR #17); the pre-flight gate
  * mirrors the server's own 403.
+ *
+ * Deliberately does NOT carry `ai_visibility.sources` (chaos_tester #447):
+ * this is the compact cross-category summary, and a ten-row evidence list in
+ * every response taxes the many calls that never look at it. The ranked
+ * evidence lives on get_ai_visibility, whose job it is.
  */
 import type { AuditSummary } from "../api/types.js";
 import { toAuditSummary, detectUnreachable } from "../api/mappers.js";

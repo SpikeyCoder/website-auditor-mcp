@@ -127,3 +127,18 @@ describe("get_ai_visibility trend", () => {
     expect(res.data.trend_note).toContain("could not be loaded");
   });
 });
+
+describe("get_ai_visibility cited sources", () => {
+  it("returns the ranked cited-sources evidence alongside the score", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, makeDeps({ tier: "pro" }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(Array.isArray(res.data.sources)).toBe(true);
+    // Ownership is what makes the list actionable: a `competitor` row is a
+    // trap, not a placement target — the tool must relay it, not strip it.
+    const ownerships = res.data.sources!.map((s) => s.ownership);
+    expect(ownerships).toContain("third_party");
+    expect(ownerships).toContain("competitor");
+    expect(ownerships).toContain("yours");
+  });
+});
