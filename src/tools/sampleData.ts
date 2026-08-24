@@ -116,7 +116,7 @@ export function sampleAuditReport(overrides: Partial<AuditReport> = {}): AuditRe
           citations: [
             // ChatGPT appends ?utm_source=openai to every link; the ranked
             // `sources.url` is the same page with the query string stripped.
-            { url: "https://www.forbes.com/advisor/best-tech-companies-seattle/?utm_source=openai", title: "Best Tech Companies In Seattle 2026" },
+            { url: "https://www.techreview.example/best-tech-companies-seattle/?utm_source=openai", title: "Best Tech Companies In Seattle 2026" },
             { url: "https://example.com/about?utm_source=openai", title: "About Example Inc" },
           ],
         },
@@ -126,7 +126,7 @@ export function sampleAuditReport(overrides: Partial<AuditReport> = {}): AuditRe
           competitors: "Globex", visibility_score: 75, is_real: true,
           query_failed: false, failure_reason: null,
           citations: [
-            { url: "https://www.forbes.com/advisor/best-tech-companies-seattle/?utm_source=openai", title: "Best Tech Companies In Seattle 2026" },
+            { url: "https://www.techreview.example/best-tech-companies-seattle/?utm_source=openai", title: "Best Tech Companies In Seattle 2026" },
           ],
         },
         {
@@ -135,8 +135,8 @@ export function sampleAuditReport(overrides: Partial<AuditReport> = {}): AuditRe
           competitors: "Globex, Initech", visibility_score: 75, is_real: true,
           query_failed: false, failure_reason: null,
           citations: [
-            { url: "https://www.forbes.com/advisor/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
-            { url: "https://globex.com/customers", title: "Globex — Customer Stories" },
+            { url: "https://www.techreview.example/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
+            { url: "https://globex.example/customers", title: "Globex — Customer Stories" },
           ],
         },
         {
@@ -145,7 +145,7 @@ export function sampleAuditReport(overrides: Partial<AuditReport> = {}): AuditRe
           competitors: "Globex, Initech", visibility_score: 0, is_real: true,
           query_failed: false, failure_reason: null,
           citations: [
-            { url: "https://www.forbes.com/advisor/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
+            { url: "https://www.techreview.example/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
           ],
         },
         {
@@ -156,8 +156,8 @@ export function sampleAuditReport(overrides: Partial<AuditReport> = {}): AuditRe
           citations: [
             // Gemini cites through Google's grounding redirect: the domain is
             // attributed from the bare-domain title, but there is no linkable
-            // page — hence clutch.co's url:null / title:"" in `sources`.
-            { url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbCdEfSample123", title: "clutch.co" },
+            // page — hence bizdirectory.example's url:null / title:"" in `sources`.
+            { url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbCdEfSample123", title: "bizdirectory.example" },
           ],
         },
       ],
@@ -167,10 +167,10 @@ export function sampleAuditReport(overrides: Partial<AuditReport> = {}): AuditRe
       // Tri-state key: this array; null = recorded answers cited nothing
       // attributable; ABSENT = no readable citation records at all.
       sources: [
-        { domain: "forbes.com", answers: 4, platforms: ["ChatGPT", "Perplexity", "Claude"], ownership: "third_party" as const, url: "https://www.forbes.com/advisor/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
-        { domain: "clutch.co", answers: 1, platforms: ["Gemini"], ownership: "third_party" as const, url: null, title: "" },
-        { domain: "example.com", answers: 1, platforms: ["ChatGPT"], ownership: "yours" as const, url: "https://example.com/about", title: "About Example Inc" },
-        { domain: "globex.com", answers: 1, platforms: ["Perplexity"], ownership: "competitor" as const, url: "https://globex.com/customers", title: "Globex — Customer Stories" },
+        { domain: "techreview.example", answers: 4, platforms: ["ChatGPT", "Perplexity", "Claude"], ownership: "third_party", url: "https://www.techreview.example/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
+        { domain: "bizdirectory.example", answers: 1, platforms: ["Gemini"], ownership: "third_party", url: null, title: "" },
+        { domain: "example.com", answers: 1, platforms: ["ChatGPT"], ownership: "yours", url: "https://example.com/about", title: "About Example Inc" },
+        { domain: "globex.example", answers: 1, platforms: ["Perplexity"], ownership: "competitor", url: "https://globex.example/customers", title: "Globex — Customer Stories" },
       ],
       identification: { candidates: [], lookup_source: "structured_data" },
       is_simulated: false,

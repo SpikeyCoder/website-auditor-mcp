@@ -191,7 +191,6 @@ describe("get_sample_audit: cited sources", () => {
       (a, b) => b.platforms.length - a.platforms.length || b.answers - a.answers || a.domain.localeCompare(b.domain),
     );
     expect(rows).toEqual(resorted);
-    expect(rows.length).toBeLessThanOrEqual(10);
   });
 
   it("every ranked domain is backed by a citation in all_results — the upstream precondition for the key", async () => {
@@ -209,15 +208,18 @@ describe("get_sample_audit: cited sources", () => {
       const title = (c.title ?? "").trim().toLowerCase();
       return /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(title) ? title : "";
     };
-    const allResults = audit.ai_visibility.all_results as Array<{
-      platform: string;
-      citations: Array<{ url?: string; title?: string }>;
-    }>;
+    const allResults = audit.ai_visibility.all_results!;
     expect(allResults.length).toBeGreaterThan(0);
     for (const row of rows) {
       const backing = allResults.filter((r) => (r.citations ?? []).some((c) => citedDomain(c) === row.domain));
       expect(backing.length, row.domain).toBe(row.answers);
       expect(new Set(backing.map((r) => r.platform)), row.domain).toEqual(new Set(row.platforms));
     }
+    // And the converse: every attributable cited domain is ranked. The fixture
+    // is small enough that nothing can fall off the top-ten cut, so a citation
+    // missing from `sources` means the two halves have drifted — a payload the
+    // real engine could never emit.
+    const cited = new Set(allResults.flatMap((r) => (r.citations ?? []).map(citedDomain).filter(Boolean)));
+    expect(cited).toEqual(new Set(rows.map((r) => r.domain)));
   });
 });

@@ -102,6 +102,17 @@ export interface AiVisibilityBlock {
     [key: string]: unknown;
   };
   /**
+   * The flattened per-answer table; `citations` carries the raw grounded-source
+   * evidence the ranked `sources` list is derived from. Only the fields the
+   * MCP reads (or its fixtures pin) are typed; real rows carry more.
+   */
+  all_results?: Array<{
+    platform: string;
+    query: string;
+    citations?: Array<{ url?: string; title?: string; [key: string]: unknown }>;
+    [key: string]: unknown;
+  }>;
+  /**
    * Ranked cited documents, top ten (chaos_tester #447) — tri-state BY
    * CONTRACT: null means the recorded answers cited nothing attributable, and
    * an ABSENT key means no readable citation records exist at all (the
@@ -199,10 +210,13 @@ export interface AiVisibility {
   name_source?: string;
   /**
    * The ranked cited-documents evidence behind the score, passed through from
-   * the report (free evidence — deliberately not Pro-gated). Same tri-state as
-   * upstream: an array is the ranked list; null means the recorded answers
-   * cited nothing attributable; the key is ABSENT when the audit holds no
-   * readable citation records — which is "never measured", not "cited nothing".
+   * the report. It reaches callers only via the subscription-gated audit tools
+   * — there is no free live path; the keyless demo returns canned data. Same
+   * tri-state as upstream: an array is the ranked list (at most ten rows,
+   * enforced client-side as well); null means the recorded answers cited
+   * nothing attributable; the key is ABSENT when the audit holds no readable
+   * citation records — "never measured", not "cited nothing" — and a payload
+   * whose rows are all malformed reads as absent, never as an empty list.
    */
   sources?: AiVisibilitySource[] | null;
 }

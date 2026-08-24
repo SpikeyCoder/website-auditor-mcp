@@ -194,11 +194,11 @@ describe("toAiVisibility: cited sources", () => {
     const av = toAiVisibility(reachableReport());
     expect(Array.isArray(av.sources)).toBe(true);
     expect(av.sources![0]).toEqual({
-      domain: "forbes.com",
+      domain: "techreview.example",
       answers: 4,
       platforms: ["ChatGPT", "Perplexity", "Claude"],
       ownership: "third_party",
-      url: "https://www.forbes.com/advisor/best-tech-companies-seattle/",
+      url: "https://www.techreview.example/best-tech-companies-seattle/",
       title: "Best Tech Companies In Seattle 2026",
     });
   });
@@ -237,5 +237,34 @@ describe("toAiVisibility: cited sources", () => {
     expect(toAiVisibility(r).sources).toEqual([
       { domain: "forbes.com", answers: 2, platforms: ["ChatGPT"], ownership: "third_party", url: null, title: "" },
     ]);
+  });
+
+  it("a non-empty array whose rows are ALL malformed reads as absent — never a fabricated empty list", () => {
+    // Upstream never emits []: it serves null, a non-empty list, or strips the
+    // key. So an array that ranks to nothing here is a schema break, and
+    // `sources: []` would read as the positive "cited nothing" claim the
+    // tri-state forbids.
+    const r = reachableReport();
+    (r.ai_visibility as Record<string, unknown>).sources = [{ answer_count: 4 }, "junk", null];
+    expect("sources" in toAiVisibility(r)).toBe(false);
+  });
+
+  it("a literal upstream [] also reads as absent — it is a state no producer emits", () => {
+    const r = reachableReport();
+    (r.ai_visibility as Record<string, unknown>).sources = [];
+    expect("sources" in toAiVisibility(r)).toBe(false);
+  });
+
+  it("enforces the documented top-ten cap client-side", () => {
+    const r = reachableReport();
+    (r.ai_visibility as Record<string, unknown>).sources = Array.from({ length: 12 }, (_, i) => ({
+      domain: `d${i}.example`,
+      answers: 1,
+      platforms: ["ChatGPT"],
+      ownership: "third_party",
+      url: null,
+      title: "",
+    }));
+    expect(toAiVisibility(r).sources).toHaveLength(10);
   });
 });
