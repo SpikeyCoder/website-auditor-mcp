@@ -147,3 +147,77 @@ describe("get_sample_audit: the setup note", () => {
     }
   });
 });
+
+/**
+ * chaos_tester #447: real reports carry `ai_visibility.sources` — the ranked
+ * cited-documents list. The header of sampleData.ts promises "the exact shape
+ * a real audit returns", so the sample must carry it too, and carry it in a
+ * form the real engine could actually produce: upstream injects `sources` ONLY
+ * when at least one `all_results` row holds a readable `citations` container,
+ * so a fixture with `sources` but an empty `all_results` would depict an
+ * impossible payload — and tell an evaluating developer the raw per-answer
+ * citations are not part of what they'd buy, which is false.
+ */
+describe("get_sample_audit: cited sources", () => {
+  const sources = async () => {
+    const res = await getSampleAudit({}, explodingDeps());
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("unreachable");
+    return { sources: res.data.audit.ai_visibility.sources!, audit: res.data.audit };
+  };
+
+  it("carries ai_visibility.sources in the documented entry shape", async () => {
+    const { sources: rows } = await sources();
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(Object.keys(row).sort()).toEqual(["answers", "domain", "ownership", "platforms", "title", "url"]);
+      expect(["yours", "competitor", "third_party"]).toContain(row.ownership);
+    }
+    // All three ownership kinds appear, so the demo shows what the field is FOR.
+    expect(new Set(rows.map((r) => r.ownership))).toEqual(new Set(["yours", "competitor", "third_party"]));
+  });
+
+  it("a source with no linkable page has url null AND an empty title — never a fabricated link", async () => {
+    const { sources: rows } = await sources();
+    const unlinkable = rows.filter((r) => r.url === null);
+    expect(unlinkable.length).toBeGreaterThan(0);
+    for (const row of unlinkable) expect(row.title).toBe("");
+  });
+
+  it("ranks by cross-engine agreement, then answers, then domain — the documented order", async () => {
+    const { sources: rows } = await sources();
+    const resorted = [...rows].sort(
+      (a, b) => b.platforms.length - a.platforms.length || b.answers - a.answers || a.domain.localeCompare(b.domain),
+    );
+    expect(rows).toEqual(resorted);
+    expect(rows.length).toBeLessThanOrEqual(10);
+  });
+
+  it("every ranked domain is backed by a citation in all_results — the upstream precondition for the key", async () => {
+    const { sources: rows, audit } = await sources();
+    // Minimal replica of chaos_tester's citation_domain(): host of the cited
+    // url (www-stripped), except through Google's grounding-redirect shim,
+    // where only a bare-domain title attributes the citation.
+    const SHIMS = ["vertexaisearch.cloud.google.com", "googleusercontent.com"];
+    const hostOf = (url: string) =>
+      (/^https?:\/\/([^/?#]+)/.exec(url)?.[1] ?? "").toLowerCase().split(":")[0]!.replace(/^www\./, "");
+    const citedDomain = (c: { url?: string; title?: string }) => {
+      const host = hostOf(c.url ?? "");
+      if (!host) return "";
+      if (!SHIMS.some((s) => host === s || host.endsWith("." + s))) return host;
+      const title = (c.title ?? "").trim().toLowerCase();
+      return /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(title) ? title : "";
+    };
+    const allResults = audit.ai_visibility.all_results as Array<{
+      platform: string;
+      citations: Array<{ url?: string; title?: string }>;
+    }>;
+    expect(allResults.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const backing = allResults.filter((r) => (r.citations ?? []).some((c) => citedDomain(c) === row.domain));
+      expect(backing.length, row.domain).toBe(row.answers);
+      expect(new Set(backing.map((r) => r.platform)), row.domain).toEqual(new Set(row.platforms));
+    }
+  });
+});

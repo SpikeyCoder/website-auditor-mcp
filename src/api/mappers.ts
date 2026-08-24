@@ -8,6 +8,7 @@ import type {
   AuditReport,
   AiVisibilityBlock,
   AiVisibility,
+  AiVisibilitySource,
   AiVisibilitySnapshot,
   AiVisibilityTrend,
   TrendWindow,
@@ -107,6 +108,46 @@ function nameProvenance(av: AiVisibilityBlock): {
   };
 }
 
+/** One well-formed ranked-sources row, re-picked to the documented six keys, or null. */
+function sourceRow(row: unknown): AiVisibilitySource | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const r = row as Record<string, unknown>;
+  const ok =
+    typeof r.domain === "string" &&
+    r.domain !== "" &&
+    typeof r.answers === "number" &&
+    Array.isArray(r.platforms) &&
+    r.platforms.every((p) => typeof p === "string") &&
+    (r.ownership === "yours" || r.ownership === "competitor" || r.ownership === "third_party") &&
+    (r.url === null || typeof r.url === "string") &&
+    typeof r.title === "string";
+  if (!ok) return null;
+  return {
+    domain: r.domain as string,
+    answers: r.answers as number,
+    platforms: r.platforms as string[],
+    ownership: r.ownership as AiVisibilitySource["ownership"],
+    url: r.url as string | null,
+    title: r.title as string,
+  };
+}
+
+/**
+ * The report's cited-sources evidence, tri-state preserved (chaos_tester #447):
+ * `{sources: [...]}` ranked list, `{sources: null}` recorded-but-uncited, `{}`
+ * when the key is absent — no readable citation records, which must never be
+ * served as a positive "cited nothing" claim. A garbled value (neither array
+ * nor null) also reads as absent: same policy as nameProvenance above — a
+ * hostile payload must not throw in a mapper, and nothing is ever fabricated.
+ */
+function citedSources(av: AiVisibilityBlock): { sources?: AiVisibilitySource[] | null } {
+  if (!("sources" in av)) return {};
+  const raw = av.sources;
+  if (raw === null) return { sources: null };
+  if (!Array.isArray(raw)) return {};
+  return { sources: raw.map(sourceRow).filter((r): r is AiVisibilitySource => r !== null) };
+}
+
 export function toAiVisibility(report: AuditReport): AiVisibility {
   const av = report.ai_visibility ?? {};
   const score = av.overall_score ?? 0;
@@ -146,6 +187,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
     ...(provenance.verified !== undefined ? { name_verified: provenance.verified } : {}),
     ...(provenance.source ? { name_source: provenance.source } : {}),
+    ...citedSources(av),
   };
 }
 

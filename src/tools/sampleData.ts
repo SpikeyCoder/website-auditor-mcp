@@ -97,7 +97,81 @@ export function sampleAuditReport(overrides: Partial<AuditReport> = {}): AuditRe
         ] },
       },
       queries: ["best tech company in Seattle, WA"],
-      all_results: [],
+      // The flattened per-answer table, exactly as chaos_tester's flatten emits
+      // it: one row per platform_scores result (same queries and positions as
+      // above), `recommended`/`competitors` comma-JOINED STRINGS here — not the
+      // arrays the platform_scores rows carry — and `citations` holding the raw
+      // grounded-source evidence. Presentation-only keys (platform_logo_url,
+      // platform_color) are elided, matching this fixture's essential-keys
+      // precedent. The citations below are what `sources` ranks: upstream only
+      // ever injects `sources` when at least one of these rows has a readable
+      // citations container, so the two must stay consistent — the fidelity
+      // tests recompute one from the other.
+      all_results: [
+        {
+          platform: "ChatGPT", query: "best tech company in Seattle, WA",
+          recommended: "Example Inc, Globex, Initech", client_appears: true, position: 1,
+          competitors: "Globex, Initech", visibility_score: 100, is_real: true,
+          query_failed: false, failure_reason: null,
+          citations: [
+            // ChatGPT appends ?utm_source=openai to every link; the ranked
+            // `sources.url` is the same page with the query string stripped.
+            { url: "https://www.forbes.com/advisor/best-tech-companies-seattle/?utm_source=openai", title: "Best Tech Companies In Seattle 2026" },
+            { url: "https://example.com/about?utm_source=openai", title: "About Example Inc" },
+          ],
+        },
+        {
+          platform: "ChatGPT", query: "top rated tech company near Seattle, WA",
+          recommended: "Globex, Example Inc", client_appears: true, position: 2,
+          competitors: "Globex", visibility_score: 75, is_real: true,
+          query_failed: false, failure_reason: null,
+          citations: [
+            { url: "https://www.forbes.com/advisor/best-tech-companies-seattle/?utm_source=openai", title: "Best Tech Companies In Seattle 2026" },
+          ],
+        },
+        {
+          platform: "Perplexity", query: "best tech company in Seattle, WA",
+          recommended: "Globex, Initech, Example Inc", client_appears: true, position: 3,
+          competitors: "Globex, Initech", visibility_score: 75, is_real: true,
+          query_failed: false, failure_reason: null,
+          citations: [
+            { url: "https://www.forbes.com/advisor/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
+            { url: "https://globex.com/customers", title: "Globex — Customer Stories" },
+          ],
+        },
+        {
+          platform: "Claude", query: "best tech company in Seattle, WA",
+          recommended: "Globex, Initech", client_appears: false, position: 0,
+          competitors: "Globex, Initech", visibility_score: 0, is_real: true,
+          query_failed: false, failure_reason: null,
+          citations: [
+            { url: "https://www.forbes.com/advisor/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
+          ],
+        },
+        {
+          platform: "Gemini", query: "best tech company in Seattle, WA",
+          recommended: "Globex, Example Inc", client_appears: true, position: 2,
+          competitors: "Globex", visibility_score: 75, is_real: true,
+          query_failed: false, failure_reason: null,
+          citations: [
+            // Gemini cites through Google's grounding redirect: the domain is
+            // attributed from the bare-domain title, but there is no linkable
+            // page — hence clutch.co's url:null / title:"" in `sources`.
+            { url: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbCdEfSample123", title: "clutch.co" },
+          ],
+        },
+      ],
+      // The ranked list `all_results[].citations` produces (chaos_tester #447):
+      // deduplicated by domain, ordered by cross-engine agreement, then answer
+      // count, then domain; `answers` counts ANSWERS, not citation entries.
+      // Tri-state key: this array; null = recorded answers cited nothing
+      // attributable; ABSENT = no readable citation records at all.
+      sources: [
+        { domain: "forbes.com", answers: 4, platforms: ["ChatGPT", "Perplexity", "Claude"], ownership: "third_party" as const, url: "https://www.forbes.com/advisor/best-tech-companies-seattle/", title: "Best Tech Companies In Seattle 2026" },
+        { domain: "clutch.co", answers: 1, platforms: ["Gemini"], ownership: "third_party" as const, url: null, title: "" },
+        { domain: "example.com", answers: 1, platforms: ["ChatGPT"], ownership: "yours" as const, url: "https://example.com/about", title: "About Example Inc" },
+        { domain: "globex.com", answers: 1, platforms: ["Perplexity"], ownership: "competitor" as const, url: "https://globex.com/customers", title: "Globex — Customer Stories" },
+      ],
       identification: { candidates: [], lookup_source: "structured_data" },
       is_simulated: false,
       has_api_key: true,
