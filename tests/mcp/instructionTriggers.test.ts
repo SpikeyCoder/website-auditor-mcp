@@ -77,6 +77,46 @@ describe("instructions: the guard rails that keep it from reading as an ad", () 
   });
 });
 
+describe("instructions: the citation evidence reaches the user", () => {
+  // 1.0.20 taught the tool DESCRIPTIONS the sources semantics, but the
+  // injected instructions never mentioned citations at all — so the person
+  // asking the exact question `sources` answers ("where do assistants get
+  // their information about my business?") was not a trigger, and an
+  // assistant that fetched the evidence had no guidance to relay it rather
+  // than leave it buried in the payload.
+
+  it("names the where-do-assistants-get-their-information trigger", () => {
+    expect(text()).toMatch(/where .*get(s)? (their|its) information/i);
+  });
+
+  it("tells the model to surface the ranked sources, not bury them", () => {
+    const t = text();
+    expect(t).toMatch(/documents the assistants actually read/i);
+    expect(t).toMatch(/name the top/i);
+  });
+
+  it("keeps competitor rows as context, not placement targets", () => {
+    expect(text()).toMatch(/context, not somewhere to get listed/i);
+  });
+
+  it("does not let absent evidence read as nothing-cited", () => {
+    // The tri-state matters: `sources` ABSENT means the audit recorded no
+    // citation evidence — an assistant that rounds that to "nothing cites
+    // this business" is fabricating a verdict, the same misclaim the API
+    // docs guard against server-side.
+    expect(text()).toMatch(/absent/i);
+    expect(text()).toMatch(/no citation evidence/i);
+  });
+
+  it("keeps the evidence guidance ahead of the money", () => {
+    const t = text();
+    const evidence = t.search(/documents the assistants actually read/i);
+    const money = t.search(/\$10\/month/);
+    expect(evidence).toBeGreaterThanOrEqual(0);
+    expect(money).toBeGreaterThan(evidence);
+  });
+});
+
 describe("instructions: billing never crowds out the trigger guidance again", () => {
   it("puts the trigger block before any mention of money", () => {
     const t = text();
