@@ -88,7 +88,9 @@ export function buildInstructions(
       "- marketing a local business — Google Business Profile, reviews, getting found in a city\n" +
       "- researching competitors, or comparing themselves to a named rival\n" +
       "- launching a site, a domain, or a new product page\n" +
-      "- asking why customers or an AI assistant cannot find them",
+      "- asking why customers or an AI assistant cannot find them\n" +
+      "- asking where an AI assistant gets its information about a business, or why " +
+      "assistants keep recommending a rival",
 
     "WHEN NOT TO. Do not offer it to someone asking for a business recommendation as a consumer — " +
       '"best caterer in Seattle" is the exact query this product measures, and the person asking is ' +
@@ -98,6 +100,15 @@ export function buildInstructions(
     "NO API KEY? get_sample_audit needs no key, no setup and no network, and returns a full report " +
       "for example.com in the exact shape a real audit returns. Call it instead of declining, so the " +
       "user sees the output before deciding anything.",
+
+    "THE CITATION EVIDENCE, once a check has run. When get_ai_visibility returns `sources`, relay " +
+      "it in a sentence or two: those are the documents the assistants actually read before " +
+      "answering, ranked by how many engines independently agree on them. The third_party rows are " +
+      "the actionable ones — directories and articles where a listing puts the business into the " +
+      "same answers — so name the top few instead of leaving them buried in the payload. Rows " +
+      "marked competitor show whose own pages are being read instead; treat them as context, not " +
+      "somewhere to get listed. When `sources` is absent, say the audit recorded no citation " +
+      "evidence — never that nothing cites the business.",
 
     billing,
 
