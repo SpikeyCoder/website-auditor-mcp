@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { getGtmPlan } from "../../src/tools/getGtmPlan.js";
 import { makeDeps, fixedResolution } from "../helpers.js";
+import { WaApiError } from "../../src/api/errors.js";
 
 // get_gtm_plan [Pro] — the MCP face of the citations-driven GTM chatbot.
 // One-shot BY DESIGN: MCP tools are stateless and the conversation loop
@@ -106,7 +107,10 @@ describe("get_gtm_plan [Pro]", () => {
     const res = await getGtmPlan({ domain: "example.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.evidence_note).toMatch(/no citation evidence|issues and stats/i);
+    // The note now claims only what the wire proves — see the honesty test
+    // below; "the audit recorded no citation evidence" was one of three
+    // indistinguishable causes of an empty sources_used.
+    expect(res.data.evidence_note).toMatch(/names no domains/i);
     expect(res.data.plan.markdown).toBe(PLAN.plan_markdown);
   });
 
@@ -135,16 +139,104 @@ describe("get_gtm_plan [Pro]", () => {
   });
 
   it("an oversize prior_plan is truncated to the transcript cap, not refused", async () => {
-    // The engine caps assistant messages at 4000 chars; a longer prior plan
-    // is a normal artifact of this very tool, so it is trimmed (keeping the
-    // tail, where the most recent sequencing lives) rather than bounced.
+    // The engine caps assistant messages at 8192 chars (its chat token
+    // budget x 8, mirrored by the proxy); a longer prior plan is a normal
+    // artifact of this very tool, so it is trimmed (keeping the tail, where
+    // the most recent sequencing lives) rather than bounced.
     const fn = planClient();
     await getGtmPlan(
-      { domain: "example.com", prior_plan: "A".repeat(3000) + "B".repeat(3000) },
+      { domain: "example.com", prior_plan: "A".repeat(5000) + "B".repeat(5000) },
       makeDeps({ tier: "pro", client: { getGtmPlan: fn } }),
     );
     const assistant = fn.mock.calls[0][0].messages[1];
-    expect(assistant.content.length).toBeLessThanOrEqual(4000);
+    expect(assistant.content.length).toBeLessThanOrEqual(8192);
     expect(assistant.content.endsWith("B")).toBe(true);
+  });
+});
+
+// ── the wire contract the proxy actually enforces ────────────────────
+// Cross-repo verification caught these: the tool's own unit tests mock the
+// client, so a mismatch with website-auditor-api's validation is invisible
+// here until a real customer hits it — inside an un-unpublishable release.
+
+describe("get_gtm_plan: the wire the proxy actually accepts", () => {
+  it("normalizes a URL-shaped domain, like every other domain tool", async () => {
+    // run_audit and get_ai_visibility accept "https://acme.com" (client
+    // normalizeDomain); the proxy's DOMAIN_RE rejects it outright. Passing
+    // the argument through verbatim broke the audit-then-plan handoff the
+    // 1.0.21 instructions nudge explicitly scripts — on the SAME string.
+    const fn = planClient();
+    const res = await getGtmPlan(
+      { domain: "https://Acme.com/pricing" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: fn } }),
+    );
+    expect(res.ok).toBe(true);
+    expect(fn.mock.calls[0]![0].domain).toBe("acme.com");
+    if (!res.ok) return;
+    expect(res.data.domain).toBe("acme.com");
+  });
+
+  it("rejects a domain that is not one, before spending a call", async () => {
+    const fn = planClient();
+    const res = await getGtmPlan({ domain: "not a domain !!" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("INVALID_INPUT");
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("treats a whitespace-only prior_plan as absent, never an empty turn", async () => {
+    // The engine refuses empty content ("a message must not be empty"), and
+    // a blank assistant turn reached it as a generic upstream failure the
+    // user could only answer by retrying the same thing.
+    const fn = planClient();
+    await getGtmPlan({ domain: "acme.com", prior_plan: "   \n  " }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    const sent = fn.mock.calls[0]![0].messages;
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.role).toBe("user");
+    for (const m of sent) expect(m.content.trim()).not.toBe("");
+  });
+
+  it("keeps a long prior plan up to the cap the wire really carries", async () => {
+    // The trim mirrors the transcript's assistant cap. Left at the old 4000
+    // it silently discarded half of a plan both the proxy and the engine
+    // would have accepted — on the refinement path, where losing the tail
+    // loses the sequencing the user is refining.
+    const fn = planClient();
+    await getGtmPlan({ domain: "acme.com", prior_plan: "x".repeat(9000) }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    const sent = fn.mock.calls[0]![0].messages;
+    expect(sent).toHaveLength(3);
+    expect(sent[1]!.content.length).toBe(8192);
+  });
+
+  it("a domain with no audit on record points at run_audit, not a REST route", async () => {
+    const fn = vi.fn(async () => {
+      throw new WaApiError("UPSTREAM_ERROR", "No audit on record for that run. Run one first via GET /api/audit.", {
+        status: 404,
+      });
+    });
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.message).toMatch(/run_audit/);
+    expect(res.error.message).not.toMatch(/GET \/api\/audit/);
+  });
+});
+
+describe("get_gtm_plan: the evidence note claims only what the wire proves", () => {
+  it("an empty sources_used does not assert the audit recorded no evidence", async () => {
+    // sources_used is DERIVED from the plan prose (engine derive_sources_used):
+    // it is [] when no citations were recorded, when the answers cited
+    // nothing attributable, AND when evidence exists but the plan never
+    // typed a bare domain. Only the last is common — and asserting "no
+    // citation evidence" there contradicts the sources list the host may
+    // have relayed seconds earlier.
+    const fn = planClient({ ...PLAN, sources_used: [] });
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.evidence_note).toBeDefined();
+    expect(res.data.evidence_note).not.toMatch(/recorded no citation evidence/i);
+    expect(res.data.evidence_note).toMatch(/names no domains|does not name/i);
   });
 });

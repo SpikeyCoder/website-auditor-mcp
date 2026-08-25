@@ -461,6 +461,9 @@ export class WaApiClient implements WaApiClientLike {
    * `success` envelope and coerces defensively like every method here.
    */
   async getGtmPlan(params: { domain: string; messages: GtmChatMessage[] }): Promise<GtmPlanResponse> {
+    // Normalized here too, like runAudit/trackSite: the proxy's bare-host
+    // regex refuses the URL forms this client's own convention accepts.
+    const host = normalizeDomain(params.domain);
     const url = new URL(`${this.cfg.apiBaseUrl}/api/gtm-plan`);
     // The plan's own clock, ABOVE the whole serving chain (engine <= 240s,
     // Node proxy <= 250s): each layer waits longer than the one inside it,
@@ -472,10 +475,16 @@ export class WaApiClient implements WaApiClientLike {
       "POST",
       url,
       {
-        domain: params.domain,
+        domain: host,
         messages: params.messages,
       },
-      Math.max(GTM_PLAN_TIMEOUT_MS, this.cfg.requestTimeoutMs),
+      {
+        timeoutMs: Math.max(GTM_PLAN_TIMEOUT_MS, this.cfg.requestTimeoutMs),
+        // A plan is minutes-long BY DESIGN, so the elapsed-time heuristic
+        // that reads a late 502 as an infrastructure timeout would relabel
+        // every charged provider failure on this route.
+        gatewayTimeoutFloor: false,
+      },
     )) as Partial<GtmPlanResponse>;
     return {
       plan_markdown: typeof body.plan_markdown === "string" ? body.plan_markdown : "",
@@ -504,8 +513,9 @@ export class WaApiClient implements WaApiClientLike {
     method: string,
     url: URL,
     jsonBody?: unknown,
-    timeoutMs: number = this.cfg.requestTimeoutMs,
+    opts: { timeoutMs?: number; gatewayTimeoutFloor?: boolean } = {},
   ): Promise<unknown> {
+    const timeoutMs = opts.timeoutMs ?? this.cfg.requestTimeoutMs;
     const headers: Record<string, string> = { Accept: "application/json", ...versionHeader() };
     if (this.cfg.apiKey) headers["X-API-Key"] = this.cfg.apiKey;
     if (jsonBody !== undefined) headers["Content-Type"] = "application/json";
@@ -532,7 +542,9 @@ export class WaApiClient implements WaApiClientLike {
     }
 
     const body = await this.parseJson(resp);
-    if (!resp.ok) throw this.mapErrorResponse(resp.status, body, Date.now() - startedAt);
+    if (!resp.ok) {
+      throw this.mapErrorResponse(resp.status, body, Date.now() - startedAt, opts.gatewayTimeoutFloor !== false);
+    }
     return body ?? {};
   }
 
@@ -562,11 +574,19 @@ export class WaApiClient implements WaApiClientLike {
    */
   private static readonly GATEWAY_TIMEOUT_FLOOR_MS = 30_000;
 
-  private mapErrorResponse(status: number, body: unknown, elapsedMs = 0): WaApiError {
+  private mapErrorResponse(
+    status: number,
+    body: unknown,
+    elapsedMs = 0,
+    gatewayTimeoutFloor = true,
+  ): WaApiError {
     const b = (body ?? {}) as {
       error?: string;
       details?: unknown;
       rate_limit?: unknown;
+      /** The GTM routes name their quota block after the route. */
+      gtm_plan_limit?: unknown;
+      gtm_chat_limit?: unknown;
       /** Why a 401 happened, machine-readable (website-auditor-api PR #44). */
       reason?: unknown;
     };
@@ -605,9 +625,13 @@ export class WaApiClient implements WaApiClientLike {
         // what a client actually shows the customer, and the API's own text
         // stops at "you can make N requests per day" — blocked, with no "until
         // when". Left in details alone it is a fact nobody reads out.
-        const resetsAt = quotaResetsAt(b.rate_limit);
+        // The GTM routes name the block after the route (gtm_plan_limit),
+        // so reading rate_limit alone dropped the whole remedy there: the
+        // caller was told "blocked" with no "until when".
+        const quota = b.rate_limit ?? b.gtm_plan_limit ?? b.gtm_chat_limit;
+        const resetsAt = quotaResetsAt(quota);
         const text = resetsAt ? `${message} It resets at ${resetsAt}. Re-run after that.` : message;
-        return new WaApiError("OVER_QUOTA", text, { status, details: b.rate_limit });
+        return new WaApiError("OVER_QUOTA", text, { status, details: quota });
       }
       case 504:
         // Self-describing; needs no timing heuristic.
@@ -622,7 +646,10 @@ export class WaApiClient implements WaApiClientLike {
         // report_unavailable (website-auditor-api src/routes/audit.js) — a run
         // that completed but whose report could not be fetched. That is slow by
         // nature and relabelling it a timeout would be a lie.
-        return elapsedMs >= WaApiClient.GATEWAY_TIMEOUT_FLOOR_MS
+        // Callers that are SLOW BY DESIGN opt out: for them a late 5xx is a
+        // real verdict, and relabelling it a timeout erases both the cause
+        // and any notice about what the attempt cost.
+        return gatewayTimeoutFloor && elapsedMs >= WaApiClient.GATEWAY_TIMEOUT_FLOOR_MS
           ? new WaApiError("TIMEOUT", "The Website Auditor API timed out while running this request.", { status })
           : new WaApiError("UPSTREAM_ERROR", message, { status, details: b.details });
       default:

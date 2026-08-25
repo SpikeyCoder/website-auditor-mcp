@@ -663,3 +663,89 @@ describe("WaApiClient.getGtmPlan waits on the plan's own clock", () => {
     }
   });
 });
+
+describe("WaApiClient.getGtmPlan surfaces the proxy's own refusals", () => {
+  const TURN2 = [{ role: "user" as const, content: "make the plan" }];
+
+  it("a plan quota 429 carries its reset time, under the field the proxy sends", async () => {
+    // The proxy names the block after the route (gtm_plan_limit), not
+    // rate_limit — so reading only rate_limit dropped the entire remedy:
+    // the user was told "blocked" with no "until when".
+    const fetchMock = makeFetch(429, {
+      success: false,
+      error: "Daily GTM plan limit reached. You can make 5 of these requests per API key per day.",
+      gtm_plan_limit: { limit: 5, remaining: 0, resets_at: "2026-08-26T00:00:00.000Z" },
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const err = await client.getGtmPlan({ domain: "acme.com", messages: TURN2 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WaApiError);
+    expect((err as WaApiError).code).toBe("OVER_QUOTA");
+    expect((err as WaApiError).message).toContain("2026-08-26T00:00:00.000Z");
+  });
+
+  it("a slow charged 502 keeps its cause instead of being relabelled a timeout", async () => {
+    // The gateway-timeout heuristic reads any 502 after 30s as a timeout —
+    // sound for audits, wrong for a plan that is DESIGNED to run minutes.
+    // It erased both the real cause and the proxy's notice that the request
+    // counted toward the daily allowance.
+    vi.useFakeTimers();
+    try {
+      const slow = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            setTimeout(
+              () =>
+                resolve(
+                  new Response(
+                    JSON.stringify({
+                      success: false,
+                      error:
+                        "The GTM service reported an error while executing the request. Because the model may have been queried, this request counted toward your daily allowance.",
+                    }),
+                    { status: 502, headers: { "content-type": "application/json" } },
+                  ),
+                ),
+              45_000,
+            );
+          }),
+      );
+      const client = new WaApiClient(baseCfg, { fetch: slow as unknown as typeof fetch });
+      const pending = client.getGtmPlan({ domain: "acme.com", messages: TURN2 });
+      const observed = pending.catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(45_000);
+      const err = await observed;
+      expect(err).toBeInstanceOf(WaApiError);
+      expect((err as WaApiError).code).toBe("UPSTREAM_ERROR");
+      expect((err as WaApiError).message).toMatch(/counted toward your daily allowance/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("other endpoints keep the gateway-timeout heuristic", async () => {
+    vi.useFakeTimers();
+    try {
+      const slow = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            setTimeout(
+              () =>
+                resolve(
+                  new Response(JSON.stringify({ success: false, error: "bad gateway" }), {
+                    status: 502,
+                    headers: { "content-type": "application/json" },
+                  }),
+                ),
+              45_000,
+            );
+          }),
+      );
+      const client = new WaApiClient(baseCfg, { fetch: slow as unknown as typeof fetch });
+      const observed = client.getReport({ domain: "acme.com" }).catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect((await observed as WaApiError).code).toBe("TIMEOUT");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

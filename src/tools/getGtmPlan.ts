@@ -14,6 +14,8 @@
  * `evidence_note` saying so — never an invented evidence list.
  */
 import type { GtmChatMessage, GtmPlanResult } from "../api/types.js";
+import { normalizeDomain } from "../api/domain.js";
+import { WaApiError } from "../api/errors.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetGtmPlanArgs {
@@ -26,26 +28,33 @@ export interface GetGtmPlanArgs {
 // Steering strings stay short — they ride inside one user message, and the
 // proxy mirrors the engine's transcript caps.
 const MAX_STEER_CHARS = 300;
-// The engine's assistant-message cap. A longer prior plan is a normal
-// artifact of this very tool, so it is TRIMMED (keeping the tail, where the
-// most recent sequencing lives) rather than bounced.
-const MAX_PRIOR_PLAN_CHARS = 4000;
+// The assistant-message cap the wire actually carries (engine
+// GTM_CHAT_MAX_TOKENS * 8, mirrored by the proxy). A longer prior plan is a
+// normal artifact of this very tool, so it is TRIMMED (keeping the tail,
+// where the most recent sequencing lives) rather than bounced. Left at half
+// the wire's cap it silently discarded plan the proxy would have accepted —
+// on the refinement path, where the tail is what the user is refining.
+const MAX_PRIOR_PLAN_CHARS = 8192;
 
-function buildMessages(args: GetGtmPlanArgs): GtmChatMessage[] {
+function buildMessages(args: GetGtmPlanArgs, domain: string): GtmChatMessage[] {
   const steer =
     (args.focus ? ` Focus on: ${args.focus.trim()}.` : "") +
     (args.constraints ? ` Constraints: ${args.constraints.trim()}.` : "");
   const brief =
-    `Prepare a written go-to-market plan for ${args.domain}, grounded in this ` +
+    `Prepare a written go-to-market plan for ${domain}, grounded in this ` +
     `audit's citation evidence — the documents the AI assistants actually read.`;
 
-  if (!args.prior_plan) {
+  // Blank is absent, not a turn: the engine refuses empty content (the
+  // Messages API does), and a whitespace assistant message reached the user
+  // as a generic upstream failure they could only answer by retrying it.
+  const prior = (args.prior_plan ?? "").trim();
+  if (!prior) {
     return [{ role: "user", content: brief + steer }];
   }
   return [
     { role: "user", content: brief },
-    { role: "assistant", content: args.prior_plan.slice(-MAX_PRIOR_PLAN_CHARS) },
-    { role: "user", content: `Refine the plan above.${steer}` || "Refine the plan above." },
+    { role: "assistant", content: prior.slice(-MAX_PRIOR_PLAN_CHARS) },
+    { role: "user", content: `Refine the plan above.${steer}` },
   ];
 }
 
@@ -62,19 +71,32 @@ export async function getGtmPlan(
     }
   }
 
+  // The same normalization every other domain tool applies (run_audit,
+  // track_site, compare_competitors). The proxy's own check is a strict bare
+  // -host regex, so a URL-shaped argument — the form run_audit accepts and
+  // therefore the form a host model already holds — was refused there as a
+  // bare "Validation failed", breaking the audit-then-plan handoff on the
+  // identical string.
+  let domain: string;
+  try {
+    domain = normalizeDomain(args.domain);
+  } catch (e) {
+    return fromApiError(e, deps.config);
+  }
+
   try {
     const plan = await deps.client.getGtmPlan({
-      domain: args.domain,
-      messages: buildMessages(args),
+      domain,
+      messages: buildMessages(args, domain),
     });
 
     const result: GtmPlanResult = {
-      domain: args.domain,
+      domain,
       plan: { markdown: plan.plan_markdown, sections: plan.plan_sections },
       sources_used: plan.sources_used,
       model: plan.model,
       summary:
-        `GTM plan for ${args.domain}: ${plan.plan_sections.length} sections` +
+        `GTM plan for ${domain}: ${plan.plan_sections.length} sections` +
         (plan.plan_sections.length
           ? ` (${plan.plan_sections.map((s) => s.title).join(", ")})`
           : "") +
@@ -83,12 +105,29 @@ export async function getGtmPlan(
           : "."),
     };
     if (plan.sources_used.length === 0) {
+      // sources_used is DERIVED from the plan's prose, so an empty list has
+      // three indistinguishable causes on the wire: no citations recorded,
+      // answers that cited nothing attributable, or a plan that discussed
+      // the sources without typing their domains. Asserting the first
+      // contradicted the sources list the host may have relayed moments
+      // earlier — so the note states only what the wire proves.
       result.evidence_note =
-        "This plan is grounded in the report's issues and stats; the audit " +
-        "recorded no citation evidence, so no source domains back it.";
+        "This plan names no domains from the audit's citation evidence — " +
+        "either none was recorded, or the plan discussed the sources without " +
+        "naming them. get_ai_visibility shows which.";
     }
     return ok(result);
   } catch (e) {
+    // The proxy answers 404 for "no audit on record for this domain" with a
+    // REST remedy ("run one first via GET /api/audit") that an MCP caller
+    // cannot follow — and it arrives as a bare upstream error. Name the tool
+    // that actually fixes it.
+    if (e instanceof WaApiError && e.status === 404) {
+      return err(
+        "INVALID_INPUT",
+        `No audit on record for ${domain}. Run run_audit for ${domain} first, then ask for the plan again.`,
+      );
+    }
     return fromApiError(e, deps.config);
   }
 }

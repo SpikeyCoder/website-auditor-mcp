@@ -128,7 +128,7 @@
     },
     {
       "name": "get_gtm_plan",
-      "description": "Build a GTM plan from the audit [read-only]. Produce a written go-to-market plan grounded in the audit's cited sources \u2014 the documents the AI assistants actually read, each marked yours, competitor or third_party (competitor sources are context, never placement targets). When no citation evidence was recorded the plan says so and grounds itself in the report's issues and stats. Supports focus, constraints, and refining a prior plan. Requires Pro."
+      "description": "Build a GTM plan from the audit [read-only]. Produce a written go-to-market plan grounded in the audit's cited sources \u2014 the documents the AI assistants actually read, each marked yours, competitor or third_party (competitor sources are context, never placement targets). When no citation evidence was recorded the plan grounds itself in the report's issues and stats. Supports focus, constraints, and refining a prior plan. Requires Pro."
     },
     {
       "name": "check_upgrade_status",

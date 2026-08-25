@@ -244,8 +244,8 @@ const GET_GTM_PLAN_TOOL: ToolSpec = {
     'Use this when someone asks "what should I do about my AI visibility," "turn this audit into a plan," ' +
     'or wants a GTM or marketing plan for their site. The plan is built from the `sources` the assistants ' +
     'actually read — each marked `yours`, `competitor` or `third_party`; competitor sources shape the ' +
-    'analysis but are never placement targets. When the audit recorded no citation evidence the plan says ' +
-    'so and grounds itself in the report\'s issues and stats instead. Pass `focus` or `constraints` to ' +
+    'analysis but are never placement targets. When the audit recorded no citation evidence the plan ' +
+    'grounds itself in the report\'s issues and stats instead. Pass `focus` or `constraints` to ' +
     'steer it, and `prior_plan` (the markdown from an earlier call) to refine rather than start over.',
   inputSchema: {
     domain: domainArg,
