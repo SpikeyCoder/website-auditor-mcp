@@ -572,3 +572,94 @@ describe("WaApiClient.getAiVisibilityHistory since param", () => {
     expect(String(fetchMock.mock.calls[1]![0])).not.toContain("since=");
   });
 });
+
+describe("WaApiClient.getGtmPlan waits on the plan's own clock", () => {
+  // The serving chain is engine <= 240s, Node proxy <= 250s — each outer
+  // layer waits longer than the inner one so the inner verdict always
+  // arrives first. The shared 120s requestTimeoutMs sat BELOW both: a plan
+  // in the 120-240s band aborted client-side as TIMEOUT while the proxy
+  // charged the quota slot and the engine finished (and billed) a
+  // deliverable nobody received.
+
+  const PLAN_BODY = {
+    success: true,
+    plan_markdown: "# Plan",
+    plan_sections: [],
+    sources_used: [],
+    model: "claude-sonnet-4-6",
+  };
+
+  function slowFetch(resolveAfterMs: number | null) {
+    return vi.fn(
+      (_url: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise<Response>((resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+          if (resolveAfterMs !== null) {
+            setTimeout(
+              () =>
+                resolve(
+                  new Response(JSON.stringify(PLAN_BODY), {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                  }),
+                ),
+              resolveAfterMs,
+            );
+          }
+        }),
+    );
+  }
+
+  const TURN = [{ role: "user" as const, content: "make the plan" }];
+
+  it("a plan arriving at 260s is delivered, not aborted at the shared 120s", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = slowFetch(260_000);
+      const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+      const pending = client.getGtmPlan({ domain: "acme.com", messages: TURN });
+      pending.catch(() => {}); // observed below; silence early-abort unhandled-rejection noise
+      await vi.advanceTimersByTimeAsync(260_000);
+      const plan = await pending;
+      expect(plan.plan_markdown).toBe("# Plan");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still aborts eventually, from ABOVE the proxy's 250s clock", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = slowFetch(null); // never resolves
+      const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+      const pending = client.getGtmPlan({ domain: "acme.com", messages: TURN });
+      const observed = pending.catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(280_000);
+      const err = await observed;
+      expect(err).toBeInstanceOf(WaApiError);
+      expect((err as WaApiError).code).toBe("TIMEOUT");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("other endpoints keep the shared clock — the lift is plan-only", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = slowFetch(null);
+      const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+      const pending = client.getReport({ domain: "acme.com" });
+      const observed = pending.catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(121_000);
+      const err = await observed;
+      expect(err).toBeInstanceOf(WaApiError);
+      expect((err as WaApiError).code).toBe("TIMEOUT");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

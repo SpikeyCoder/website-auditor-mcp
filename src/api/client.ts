@@ -140,6 +140,9 @@ interface ClientDeps {
   fetch?: typeof fetch;
 }
 
+// getGtmPlan only — see the note at its call site.
+const GTM_PLAN_TIMEOUT_MS = 270_000;
+
 /**
  * The TODO here is done: api PR #42 makes businessName/businessCity optional
  * and normalises a blank to absent, so the workaround is gone.
@@ -459,10 +462,21 @@ export class WaApiClient implements WaApiClientLike {
    */
   async getGtmPlan(params: { domain: string; messages: GtmChatMessage[] }): Promise<GtmPlanResponse> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/gtm-plan`);
-    const body = (await this.requestJson("POST", url, {
-      domain: params.domain,
-      messages: params.messages,
-    })) as Partial<GtmPlanResponse>;
+    // The plan's own clock, ABOVE the whole serving chain (engine <= 240s,
+    // Node proxy <= 250s): each layer waits longer than the one inside it,
+    // so the inner verdict always arrives first. The shared 120s default
+    // sat BELOW the chain — a 120-240s plan aborted here as TIMEOUT while
+    // the proxy charged the slot and the engine billed a deliverable
+    // nobody received. max() keeps a caller-raised global override.
+    const body = (await this.requestJson(
+      "POST",
+      url,
+      {
+        domain: params.domain,
+        messages: params.messages,
+      },
+      Math.max(GTM_PLAN_TIMEOUT_MS, this.cfg.requestTimeoutMs),
+    )) as Partial<GtmPlanResponse>;
     return {
       plan_markdown: typeof body.plan_markdown === "string" ? body.plan_markdown : "",
       plan_sections: Array.isArray(body.plan_sections) ? (body.plan_sections as GtmPlanSection[]) : [],
@@ -486,13 +500,18 @@ export class WaApiClient implements WaApiClientLike {
    * Sends the X-API-Key header, applies the configured timeout, maps non-2xx to
    * a WaApiError, and returns the parsed body.
    */
-  private async requestJson(method: string, url: URL, jsonBody?: unknown): Promise<unknown> {
+  private async requestJson(
+    method: string,
+    url: URL,
+    jsonBody?: unknown,
+    timeoutMs: number = this.cfg.requestTimeoutMs,
+  ): Promise<unknown> {
     const headers: Record<string, string> = { Accept: "application/json", ...versionHeader() };
     if (this.cfg.apiKey) headers["X-API-Key"] = this.cfg.apiKey;
     if (jsonBody !== undefined) headers["Content-Type"] = "application/json";
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.cfg.requestTimeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const startedAt = Date.now();
 
     let resp: Response;
