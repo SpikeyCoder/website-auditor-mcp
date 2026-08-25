@@ -55,7 +55,8 @@
         "get_benchmark",
         "get_recommendations",
         "generate_schema",
-        "get_report"
+        "get_report",
+        "get_gtm_plan"
       ]
     }
   }

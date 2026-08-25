@@ -56,11 +56,11 @@ async function connectClient(url: string, headers?: Record<string, string>): Pro
 }
 
 describe("MCP over Streamable HTTP", () => {
-  it("serves initialize + tools/list to the SDK client — all 14 tools, correct identity", async () => {
+  it("serves initialize + tools/list to the SDK client — all 15 tools, correct identity", async () => {
     const { url } = await listen({ depsFactory: recordingFactory().factory });
     const client = await connectClient(url);
     const { tools } = await client.listTools();
-    expect(tools.length).toBe(14);
+    expect(tools.length).toBe(15);
     expect(client.getServerVersion()?.name).toBe("website-auditor");
     await client.close();
   });

@@ -230,10 +230,39 @@ export const GET_SAMPLE_AUDIT_TOOL: ToolSpec = {
   inputSchema: {},
 };
 
+// The MCP face of the citations-driven GTM chatbot (ships in 1.0.21,
+// together with the web widget — the release is held until both exist).
+// One-shot with args; the HOST owns the conversation, so refinement is
+// "call again with prior_plan". The description mentions `sources` on
+// purpose and is therefore under the manifests SOURCED linkage test.
+const GET_GTM_PLAN_TOOL: ToolSpec = {
+  name: "get_gtm_plan",
+  tier: "pro",
+  title: "Build a GTM plan from the audit",
+  description:
+    'Build a written go-to-market plan from a website\'s latest audit, grounded in its citation evidence. ' +
+    'Use this when someone asks "what should I do about my AI visibility," "turn this audit into a plan," ' +
+    'or wants a GTM or marketing plan for their site. The plan is built from the `sources` the assistants ' +
+    'actually read — each marked `yours`, `competitor` or `third_party`; competitor sources shape the ' +
+    'analysis but are never placement targets. When the audit recorded no citation evidence the plan ' +
+    'grounds itself in the report\'s issues and stats instead. Pass `focus` or `constraints` to ' +
+    'steer it, and `prior_plan` (the markdown from an earlier call) to refine rather than start over.',
+  inputSchema: {
+    domain: domainArg,
+    focus: z.string().optional()
+      .describe('What to emphasize — e.g. "local directories", "content", "a launch next month".'),
+    constraints: z.string().optional()
+      .describe('Budget, team, or time constraints — e.g. "solo founder, $200/mo".'),
+    prior_plan: z.string().optional()
+      .describe("The markdown of a plan from an earlier call, to refine instead of starting over."),
+  },
+};
+
 export const ALL_TOOL_SPECS: ToolSpec[] = [
   ...P0_TOOLS,
   ...P1_TOOLS,
   ...MONITORING_TOOLS,
+  GET_GTM_PLAN_TOOL,
   CHECK_UPGRADE_STATUS_TOOL,
   GET_SAMPLE_AUDIT_TOOL,
 ];
@@ -284,6 +313,7 @@ export const SERVED_TOOLS: ToolSpec[] = [
   TRACK_SITE_TOOL,
   ...PHASE1_READ_TOOLS,
   ...MONITORING_TOOLS,
+  GET_GTM_PLAN_TOOL,
   CHECK_UPGRADE_STATUS_TOOL,
   GET_SAMPLE_AUDIT_TOOL,
 ].map(withProSuffix);

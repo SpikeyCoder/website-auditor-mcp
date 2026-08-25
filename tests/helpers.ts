@@ -75,6 +75,7 @@ export function makeClient(over: Partial<WaApiClientLike> = {}): WaApiClientLike
     getRecommendations: vi.fn(async () => ({ recommendations: [] })),
     generateSchema: vi.fn(async () => ({ jsonld: {}, placement_notes: "" })),
     getReport: vi.fn(async () => ({ report_url: "", badge_html: "" })),
+    getGtmPlan: vi.fn(async () => ({ plan_markdown: "", plan_sections: [], sources_used: [], model: "" })),
   };
   return { ...base, ...over };
 }

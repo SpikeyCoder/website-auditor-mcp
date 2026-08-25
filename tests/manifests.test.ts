@@ -260,6 +260,7 @@ describe("published manifests stay in sync with the code", () => {
   it("some tool actually documents sources (the guard has something to guard)", () => {
     expect(SOURCED().map((t: { name: string }) => t.name).sort()).toEqual([
       "get_ai_visibility",
+      "get_gtm_plan",
       "run_audit",
     ]);
   });

@@ -19,6 +19,7 @@ import { listTrackedSites } from "../tools/listTrackedSites.js";
 import { getMonitoringStatus } from "../tools/getMonitoringStatus.js";
 import { getBenchmark } from "../tools/getBenchmark.js";
 import { getRecommendations } from "../tools/getRecommendations.js";
+import { getGtmPlan } from "../tools/getGtmPlan.js";
 import { generateSchema } from "../tools/generateSchema.js";
 import { getReport } from "../tools/getReport.js";
 import { checkUpgradeStatus } from "../tools/checkUpgradeStatus.js";
@@ -49,6 +50,7 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   get_monitoring_status: (_a, d) => getMonitoringStatus({}, d),
   get_benchmark: (a, d) => getBenchmark(a as { domain: string; industry?: string; geo?: string }, d),
   get_recommendations: (a, d) => getRecommendations(a as { domain: string }, d),
+  get_gtm_plan: (a, d) => getGtmPlan(a as { domain: string; focus?: string; constraints?: string; prior_plan?: string }, d),
   generate_schema: (a, d) =>
     generateSchema(a as { domain: string; type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto" }, d),
   get_report: (a, d) => getReport(a as { domain: string }, d),

@@ -37,6 +37,7 @@ const ARGS: Record<string, Record<string, unknown>> = {
   get_benchmark: { domain: "example.com" },
   get_recommendations: { domain: "example.com" },
   generate_schema: { domain: "example.com" },
+  get_gtm_plan: { domain: "example.com" },
   get_report: { domain: "example.com" },
   check_upgrade_status: {},
   get_sample_audit: {},

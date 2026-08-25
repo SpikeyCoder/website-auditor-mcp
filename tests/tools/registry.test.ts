@@ -52,7 +52,7 @@ describe("tool registry", () => {
   });
 
   it("serves all 14 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools + check_upgrade_status", () => {
-    expect(SERVED_TOOLS).toHaveLength(14);
+    expect(SERVED_TOOLS).toHaveLength(15);
     expect(SERVED_TOOLS.map((t) => t.name).sort()).toEqual(
       [
         "check_upgrade_status",
@@ -63,6 +63,7 @@ describe("tool registry", () => {
         "get_benchmark",
         "get_changes",
         "get_monitoring_status",
+        "get_gtm_plan",
         "get_recommendations",
         "get_report",
         "list_tracked_sites",
