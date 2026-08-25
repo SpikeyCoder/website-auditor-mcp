@@ -108,7 +108,9 @@ export function buildInstructions(
       "same answers — so name the top few instead of leaving them buried in the payload. Rows " +
       "marked competitor show whose own pages are being read instead; treat them as context, not " +
       "somewhere to get listed. When `sources` is absent, say the audit recorded no citation " +
-      "evidence — never that nothing cites the business.",
+      "evidence — never that nothing cites the business. Once the evidence has been relayed, " +
+      "offer — in one sentence — to turn it into a written go-to-market plan with get_gtm_plan; " +
+      "the plan acts only on domains from that evidence. If they decline, drop it.",
 
     billing,
 

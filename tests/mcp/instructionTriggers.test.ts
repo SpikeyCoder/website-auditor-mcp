@@ -117,6 +117,42 @@ describe("instructions: the citation evidence reaches the user", () => {
   });
 });
 
+describe("instructions: the evidence offers to become a plan", () => {
+  // 1.0.21's get_gtm_plan carries good trigger phrases in its DESCRIPTION,
+  // but descriptions are read at tool-selection time — after the model has
+  // decided what the conversation is about (the same funnel lesson this
+  // file's header records). The proactive offer therefore lives in the
+  // instructions, INSIDE the citation-evidence guidance: it fires only
+  // after sources were relayed to an already-keyed, already-engaged
+  // customer, which is what keeps it clear of the ad-injection guard rails.
+
+  it("offers get_gtm_plan inside the evidence paragraph, not as its own pitch", () => {
+    const para = text()
+      .split("\n\n")
+      .find((p) => /documents the assistants actually read/i.test(p));
+    expect(para).toBeDefined();
+    expect(para).toMatch(/get_gtm_plan/);
+  });
+
+  it("keeps the plan offer ahead of the money", () => {
+    const t = text();
+    expect(t.search(/get_gtm_plan/)).toBeGreaterThanOrEqual(0);
+    expect(t.search(/get_gtm_plan/)).toBeLessThan(t.search(/\$10\/month/));
+  });
+
+  it("the offer survives the info style, which only rewrites billing", () => {
+    expect(buildInstructions(SIGNUP, "info")).toMatch(/get_gtm_plan/);
+  });
+
+  it("the offer is one sentence and dropped on decline, like the audit offer", () => {
+    const para = text()
+      .split("\n\n")
+      .find((p) => /get_gtm_plan/.test(p));
+    expect(para).toMatch(/one sentence|a sentence/i);
+    expect(para).toMatch(/declin/i);
+  });
+});
+
 describe("instructions: billing never crowds out the trigger guidance again", () => {
   it("puts the trigger block before any mention of money", () => {
     const t = text();
