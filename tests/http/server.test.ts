@@ -606,3 +606,218 @@ describe("hosted transport: CORS does not lend the box's identity to a web page"
     expect(httpOptionsFromEnv({}).allowedOrigins).toBeUndefined();
   });
 });
+
+/**
+ * Mixed Auth over the wire.
+ *
+ * The unit-level halves live in tests/auth/mixedAuth.test.ts; what matters here
+ * is that they survive the transport — the metadata document is actually
+ * reachable, securitySchemes actually reach a client through tools/list, and a
+ * token is actually exchanged before a tenant bundle is minted.
+ */
+const MIXED_AUTH = {
+  oauthIssuer: "https://api.website-auditor.io",
+  oauthResourceUrl: "https://mcp.website-auditor.io/mcp",
+  oauthScope: "audit",
+};
+
+describe("Mixed Auth over Streamable HTTP", () => {
+  it("404s the metadata document when no OAuth is configured", async () => {
+    const { url } = await listen({ depsFactory: recordingFactory().factory });
+    const resp = await fetch(`${url}/.well-known/oauth-protected-resource`);
+    expect(resp.status).toBe(404);
+  });
+
+  it("serves the RFC 9728 document, readable cross-origin, when OAuth is configured", async () => {
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: recordingFactory().factory,
+    });
+    const resp = await fetch(`${url}/.well-known/oauth-protected-resource`);
+    expect(resp.status).toBe(200);
+    // Public discovery metadata naming no secret — a host that cannot read it
+    // cannot begin a login.
+    expect(resp.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await resp.json()).toEqual({
+      resource: "https://mcp.website-auditor.io/mcp",
+      authorization_servers: ["https://api.website-auditor.io"],
+      scopes_supported: ["audit"],
+      bearer_methods_supported: ["header"],
+    });
+  });
+
+  it("publishes no securitySchemes at all on an unconfigured server", async () => {
+    const { url } = await listen({ depsFactory: recordingFactory().factory });
+    const client = await connectClient(url);
+    const { tools } = await client.listTools();
+    expect(tools.every((t) => t._meta?.securitySchemes === undefined)).toBe(true);
+    await client.close();
+  });
+
+  it("marks the two free tools noauth and the other thirteen oauth2", async () => {
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: recordingFactory().factory,
+    });
+    const client = await connectClient(url);
+    const { tools } = await client.listTools();
+    const open = tools.filter((t) => JSON.stringify(t._meta?.securitySchemes).includes("noauth"));
+    expect(open.map((t) => t.name).sort()).toEqual(["check_upgrade_status", "get_sample_audit"]);
+    expect(tools.length - open.length).toBe(13);
+    // The scope a protected tool asks for is the configured one, not a guess.
+    const pro = tools.find((t) => t.name === "run_audit")!;
+    expect(pro._meta?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["audit"] }]);
+    await client.close();
+  });
+
+  it("exchanges an opaque bearer for the account's key before minting a tenant", async () => {
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: factory,
+      tokenExchange: { resolve: async (t) => (t === "opaque-token" ? "wa_from_token" : undefined) },
+    });
+    const client = await connectClient(url, { Authorization: "Bearer opaque-token" });
+    await client.listTools();
+    // The tenant is the RESOLVED key: bundles (and their 24h audit cache) are
+    // keyed by account, so two tokens for one account must share one bundle.
+    expect(seenKeys).toEqual(["wa_from_token"]);
+    await client.close();
+  });
+
+  it("never sends a wa_ key to introspection — existing callers stay byte-identical", async () => {
+    const { factory, seenKeys } = recordingFactory();
+    let introspected = 0;
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: factory,
+      tokenExchange: {
+        resolve: async () => {
+          introspected += 1;
+          return undefined;
+        },
+      },
+    });
+    const client = await connectClient(url, { Authorization: "Bearer wa_direct_key" });
+    await client.listTools();
+    expect(seenKeys).toEqual(["wa_direct_key"]);
+    expect(introspected).toBe(0);
+    await client.close();
+  });
+
+  it("lands an unresolvable token on the keyless surface, never on the box's default identity", async () => {
+    const { factory, seenKeys } = recordingFactory();
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: factory,
+      defaultApiKey: "wa_box_identity",
+      tokenExchange: { resolve: async () => undefined },
+    });
+    const client = await connectClient(url, { Authorization: "Bearer expired-token" });
+    await client.listTools();
+    // Presented-and-rejected is NOT presented-nothing: a caller who offered a
+    // credential must never be handed the operator's account instead.
+    expect(seenKeys).toEqual([undefined]);
+    await client.close();
+  });
+
+  it("carries the login challenge in _meta on a protected tool called without a token", async () => {
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: (config: WaConfig): ToolDeps => ({
+        ...makeDeps({ tier: config.apiKey ? "pro" : "none", config }),
+        transport: "http",
+      }),
+    });
+    const client = await connectClient(url);
+    const res = await client.callTool({ name: "run_audit", arguments: { domain: "example.com" } });
+    expect(res.isError).toBe(true);
+    // Both halves, on the wire: without this the host never opens the login.
+    expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
+    expect(JSON.stringify(res.structuredContent)).not.toContain("wwwAuthenticate");
+    await client.close();
+  });
+});
+
+/**
+ * The eight submitted OpenAI test cases, pinned against the KEYLESS surface.
+ *
+ * This is the guard whose absence caused the 2026-08-24 rejection.
+ * docs/SUBMISSION-TESTS.md claimed results that required a Pro API key, on a
+ * listing configured No Auth where no key could ever arrive — so five of the
+ * eight cases answered AUTH_REQUIRED instead of what the document promised, and
+ * nothing in the repo compared the two.
+ *
+ * These assertions describe what an anonymous caller actually gets. If the
+ * submitted expectations drift from it again, this fails first.
+ */
+describe("submitted test cases, as an anonymous reviewer sees them", () => {
+  async function keylessClient() {
+    const { url } = await listen({
+      depsFactory: (config: WaConfig): ToolDeps => ({
+        ...makeDeps({ tier: config.apiKey ? "pro" : "none", config }),
+        transport: "http",
+      }),
+    });
+    return connectClient(url);
+  }
+
+  it("P1 get_sample_audit — the one positive case that always held", async () => {
+    const client = await keylessClient();
+    const res = await client.callTool({ name: "get_sample_audit", arguments: {} });
+    expect(res.isError).toBeFalsy();
+    const data = res.structuredContent as { is_sample: boolean; domain: string };
+    expect(data.is_sample).toBe(true);
+    expect(data.domain).toBe("example.com");
+    await client.close();
+  });
+
+  it("P4 check_upgrade_status — answers tier none, NOT the pro/active the doc claimed", async () => {
+    const client = await keylessClient();
+    const res = await client.callTool({ name: "check_upgrade_status", arguments: {} });
+    expect(res.isError).toBeFalsy();
+    const data = res.structuredContent as { tier: string; status: string };
+    expect(data.tier).toBe("none");
+    expect(data.status).toBe("none");
+    await client.close();
+  });
+
+  it("P2/P3/P5 and N2 — every Pro tool answers AUTH_REQUIRED, whatever the case claimed", async () => {
+    const client = await keylessClient();
+    for (const [name, args] of [
+      ["get_ai_visibility", { domain: "website-auditor.io" }],
+      ["run_audit", { domain: "website-auditor.io" }],
+      ["get_monitoring_status", {}],
+      // N2's documented UNREACHABLE_DOMAIN is unreachable keyless: gateProTool
+      // runs before the domain is ever fetched, so the dead domain never gets
+      // looked up. This is the case that most clearly could not pass as written.
+      ["run_audit", { domain: "this-domain-does-not-exist-9483749.com" }],
+    ] as const) {
+      const res = await client.callTool({ name, arguments: args });
+      expect(res.isError, name).toBe(true);
+      expect((res.structuredContent as { code: string }).code, name).toBe("AUTH_REQUIRED");
+    }
+    await client.close();
+  });
+
+  it("N1 — the keyless refusal names the sample and points at no checkout under info style", async () => {
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, upsellStyle: "info", upsellInfoUrl: "https://website-auditor.io" }),
+      depsFactory: (config: WaConfig): ToolDeps => ({
+        ...makeDeps({ tier: "none", config }),
+        transport: "http",
+      }),
+    });
+    const client = await connectClient(url);
+    const res = await client.callTool({ name: "get_ai_visibility", arguments: { domain: "example.com" } });
+    const error = res.structuredContent as { code: string; message: string; upgrade_url: string };
+    expect(error.code).toBe("AUTH_REQUIRED");
+    expect(error.message).toContain("get_sample_audit");
+    expect(error.message).toContain("$10/month");
+    // The deployed box runs WA_UPSELL_STYLE=info precisely so no response
+    // carries a checkout link — the OpenAI guidelines forbid one.
+    expect(error.upgrade_url).toContain("website-auditor.io");
+    expect(error.upgrade_url).not.toContain("admin_portal");
+    await client.close();
+  });
+});

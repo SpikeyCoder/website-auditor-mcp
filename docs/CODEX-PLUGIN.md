@@ -11,7 +11,9 @@
    one hard prerequisite we do not meet yet: **a hosted Streamable HTTP MCP
    server**. The directory does not accept bundled stdio servers.
 
-Status: **SUBMITTED FOR REVIEW 2026-08-11.** All four phases complete.
+Status: **REJECTED 2026-08-24. Mixed Auth in progress** — see
+docs/OAUTH-MIXED-AUTH.md for the root cause, what has shipped, and what
+website-auditor-api still owes.
 
 | Phase | State |
 |---|---|
@@ -22,11 +24,19 @@ Status: **SUBMITTED FOR REVIEW 2026-08-11.** All four phases complete.
 
 Submission facts a future update needs:
 
-- **Listing auth is No Auth**: every ChatGPT user gets the keyless surface
-  (sample + explanations); Pro flows were demonstrated via the recorded demo
-  (hosted at storage.googleapis.com/website-auditor-public-assets/) running
-  against the single-tenant demo instance (`website-auditor-mcp-demo`, PR #41).
-  Moving the listing to portal-side OAuth later = new version + rescan.
+- **Listing auth was No Auth, and that is what got it rejected.** Every ChatGPT
+  user got the keyless surface, so the five submitted test cases needing a Pro
+  key could not pass — no credential can reach the server under No Auth. Pro
+  flows were demonstrated only via the recorded demo (hosted at
+  storage.googleapis.com/website-auditor-public-assets/) running against the
+  single-tenant demo instance (`website-auditor-mcp-demo`, PR #41), which the
+  reviewer never exercised.
+- **The portal offers No Auth / Mixed Auth / OAuth — and no api-key mode.** It
+  is editable only on a DRAFT version; on a submitted one the field is frozen,
+  which reads at a glance like No Auth being the only option. **Mixed Auth** is
+  the target: `get_sample_audit` and `check_upgrade_status` open, the other 13
+  behind a login. It requires OAuth 2.1 either way — there is no header-key
+  shortcut.
 - **Updates are snapshot-versioned**: change the server → Scan Tools again →
   bump the portal version → resubmit → publish on approval. Tool metadata and
   skills do NOT track the live server.
@@ -34,6 +44,29 @@ Submission facts a future update needs:
 - The Cloud Scheduler weekly-trackings job, the demo account, and the
   `mcp_transports` view all exist because of this work — see the api repo and
   chaos-tester project history from 2026-08-11.
+
+## Phase 5 — the rejection, and Mixed Auth
+
+**Rejected 2026-08-24**: *"One or more of your test cases did not produce correct
+results… Ensure the same test cases pass consistently on both ChatGPT web and
+mobile."*
+
+Not a policy finding. Five of the eight submitted cases named the reviewer demo
+API key as their fixture, and a No Auth listing has no mechanism to deliver one —
+so `run_audit`, `get_ai_visibility`, `get_monitoring_status` and the
+unreachable-domain negative all answered `AUTH_REQUIRED`, and
+`check_upgrade_status` reported `tier: "none"` where the document promised
+`tier: "pro"`.
+
+Snapshot drift was suspected and ruled out: the active Cloud Run revision
+(`website-auditor-mcp-00004-crf`) dates from 2026-08-11 and has never been
+redeployed, so the reviewer tested exactly the build that was scanned. 1.0.17
+through 1.0.20 — and `get_gtm_plan` — exist only in git.
+
+**Consequence for the next deploy:** that box serves 14 tools and `main` has 15.
+Redeploy and rescan together, or neither.
+
+The remedy and its work split are in **docs/OAUTH-MIXED-AUTH.md**.
 
 ## The plugin package (Phase 1)
 
@@ -70,7 +103,7 @@ process keeps in agreement, and `tests/manifests.test.ts` does not check it.
 
 ## Phase 2 — the hosted server
 
-**The code exists**: `src/http.ts` serves the same 14 tools over stateless
+**The code exists**: `src/http.ts` serves the same 15 tools over stateless
 Streamable HTTP (`npm run start:http`, port from `WA_HTTP_PORT`/`PORT`).
 Multi-tenant by construction — the key arrives per request
 (`Authorization: Bearer wa_…`, or `X-API-Key`), deps are per-key bundles with

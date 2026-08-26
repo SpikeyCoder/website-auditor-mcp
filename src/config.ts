@@ -73,6 +73,40 @@ export interface WaConfig {
    * either way).
    */
   metricsEnabled: boolean;
+  /**
+   * OAuth 2.1 authorization server for the hosted transport, and this server's
+   * own canonical resource identifier. BOTH are required before any OAuth
+   * surface appears: RFC 9728 metadata must name a `resource` and at least one
+   * `authorization_servers` entry, so a half-configured pair could only publish
+   * a document that fails discovery. Unset (the default, and every stdio
+   * install) means Mixed Auth is off and this server behaves exactly as it did
+   * before OAuth existed — see oauthEnabled in auth/oauth.ts.
+   */
+  oauthIssuer?: string;
+  oauthResourceUrl?: string;
+  /**
+   * The single scope protected tools ask for. Deliberately ONE scope, not a
+   * read/write split: ChatGPT's Apps SDK and the MCP authorization spec
+   * disagree about mid-session scope escalation, so a tool that discovers it
+   * needs a second scope has no reliable way to ask. Requesting the whole
+   * capability up front is the honest version of what the consent screen has
+   * to say anyway — every Pro tool needs the subscriber's account.
+   */
+  oauthScope: string;
+  /**
+   * RFC 7662 introspection endpoint, where an access token is exchanged for the
+   * account's API key. Defaults to the API's own path because that is where the
+   * authorization server lives for this product; overridable because the issuer
+   * and the API need not stay the same host forever.
+   */
+  oauthIntrospectionUrl?: string;
+  /**
+   * How this server authenticates ITSELF to that endpoint. RFC 7662 §2.1
+   * requires it: an unauthenticated introspection endpoint is a token oracle
+   * anyone who can reach it may probe. Sent as a bearer on the introspection
+   * call only — it is never a caller-facing credential.
+   */
+  oauthIntrospectionSecret?: string;
 }
 
 function stripTrailingSlash(url: string): string {
@@ -208,6 +242,18 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),
     devTier: parseTier(env.WA_DEV_TIER?.trim()),
     metricsEnabled: !isTruthy(env.WA_METRICS_DISABLED),
+    // Same normalizeEnvValue treatment as every other configured value. An
+    // unexpanded issuer is the WA_APPS_CHALLENGE_TOKEN failure again: truthy,
+    // so the metadata document publishes `${WA_OAUTH_ISSUER}` with a 200 and
+    // the client's discovery fails against a URL nobody can debug, instead of
+    // the 404 that says "no OAuth configured".
+    oauthIssuer: normalizeEnvValue(env.WA_OAUTH_ISSUER),
+    oauthResourceUrl: normalizeEnvValue(env.WA_OAUTH_RESOURCE_URL),
+    oauthScope: normalizeEnvValue(env.WA_OAUTH_SCOPE) || "audit",
+    oauthIntrospectionUrl:
+      normalizeEnvValue(env.WA_OAUTH_INTROSPECTION_URL) ||
+      `${stripTrailingSlash(normalizeEnvValue(env.WA_API_BASE_URL) || "https://api.website-auditor.io")}/api/oauth/introspect`,
+    oauthIntrospectionSecret: normalizeEnvValue(env.WA_OAUTH_INTROSPECTION_SECRET),
   };
 }
 

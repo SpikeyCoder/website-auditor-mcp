@@ -10,6 +10,7 @@ import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
 import { upgradeLink, tagSource, PRICE } from "./upgrade.js";
+import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
 import type { EventSink } from "../telemetry/events.js";
 
 export interface ToolDeps {
@@ -32,6 +33,14 @@ export interface ToolError {
   message: string;
   upgrade_url?: string;
   details?: unknown;
+  /**
+   * The Mixed Auth challenge, when this error is the one that should open a
+   * login. TRANSPORT METADATA, not part of the error contract: toCallResult
+   * lifts it into the result's `_meta["mcp/www_authenticate"]` and strips it
+   * from the payload, because the Apps SDK reads it there and the model has no
+   * use for a header it cannot act on. See auth/oauth.ts.
+   */
+  wwwAuthenticate?: string;
 }
 
 export type ToolResult<T> = { ok: true; data: T } | { ok: false; error: ToolError };
@@ -85,7 +94,11 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
     : `Set it as WA_API_KEY in this server's config. ${RESTART_NOTE}`;
 }
 
-export function err(code: ErrorCode, message: string, extra: { upgrade_url?: string; details?: unknown } = {}): ToolResult<never> {
+export function err(
+  code: ErrorCode,
+  message: string,
+  extra: { upgrade_url?: string; details?: unknown; wwwAuthenticate?: string } = {},
+): ToolResult<never> {
   return { ok: false, error: { code, message, ...extra } };
 }
 
@@ -149,6 +162,35 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
   const upgradeUrl = upgradeLink(deps.config);
 
   if (tier === "none") {
+    // One tier, two different problems, and under Mixed Auth they need opposite
+    // advice. Without OAuth the reader configures a key by hand, which is what
+    // this message has always assumed and what keySetupNote explains. WITH it,
+    // nobody pastes a key anywhere — the host offers a login and the account
+    // behind it carries the key — so "create a key and restart your client"
+    // describes a procedure that does not exist on that surface, addressed to
+    // someone who never saw a config file.
+    //
+    // The challenge rides this branch and only this branch. Emitting it without
+    // the declarative half would point the host at an authorization server it
+    // cannot discover, and oauthEnabled is what keeps the two in step; see
+    // auth/oauth.ts for why half a Mixed Auth setup fails silently.
+    if (deps.transport === "http" && oauthEnabled(deps.config)) {
+      return err(
+        "AUTH_REQUIRED",
+        `This tool needs a connected Website Auditor account, and this conversation has none yet. ` +
+          `Connect one when prompted — there is no key to paste. ` +
+          `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
+          `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
+          `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`,
+        {
+          upgrade_url: upgradeUrl,
+          wwwAuthenticate: wwwAuthenticateChallenge(
+            deps.config,
+            "Connect a Website Auditor account to use this tool.",
+          ),
+        },
+      );
+    }
     return err(
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +

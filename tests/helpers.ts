@@ -30,6 +30,10 @@ export function testConfig(over: Partial<WaConfig> = {}): WaConfig {
     auditCacheTtlMs: 24 * 60 * 60 * 1000,
     subscriptionCacheTtlMs: 60_000,
     metricsEnabled: true,
+    // Present but inert: oauthIssuer/oauthResourceUrl are what switch Mixed
+    // Auth on (see oauthEnabled), so the default config stays a pre-OAuth
+    // server and every existing expectation keeps describing one.
+    oauthScope: "audit",
     ...over,
   };
 }

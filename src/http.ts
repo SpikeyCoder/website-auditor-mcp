@@ -44,6 +44,8 @@ import { NoopEventSink } from "./telemetry/events.js";
 import { createServer } from "./mcp/server.js";
 import { SERVER_VERSION } from "./version.js";
 import type { ToolDeps } from "./tools/context.js";
+import { PROTECTED_RESOURCE_PATH, looksLikeApiKey, oauthEnabled, protectedResourceMetadata } from "./auth/oauth.js";
+import { IntrospectionTokenExchange, type TokenExchange } from "./auth/tokenExchange.js";
 
 const MCP_PATH = "/mcp";
 const CHALLENGE_PATH = "/.well-known/openai-apps-challenge";
@@ -95,6 +97,12 @@ export interface HttpServerOptions {
   allowedOrigins?: readonly string[];
   /** Test seam. Production builds real deps; tests inject recorders/mocks. */
   depsFactory?: (config: WaConfig) => ToolDeps;
+  /**
+   * Test seam for the OAuth token → API key exchange. Production builds an
+   * IntrospectionTokenExchange from config; only consulted when Mixed Auth is
+   * configured, so an unconfigured server never constructs or calls one.
+   */
+  tokenExchange?: TokenExchange;
   /** Tenant-bundle bounds. Oldest-idle bundles are dropped past either. */
   maxTenants?: number;
   idleTtlMs?: number;
@@ -339,6 +347,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   const allowedOrigins = (options.allowedOrigins ?? [])
     .map((o) => normalizeEnvValue(o))
     .filter((o): o is string => Boolean(o));
+  // Built only when Mixed Auth is configured. An unconfigured server never
+  // constructs one, never calls introspection, and cannot be slowed down or
+  // broken by an endpoint it does not use.
+  const tokenExchange: TokenExchange | undefined = oauthEnabled(base)
+    ? (options.tokenExchange ?? new IntrospectionTokenExchange(base))
+    : undefined;
   const tenants = new TenantDeps(
     base,
     options.depsFactory ?? defaultDepsFactory,
@@ -353,6 +367,46 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       console.error("[website-auditor-mcp http] request failed:", err);
     });
   });
+
+  /**
+   * Which API key this request acts as: its own, the box's default, or none.
+   *
+   * Three inputs reach the same header now, and they are not interchangeable:
+   *
+   *   NOTHING PRESENTED  → the box's defaultApiKey (single-tenant demo boxes)
+   *                        or the keyless surface. Unchanged, and it still
+   *                        counts an unexpanded placeholder as nothing.
+   *   A `wa_` BEARER     → itself, verbatim. Every existing caller — curl,
+   *                        Codex's bearer_token_env_var, the README examples —
+   *                        is on this path and must stay byte-identical.
+   *   ANYTHING ELSE      → an OAuth access token, exchanged for the account's
+   *                        key, but ONLY when Mixed Auth is configured.
+   *
+   * That last guard is the whole reason this is a function rather than a `??`.
+   * With OAuth off, a non-`wa_` bearer keeps passing through VERBATIM, because
+   * on this endpoint the bearer has always been the key and a typo in one has
+   * to reach the malformed-key answer that names the `wa_` prefix — recoding it
+   * as "you configured nothing" strands the reader a step earlier than the
+   * truth. That behaviour is pinned by a test and predates OAuth entirely.
+   *
+   * With OAuth ON the same string is ambiguous — an expired token and a typo'd
+   * key are indistinguishable here — and the two possible answers cannot both
+   * be right. It resolves to "not authenticated", which carries the login
+   * challenge, rather than to the malformed-key sentence. On a Mixed Auth
+   * endpoint the overwhelming majority of callers never paste a key at all, and
+   * "connect an account" is at worst imprecise for the curl user while
+   * "Invalid API key format. Keys start with wa_." is actively wrong for the
+   * OAuth one — the direction that misleads fewer people, stated because it IS
+   * a trade rather than an oversight.
+   */
+  async function credentialFor(req: IncomingMessage): Promise<string | undefined> {
+    const presented = apiKeyFrom(req);
+    // Presented nothing: the default identity applies, exactly as before. A
+    // caller who DID present something never lands on the box's account.
+    if (presented === undefined) return defaultApiKey;
+    if (!tokenExchange || looksLikeApiKey(presented)) return presented;
+    return tokenExchange.resolve(presented);
+  }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -369,6 +423,23 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       }
       // The token, exactly and alone: the verifier rejects JSON wrappers.
       res.writeHead(200, { "Content-Type": "text/plain" }).end(challengeToken);
+      return;
+    }
+
+    if (url.pathname === PROTECTED_RESOURCE_PATH && req.method === "GET") {
+      const metadata = protectedResourceMetadata(base);
+      if (!metadata) {
+        // A 404 is the honest answer for a server with no OAuth configured, and
+        // it is what a host's discovery probe expects — serving an empty or
+        // half-filled document instead would advertise an authorization server
+        // that does not exist and fail later, further from the cause.
+        res.writeHead(404, { "Content-Type": "text/plain" }).end("no oauth configured");
+        return;
+      }
+      // Readable cross-origin unconditionally: it is public discovery metadata
+      // naming no secret, and a host that cannot read it cannot start a login.
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      sendJson(res, 200, metadata);
       return;
     }
 
@@ -403,7 +474,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    const deps = tenants.forKey(apiKeyFrom(req) ?? defaultApiKey);
+    const deps = tenants.forKey(await credentialFor(req));
     // Fresh server+transport per request over long-lived tenant deps: the
     // stateless Streamable HTTP pattern. Closed with the response so an
     // abandoned connection cannot leak either.
