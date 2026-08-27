@@ -274,6 +274,36 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.message).toContain("requires a Website Auditor API key");
   });
 
+  it("re-offers the login when a DERIVED key has expired, instead of naming a key nobody pasted", async () => {
+    // The 60s key cache means a derived key can expire mid-window and come
+    // back REVOKED_KEY through no fault of the user. Telling them to create a
+    // replacement in the portal is advice for a credential they never had.
+    const error = await authError(
+      {
+        subscriptions: { resolve: async () => ({ tier: "invalid" as const, verified: true, rejection: "REVOKED_KEY" as const }) },
+        config: { ...OAUTH, apiKey: "wa_dead" },
+      },
+      "http",
+    );
+    expect(error.code).toBe("AUTH_REQUIRED");
+    expect(error.wwwAuthenticate).toContain("resource_metadata=");
+    expect(error.message).toContain("expired");
+    expect(error.message).not.toContain("replace");
+  });
+
+  it("keeps the replace-your-key copy for a revoked key when OAuth is off", async () => {
+    const error = await authError(
+      {
+        subscriptions: { resolve: async () => ({ tier: "invalid" as const, verified: true, rejection: "REVOKED_KEY" as const }) },
+        config: { apiKey: "wa_dead" },
+      },
+      "http",
+    );
+    expect(error.code).toBe("REVOKED_KEY");
+    expect(error.wwwAuthenticate).toBeUndefined();
+    expect(error.message).toContain("replace the key");
+  });
+
   it("still answers PRO_REQUIRED — not a login — for a connected account without a subscription", async () => {
     // The second gate. Challenging here would loop a signed-in user back
     // through a login that cannot fix what is actually wrong.

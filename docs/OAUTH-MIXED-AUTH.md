@@ -1,4 +1,4 @@
-# Mixed Auth — what this repo ships, and what website-auditor-api still owes
+# Mixed Auth — how the two repos fit together
 
 ## Why this exists
 
@@ -51,7 +51,7 @@ install and existing `Bearer wa_…` caller is byte-identical to before.
 | Piece | Where |
 |---|---|
 | `oauthEnabled`, metadata document, challenge builder, scheme derivation, `looksLikeApiKey` | `src/auth/oauth.ts` |
-| Access token → API key, with TTL cache | `src/auth/tokenExchange.ts` |
+| Access token → derived API key, with bounded TTL cache | `src/auth/tokenExchange.ts` |
 | `/.well-known/oauth-protected-resource` route; `credentialFor()` | `src/http.ts` |
 | `_meta.securitySchemes` on registration; `_meta["mcp/www_authenticate"]` lifting | `src/mcp/server.ts` |
 | The challenge on `AUTH_REQUIRED`, and the two-gate copy | `src/tools/context.ts` |
@@ -73,54 +73,70 @@ Three decisions worth knowing before changing any of it:
   wrong for an OAuth one. With OAuth OFF the old verbatim passthrough is
   preserved exactly, so the typo can still be named.
 
-## What website-auditor-api still owes
+## What website-auditor-api provides
 
-The MCP side is inert until these exist.
+Shipped in that repo on the same branch — the MCP side was inert until it landed.
 
 ### 1. OAuth 2.1 authorization server
 
-- Authorization Code + PKCE. No implicit flow.
-- Dynamic Client Registration (RFC 7591) — ChatGPT self-registers; there is no
-  dashboard step where someone pastes a client ID.
-- Authorization-server metadata at `/.well-known/oauth-authorization-server`.
-- A consent screen naming the scope in the user's terms.
-- Token issuance and refresh.
+`src/routes/oauth.js` + `src/services/oauth.js`, root-mounted so the RFC 8414
+discovery document sits where clients look:
 
-The admin portal already has accounts and already mints `wa_` keys, so this is an
-OAuth layer over existing identity — not a new user system.
+| Endpoint | Spec |
+|---|---|
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 |
+| `POST /oauth/register` | RFC 7591 — DCR, open, since ChatGPT self-registers |
+| `GET /oauth/authorize` | Authorization Code + PKCE **S256 only** |
+| `POST /oauth/token` | code exchange + refresh, with rotation |
+| `POST /oauth/revoke` | RFC 7009 |
+| `POST /api/oauth/introspect` | RFC 7662, resource-server authenticated |
 
-### 2. Introspection endpoint
+Consent reuses the portal's existing Google sign-in. Both login paths carry an
+explicit carve-out so an in-flight authorization finishes regardless of
+subscription: `resolvePostAuthDestination` otherwise diverts a non-subscriber to
+the paywall, which is right for a report link and wrong here — a connection has
+to be completable by someone who has not paid yet, or the two-gate behaviour
+below cannot happen.
 
-`POST /api/oauth/introspect`, RFC 7662, form-encoded `token` +
-`token_type_hint=access_token`. The resource server authenticates with a bearer
-secret (`WA_OAUTH_INTROSPECTION_SECRET`); an open introspection endpoint is a
-token oracle.
+### 2. The derived key — corrected from what this doc first specified
 
-```json
-{ "active": true, "api_key": "wa_...", "scope": "audit" }
+The original version of this document had introspection return the user's
+**personal** API key. That was the weakest part of the design: the MCP holds
+keys only for people who deliberately pasted one, and that version would have
+given it a permanent credential for every ChatGPT user who connects.
+
+What shipped instead: a token mints its **own** `wa_` key, expiring with it and
+revoked when it is revoked. Same shape and same hashed storage, so `apiKeyAuth`'s
+lookup is unchanged; `api_keys` gained `expires_at` and `oauth_token_id`
+(migration 030), and `apiKeyAuth` answers `revoked_key` past the expiry.
+
+The key is **recomputed, never stored**:
+
+```
+derived key = 'wa_' + base64url(HMAC-SHA256(introspection secret, access token))
 ```
 
-**The contract that matters: an active token must resolve to a key for ANY
-authenticated account, subscribed or not.** Withholding the key from a
-non-subscriber looks safer and strands them — with no key they resolve to tier
-`none`, which answers `AUTH_REQUIRED` and asks them to connect an account they
-just connected. Returning the key lets the normal subscription path answer
-`PRO_REQUIRED` instead: true, and with a way forward. Two gates, two answers.
+Deterministic, so introspection reproduces it on every call and the MCP's
+per-tenant bundle stays coherent for the session; unguessable without the server
+secret; and safe even if that secret leaks, because a computed key only works if
+its hash was written to `api_keys` at issuance.
 
-*Alternative considered:* teach every API endpoint to accept OAuth tokens
-directly and forward the token instead of exchanging it. Cleaner in isolation,
-but far larger — every tool here reaches the API through a key, `TenantDeps` is
-keyed by one, and the 24h audit cache and 60s subscription cache both hang off
-that bundle. Exchanging once at the edge leaves all of it untouched.
+`{ "active": true, "api_key": "wa_…", "scope": "audit", "sub": "…", "exp": … }`
+
+**Minted for any authenticated account, subscribed or not** — the contract this
+repo depends on. `requireProSession` on `POST /api/keys` did **not** need
+relaxing: personal keys keep their existing rules and derived keys are a
+separate path.
 
 ### 3. Deployment
 
-Set `WA_OAUTH_ISSUER`, `WA_OAUTH_RESOURCE_URL`, `WA_OAUTH_INTROSPECTION_SECRET`
-on the Cloud Run service, then redeploy.
+Set `OAUTH_INTROSPECTION_SECRET` (the single switch — see that repo's
+`.env.example`) and `OAUTH_ISSUER`, then apply migration 030 and redeploy. On
+this side set `WA_OAUTH_ISSUER`, `WA_OAUTH_RESOURCE_URL` and
+`WA_OAUTH_INTROSPECTION_SECRET` to match.
 
-**Redeploy and rescan together.** The deployed box is still the 2026-08-11 build
-serving 14 tools; `main` now has 15 (`get_gtm_plan`). The moment it ships it
-serves a tool the portal's snapshot has never seen.
+**Redeploy and rescan together.** The live box is still the 2026-08-11 build
+serving 14 tools; `main` now has 15 (`get_gtm_plan`).
 
 ## Portal steps, once deployed
 

@@ -214,6 +214,31 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
   // they weren't warned about — hence stating both, in the order they must
   // happen. The API's own remediation text is passed through, not replaced.
   if (tier === "invalid") {
+    // Under Mixed Auth this is almost never a pasted key gone bad — it is the
+    // OAuth-derived key having expired or been revoked, and that key was never
+    // something the reader typed. The stock copy below tells them to create a
+    // replacement in the portal, which is advice for a credential they do not
+    // have and cannot act on; what they actually need is the login re-offered.
+    //
+    // Reachable through no fault of theirs, too: the hosted transport caches a
+    // resolved key for 60s, so a derived key that expires inside that window
+    // sends the next call upstream with a dead credential and lands exactly
+    // here. The challenge turns that into a reconnect instead of a dead end.
+    if (deps.transport === "http" && oauthEnabled(deps.config)) {
+      return err(
+        "AUTH_REQUIRED",
+        `The Website Auditor connection for this conversation has expired. ` +
+          `Reconnect when prompted — there is no key to paste. ` +
+          `get_sample_audit keeps working with no account at all in the meantime.`,
+        {
+          upgrade_url: upgradeUrl,
+          wwwAuthenticate: wwwAuthenticateChallenge(
+            deps.config,
+            "The Website Auditor connection expired. Reconnect to continue.",
+          ),
+        },
+      );
+    }
     // The upstream message already carries the "generate a new key" instruction,
     // so only the portal URL and the subscription caveat are added — restating
     // it produced "Generate a new key from the admin portal. Create a
