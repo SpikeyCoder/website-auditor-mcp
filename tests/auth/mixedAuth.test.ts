@@ -479,10 +479,39 @@ describe("the resource's advertised scopes", () => {
       .toEqual(["audit", "openid", "email"]);
   });
 
-  it("leaves the challenge and the per-tool scheme naming the AUDIT scope alone", () => {
-    // A tool needs the audit capability, never an identity claim, so widening
-    // the resource document must not widen either of these.
+  it("asks for every configured scope, not just the audit one", () => {
+    // This assertion used to be its own opposite, on the reasoning that "a tool
+    // needs the audit capability, never an identity claim, so widening the
+    // resource document must not widen either of these."
+    //
+    // That conflated two different things. What a TOOL needs to run is `audit`.
+    // What the CONNECTOR must request at authorization time is everything the
+    // grant has to cover — and there is one grant for the whole connector, with
+    // no second flow in which identity could be requested separately. These two
+    // values are the only places a client reads to build its authorization
+    // request: RFC 6750 §3 defines the challenge's `scope` as "the scope of
+    // access required", and the Apps SDK reads the per-tool scheme during a
+    // scan. Naming `audit` alone in both meant nothing ever asked for `openid`
+    // or `email`, so no ID token and no verified email could exist — and the
+    // ChatGPT portal reported enterprise domain restrictions as unavailable
+    // while the resource document truthfully advertised all three as available.
+    //
+    // Offered and requested have to agree. `scopes_supported` says what the
+    // resource accepts; these say what the client should ask for.
     const config = testConfig({ ...OAUTH, oauthScopes: ["audit", "openid", "email"] });
+    expect(wwwAuthenticateChallenge(config, "nope")).toContain('scope="audit openid email"');
+    expect(securitySchemesFor("pro", config, "http"))
+      .toEqual([{ type: "oauth2", scopes: ["audit", "openid", "email"] }]);
+  });
+
+  it("still asks for the audit scope alone when nothing wider is configured", () => {
+    // The no-regression proof, stated rather than implied. oauthScopes defaults
+    // to oauthScope (config.ts), so an existing deployment with WA_OAUTH_SCOPES
+    // unset emits exactly what it emitted before — widening stays an explicit
+    // act, which matters because advertising a scope the authorization server
+    // will reject turns every login into invalid_scope.
+    const config = testConfig(OAUTH);
+    expect(config.oauthScopes).toEqual(["audit"]);
     expect(wwwAuthenticateChallenge(config, "nope")).toContain('scope="audit"');
     expect(securitySchemesFor("pro", config, "http")).toEqual([{ type: "oauth2", scopes: ["audit"] }]);
   });

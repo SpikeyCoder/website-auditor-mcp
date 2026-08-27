@@ -41,6 +41,7 @@ the submission snapshot.
 | 0.3 | MCP deployed | from a clean `main`: `git rev-parse --short HEAD` then `gcloud run deploy website-auditor-mcp --source . --region us-central1` | HEAD contains `8c14a48`; deploy succeeds | ☐ |
 | 0.4 | Mixed Auth on | `gcloud run services logs read website-auditor-mcp --region us-central1 --limit 20 \| grep "Mixed Auth"` | reads `Mixed Auth ON`, with the issuer and a secret length of 44 | ☐ |
 | 0.4b | The resource declares the scopes its AS offers | `diff <(curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq -S .scopes_supported) <(curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource \| jq -S .scopes_supported) && echo MATCH` | `MATCH` | ☐ |
+| 0.4c | …and the tools ASK for them | `curl -s -X POST https://mcp.website-auditor.io/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \| jq -S '[.result.tools[]._meta.securitySchemes[0] \| select(.type=="oauth2") .scopes] \| unique'` | one entry, equal to 0.4b's list | ☐ |
 | 0.5 | Readable from a browser | the loop below | four `access-control-allow-origin: *`, no `allow-credentials` | ☐ |
 | 0.6 | End to end | `OAUTH_INTROSPECTION_SECRET="$(cat ~/.wa-oauth-secret)" node verify-oauth.mjs` | `ALL CHECKS PASSED`, exit 0 | ☐ |
 
@@ -52,6 +53,17 @@ hypothetical: it wiped `OAUTH_INTROSPECTION_SECRET` and took the entire OAuth
 stack down for eleven hours. Never set either by hand with `--update-env-vars`;
 the next deploy would remove it again. Add the secret in GitHub and to that
 list.
+
+**0.4b and 0.4c are two halves of one invariant: what the resource OFFERS and
+what the connector ASKS FOR must agree.** They were allowed to disagree, and
+did. The resource document advertised `audit openid email` while every tool's
+`securitySchemes` — and the `WWW-Authenticate` challenge — named `audit` alone,
+which are the only two things a client reads to build its authorization request
+(RFC 6750 §3 calls the challenge's `scope` "the scope of access required"). So
+nothing ever requested the identity scopes, no ID token or verified email could
+exist, and the portal reported enterprise domain restrictions as unavailable
+with every other row on this page green. Checking either half alone would have
+missed it; `verify-oauth.mjs` step 7b now compares them directly.
 
 **0.4b checks the deployed document, not an environment variable, and that
 distinction is the point.** The MCP's `scopes_supported` comes from

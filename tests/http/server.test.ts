@@ -768,6 +768,57 @@ describe("Mixed Auth over Streamable HTTP", () => {
     await client.close();
   });
 
+  it("publishes every configured scope to a client, not just the audit one", async () => {
+    // Through tools/list, because the unit tests check the function and this
+    // checks what actually reaches ChatGPT. The Apps SDK reads these during a
+    // scan to decide what the connector will request, and while they named
+    // `audit` alone nothing ever asked for `openid` or `email` — so no ID token
+    // and no verified email could exist, and the portal reported enterprise
+    // domain restrictions as unavailable while the resource document truthfully
+    // advertised all three as available.
+    const { url } = await listen({
+      config: testConfig({
+        apiKey: undefined,
+        ...MIXED_AUTH,
+        oauthScopes: ["audit", "openid", "email"],
+      }),
+      depsFactory: recordingFactory().factory,
+    });
+    const client = await connectClient(url);
+    const { tools } = await client.listTools();
+
+    const pro = tools.filter((t) => JSON.stringify(t._meta?.securitySchemes).includes("oauth2"));
+    expect(pro.length).toBe(13);
+    for (const tool of pro) {
+      expect(tool._meta?.securitySchemes, tool.name)
+        .toEqual([{ type: "oauth2", scopes: ["audit", "openid", "email"] }]);
+    }
+
+    // What is asked for must equal what the resource document says it accepts.
+    // Compared to each other rather than to a literal: the pair has to AGREE,
+    // and pinning either side here would just add a third place to keep in step.
+    const doc = await (await fetch(`${url}/.well-known/oauth-protected-resource`)).json();
+    expect(doc.scopes_supported).toEqual(["audit", "openid", "email"]);
+    expect((pro[0]!._meta!.securitySchemes as [{ scopes: string[] }])[0].scopes)
+      .toEqual(doc.scopes_supported);
+
+    await client.close();
+  });
+
+  it("serves the resource document uncacheable, so a config change is not held stale", async () => {
+    // It carried no Cache-Control at all, so a portal or intermediary could sit
+    // on a document from before the scopes were widened — indistinguishable
+    // from a deploy that never took effect, which is exactly the ambiguity that
+    // cost a debugging round.
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: recordingFactory().factory,
+    });
+    const resp = await fetch(`${url}/.well-known/oauth-protected-resource`);
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("exchanges an opaque bearer for the account's key before minting a tenant", async () => {
     const { factory, seenKeys } = recordingFactory();
     const { url } = await listen({
