@@ -315,6 +315,24 @@ async function main() {
     Array.isArray(pr.authorization_servers) && pr.authorization_servers[0] === disco.issuer,
     `metadata says ${JSON.stringify(pr.authorization_servers)}, discovery says ${disco.issuer}`);
 
+  // The resource must not UNDER-declare relative to its own authorization
+  // server. ChatGPT reads this document to learn what it may ask for, so a
+  // resource claiming only `audit` cannot be granted identity scopes however
+  // many the AS offers — which is one of the ways a connector ends up unable to
+  // offer enterprise domain restrictions, with every other check green.
+  //
+  // Compared against discovery rather than against a literal, because the pair
+  // has to AGREE; pinning either side here would just add a third place to keep
+  // in step. The MCP's list defaults to its single audit scope, so a build
+  // carrying the wider list still serves the narrow one until WA_OAUTH_SCOPES
+  // is actually set — this checks the document, not the intent.
+  const asScopes = [...(disco.scopes_supported ?? [])].sort();
+  const prScopes = [...(pr.scopes_supported ?? [])].sort();
+  check('it declares every scope the authorization server offers',
+    JSON.stringify(asScopes) === JSON.stringify(prScopes),
+    `resource says ${JSON.stringify(pr.scopes_supported)}, the AS offers ${JSON.stringify(disco.scopes_supported)}\n` +
+    '        Set WA_OAUTH_SCOPES on the MCP; it defaults to WA_OAUTH_SCOPE alone.');
+
   step('7b', 'Every tool declares a scheme (the half ChatGPT reads first)');
   const FREE = new Set(['get_sample_audit', 'check_upgrade_status']);
   const list = await rpc('tools/list', {});

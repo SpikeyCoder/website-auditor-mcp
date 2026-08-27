@@ -40,6 +40,7 @@ the submission snapshot.
 | 0.2 | OIDC live | `curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq '{issuer,scopes_supported,userinfo_endpoint,jwks_uri}'` | `scopes_supported` is `["audit","openid","email"]` | ☐ |
 | 0.3 | MCP deployed | from a clean `main`: `git rev-parse --short HEAD` then `gcloud run deploy website-auditor-mcp --source . --region us-central1` | HEAD contains `8c14a48`; deploy succeeds | ☐ |
 | 0.4 | Mixed Auth on | `gcloud run services logs read website-auditor-mcp --region us-central1 --limit 20 \| grep "Mixed Auth"` | reads `Mixed Auth ON`, with the issuer and a secret length of 44 | ☐ |
+| 0.4b | The resource declares the scopes its AS offers | `diff <(curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq -S .scopes_supported) <(curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource \| jq -S .scopes_supported) && echo MATCH` | `MATCH` | ☐ |
 | 0.5 | Readable from a browser | the loop below | four `access-control-allow-origin: *`, no `allow-credentials` | ☐ |
 | 0.6 | End to end | `OAUTH_INTROSPECTION_SECRET="$(cat ~/.wa-oauth-secret)" node verify-oauth.mjs` | `ALL CHECKS PASSED`, exit 0 | ☐ |
 
@@ -51,6 +52,28 @@ hypothetical: it wiped `OAUTH_INTROSPECTION_SECRET` and took the entire OAuth
 stack down for eleven hours. Never set either by hand with `--update-env-vars`;
 the next deploy would remove it again. Add the secret in GitHub and to that
 list.
+
+**0.4b checks the deployed document, not an environment variable, and that
+distinction is the point.** The MCP's `scopes_supported` comes from
+`WA_OAUTH_SCOPES`, which **defaults to `WA_OAUTH_SCOPE`** — so a build carrying
+the fix, merged and redeployed, still serves `["audit"]` until that variable is
+actually set to `"audit openid email"`. Checking the variable would tell you
+what someone intended; checking the document tells you what ChatGPT will read.
+
+The two lists must agree because the resource must not under-declare relative to
+its own authorization server: ChatGPT reads this document to learn what it may
+ask for, so a resource claiming only `audit` cannot be granted identity scopes
+no matter what the AS offers. The default is deliberately the narrow one —
+advertising a scope the AS will reject turns every login into `invalid_scope`,
+a failure that lands on users rather than on a scan — so widening it is an
+explicit act, and this row is what confirms the act happened.
+
+Unlike the API, the MCP has no deploy workflow: it is deployed by hand with
+`gcloud run deploy --source .`, which PRESERVES the existing environment. So
+`--update-env-vars` is safe here, and is the right way to set it — the
+never-set-it-by-hand rule in 0.1 is specific to services whose CI passes
+`--set-env-vars`. If an MCP deploy workflow is ever added, it inherits that
+hazard and this row is what will catch it.
 
 **0.5, the cross-origin check.** `curl` sends no `Origin` and enforces no CORS,
 so every other row here passes against a server the portal cannot read a single
