@@ -129,7 +129,12 @@ export function wwwAuthenticateChallenge(config: WaConfig, description: string):
   // than escaped — the challenge is read by parsers, not people.
   const params = [
     `resource_metadata="${metadataUrl}"`,
-    `scope="${config.oauthScope}"`,
+    // Every scope the grant has to cover, not just the audit capability. RFC
+    // 6750 §3 defines this as "the scope of access required", so a conforming
+    // client requests exactly what is named here — and naming `audit` alone
+    // meant nothing ever asked for the identity scopes the connector needs.
+    // Defaults to the audit scope, so an unconfigured server is unchanged.
+    `scope="${config.oauthScopes.join(" ")}"`,
     `error="invalid_token"`,
     `error_description="${description.replace(/"/g, "'")}"`,
   ];
@@ -159,7 +164,11 @@ export function securitySchemesFor(
   // answer to the same condition.
   if (transport !== "http" || !oauthEnabled(config)) return undefined;
   return tier === "pro"
-    ? [{ type: "oauth2", scopes: [config.oauthScope] }]
+    // config.oauthScopes, for the same reason as the challenge above: this is
+    // read during a tool scan to decide what the connector will ask for, and a
+    // tool needing only `audit` to RUN does not make `audit` the whole of what
+    // the one connector-wide grant must cover.
+    ? [{ type: "oauth2", scopes: config.oauthScopes }]
     : [{ type: "noauth" }];
 }
 

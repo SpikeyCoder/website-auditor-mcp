@@ -474,6 +474,11 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       // Readable cross-origin unconditionally: it is public discovery metadata
       // naming no secret, and a host that cannot read it cannot start a login.
       res.setHeader("Access-Control-Allow-Origin", "*");
+      // And never cached. Its contents follow configuration — the scopes it
+      // advertises changed once already — so a portal or intermediary holding
+      // an older copy looks exactly like a deploy that did not take effect.
+      // Matches the authorization server's own discovery documents.
+      res.setHeader("Cache-Control", "no-store");
       sendJson(res, 200, metadata);
       return;
     }

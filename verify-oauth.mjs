@@ -353,6 +353,29 @@ async function main() {
       .filter((t) => typeOf(t) && typeOf(t) !== (FREE.has(t.name) ? 'noauth' : 'oauth2'))
       .map((t) => `${t.name}=${typeOf(t)}`);
     check('the two free tools are noauth, the rest oauth2', miscast.length === 0, miscast.join(', '));
+
+    // WHAT IS ASKED FOR MUST EQUAL WHAT IS OFFERED.
+    //
+    // The resource document says which scopes it accepts; these say which the
+    // connector will actually request. They were allowed to disagree, and did:
+    // the document advertised audit/openid/email while every tool asked for
+    // `audit` alone, so nothing ever requested the identity scopes, no ID token
+    // or verified email could exist, and the ChatGPT portal reported enterprise
+    // domain restrictions as unavailable — with every other check on this page
+    // green. Nothing compared the two.
+    //
+    // Compared to each other rather than to a literal: the pair has to agree,
+    // and pinning either side would add a third place to keep in step.
+    const offered = [...(pr.scopes_supported ?? [])].sort();
+    const mismatched = tools
+      .filter((t) => typeOf(t) === 'oauth2')
+      .filter((t) => JSON.stringify([...(t._meta.securitySchemes[0].scopes ?? [])].sort()) !== JSON.stringify(offered))
+      .map((t) => `${t.name}=${JSON.stringify(t._meta.securitySchemes[0].scopes)}`);
+    check('every protected tool asks for exactly the scopes the resource offers',
+      mismatched.length === 0,
+      `the resource offers ${JSON.stringify(pr.scopes_supported)} but:\n` +
+      `        ${mismatched.slice(0, 4).join('\n        ')}\n` +
+      '        Set WA_OAUTH_SCOPES on the MCP — it feeds both, and defaults to the audit scope alone.');
   }
 
   step('7c', 'An unauthenticated Pro tool challenges (the half it reads second)');
