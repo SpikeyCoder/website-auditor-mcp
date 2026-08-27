@@ -40,7 +40,12 @@ the submission snapshot.
 | 0.2 | OIDC live | `curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq '{issuer,scopes_supported,userinfo_endpoint,jwks_uri}'` | `scopes_supported` is `["audit","openid","email"]` | ☐ |
 | 0.3 | MCP deployed | from a clean `main`: `git rev-parse --short HEAD` then `gcloud run deploy website-auditor-mcp --source . --region us-central1` | HEAD contains `8c14a48`; deploy succeeds | ☐ |
 | 0.4 | Mixed Auth on | `gcloud run services logs read website-auditor-mcp --region us-central1 --limit 20 \| grep "Mixed Auth"` | reads `Mixed Auth ON`, with the issuer and a secret length of 44 | ☐ |
-| 0.5 | End to end | `OAUTH_INTROSPECTION_SECRET="$(cat ~/.wa-oauth-secret)" node verify-oauth.mjs` | `ALL CHECKS PASSED` (24 checks) | ☐ |
+| 0.5 | End to end | `OAUTH_INTROSPECTION_SECRET="$(cat ~/.wa-oauth-secret)" node verify-oauth.mjs` | `ALL CHECKS PASSED`, exit 0 | ☐ |
+
+> The `gcloud` invocations in 0.1, 0.3 and 0.4 were written from the service
+> configuration and have **not been executed**. If one is rejected over a flag or
+> a format string, that is the command being wrong rather than the check failing
+> — fix the command and correct it here.
 
 Then, and only then, rescan in the portal:
 
@@ -134,8 +139,11 @@ four assistants in sequence, so this is the slowest tool in the set, and two
 ceilings sit above it:
 
 - the MCP client's own request timeout — **120 s** (`WA_REQUEST_TIMEOUT_MS`
-  default, `src/config.ts:240`); exceeding it surfaces as `TIMEOUT`
-- the host's tool budget — **300 s**
+  default, `src/config.ts:240`, verified in the code); exceeding it surfaces as
+  `TIMEOUT`
+- the host's tool budget — **300 s**. OpenAI's published figure, carried over
+  from the previous version of this document and **not measured here**. If your
+  P3 runs approach it, trust the measurement over this number.
 
 Run it **five times** and record each wall-clock duration, start of the tool call
 to the answer. Mobile separately: the rejection named mobile.
@@ -262,7 +270,7 @@ Resubmit only when every box above is ticked on **both** surfaces.
 | Date run | |
 | ChatGPT web build | |
 | Mobile OS + app version | |
-| MCP revision (`gcloud run services describe website-auditor-mcp --format='value(status.latestReadyRevisionName)'`) | |
+| MCP revision (`gcloud run services describe website-auditor-mcp --region us-central1 --format='value(status.latestReadyRevisionName)'` — untested, and it needs `--region`) | |
 | API revision | |
 | P3 range quoted in the listing | |
 | Anything that failed and what changed | |
