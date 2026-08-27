@@ -17,3 +17,7 @@ logo.svg
 .mcpbignore
 .npmignore
 vitest.config.ts
+# The production OAuth verifier. It is a developer tool run from a laptop
+# against the deployed services — the Dockerfile never COPYs it, so this only
+# keeps it out of the build context.
+verify-oauth.mjs
