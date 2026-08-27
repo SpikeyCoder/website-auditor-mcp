@@ -578,6 +578,28 @@ export function portFromEnv(env: NodeJS.ProcessEnv | Record<string, string | und
     : parsePort(env.PORT, 8787, "PORT");
 }
 
+/**
+ * What Mixed Auth is doing, for the boot log.
+ *
+ * The secret is reported by LENGTH, never by value: it is a shared HMAC key and
+ * the log is not the place for it, but a length is enough to catch the mismatch
+ * that actually happened — a 23-character local value against a 44-character
+ * one on the server — without printing anything worth stealing.
+ */
+export function mixedAuthSummary(config: WaConfig): string {
+  if (!oauthEnabled(config)) {
+    return "Mixed Auth OFF — set WA_OAUTH_ISSUER and WA_OAUTH_RESOURCE_URL (both absolute http(s) URLs) to enable it";
+  }
+  const secret = config.oauthIntrospectionSecret;
+  return (
+    `Mixed Auth ON — issuer ${config.oauthIssuer}, resource ${config.oauthResourceUrl}, ` +
+    `introspection ${config.oauthIntrospectionUrl} ` +
+    (secret
+      ? `(secret set, ${secret.length} chars — it must match the API's byte for byte)`
+      : "(WA_OAUTH_INTROSPECTION_SECRET MISSING — every login will fail at introspection)")
+  );
+}
+
 async function main(): Promise<void> {
   const options = httpOptionsFromEnv(process.env);
   const port = portFromEnv(process.env);
@@ -586,6 +608,14 @@ async function main(): Promise<void> {
     console.error(
       `[website-auditor-mcp] http ready on :${port} — POST ${MCP_PATH}, API ${options.config.apiBaseUrl}, upsell style ${options.config.upsellStyle}`,
     );
+    // Mixed Auth fails SILENTLY in both directions — an unconfigured server
+    // serves a 404 at the metadata path and publishes no scheme, which is
+    // indistinguishable on the wire from an older image that never had the
+    // route, and a configured one with the wrong introspection secret looks
+    // perfect until a real user tries to log in. Neither shows up anywhere in
+    // the logs, so a deploy that shipped the wrong thing had to be diagnosed
+    // from the shape of a 404 body. One line at boot answers it instead.
+    console.error(`[website-auditor-mcp] ${mixedAuthSummary(options.config)}`);
   });
 }
 
