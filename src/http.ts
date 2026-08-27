@@ -260,6 +260,30 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+/**
+ * A read of a document: GET, or HEAD, which is GET without the body.
+ *
+ * RFC 9110 §9.3.2 — a server that serves GET on a path serves HEAD on it, with
+ * identical headers and no content. Getting this wrong was not cosmetic: the
+ * discovery routes below matched GET alone, so `curl -I` (which sends HEAD)
+ * fell past them into the catch-all and answered `404 not found` for a document
+ * the server serves perfectly well. From outside that is indistinguishable from
+ * an MCP whose OAuth is switched off or whose image predates the OAuth code —
+ * and it read as exactly that during a live check against a working server.
+ *
+ * The API is Express, which answers HEAD from a GET route by itself. Two
+ * servers publishing the same kind of document must not disagree about which
+ * methods read it.
+ *
+ * Only the ROUTING is handled here. Node suppresses the body on a HEAD response
+ * itself, and the headers it sends are byte-identical whether or not a body is
+ * passed to res.end() — measured, not assumed — so an explicit `if HEAD then no
+ * body` would be a branch no test could ever hold.
+ */
+function isRead(method: string | undefined): boolean {
+  return method === "GET" || method === "HEAD";
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -427,7 +451,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    if (url.pathname === CHALLENGE_PATH && req.method === "GET") {
+    if (url.pathname === CHALLENGE_PATH && isRead(req.method)) {
       if (!challengeToken) {
         res.writeHead(404, { "Content-Type": "text/plain" }).end("no challenge configured");
         return;
@@ -437,7 +461,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    if (url.pathname === PROTECTED_RESOURCE_PATH && req.method === "GET") {
+    if (url.pathname === PROTECTED_RESOURCE_PATH && isRead(req.method)) {
       const metadata = protectedResourceMetadata(base);
       if (!metadata) {
         // A 404 is the honest answer for a server with no OAuth configured, and

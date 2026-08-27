@@ -65,10 +65,20 @@ for u in \
   https://mcp.website-auditor.io/.well-known/oauth-protected-resource
 do
   echo "── $u"
-  curl -sS -I -H 'Origin: https://platform.openai.com' "$u" \
+  curl -sS -o /dev/null -D - -H 'Origin: https://platform.openai.com' "$u" \
     | grep -Ei '^(HTTP|access-control)' | sed 's/^/   /'
 done
 ```
+
+**`-o /dev/null -D -`, not `-I`.** `curl -I` sends **HEAD**, and the two servers
+used to disagree about it: the API is Express, which answers HEAD from a GET
+route by itself, while the MCP matched GET alone and dropped HEAD into its
+catch-all — so the same loop returned three 200s and one `404` for a document
+that was being served correctly the whole time. A false 404 there is
+indistinguishable from an MCP whose OAuth is off or whose image predates the
+OAuth code, which are the two real failures this row exists to catch. The MCP
+answers HEAD now, but the loop reads the headers off a real GET regardless: the
+check should not depend on a method the portal never uses.
 
 Every one must show `access-control-allow-origin: *` and **no**
 `access-control-allow-credentials`. `Failed to fetch` in the portal is a CORS

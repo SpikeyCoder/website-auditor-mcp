@@ -694,6 +694,38 @@ describe("Mixed Auth over Streamable HTTP", () => {
     expect(resp.status).toBe(404);
   });
 
+  it("answers HEAD on the metadata document, not a false 404", async () => {
+    // A discovery probe using HEAD used to fall past the GET-only route into
+    // the catch-all and get `404 not found` — indistinguishable, from outside,
+    // from an MCP whose OAuth is off or whose image predates the OAuth code.
+    // It read as exactly that during a live check against a working server,
+    // because `curl -I` sends HEAD.
+    //
+    // The API is Express, which answers HEAD from a GET route by itself. Two
+    // servers publishing the same kind of document must not disagree about
+    // which methods read it.
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: recordingFactory().factory,
+    });
+
+    const head = await fetch(`${url}/.well-known/oauth-protected-resource`, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    // Same headers as the GET, since that is what HEAD promises about it.
+    expect(head.headers.get("access-control-allow-origin")).toBe("*");
+    expect(head.headers.get("content-type")).toBe("application/json");
+    // And no body, which is the other half of RFC 9110 §9.3.2.
+    expect(await head.text()).toBe("");
+
+    // The 404 path answers HEAD too, or the misconfiguration case regains the
+    // ambiguity this fixes: `no oauth configured` and `not found` mean
+    // different things and point at different fixes.
+    const off = await listen({ depsFactory: recordingFactory().factory });
+    const offHead = await fetch(`${off.url}/.well-known/oauth-protected-resource`, { method: "HEAD" });
+    expect(offHead.status).toBe(404);
+    expect(offHead.headers.get("content-type")).toBe("text/plain");
+  });
+
   it("serves the RFC 9728 document, readable cross-origin, when OAuth is configured", async () => {
     const { url } = await listen({
       config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
