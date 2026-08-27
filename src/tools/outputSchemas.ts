@@ -234,9 +234,10 @@ export const getMonitoringStatusOutput: ZodRawShape = {
   limit: z.number(),
   used: z.number(),
   remaining: z.number(),
-  // `latest_score`, `change` and `summary` are computed by the tool, so they
-  // are guaranteed; everything else is copied raw from an unnormalized
-  // body.sites and is not.
+  // `change` and `summary` are computed by the tool, so they are guaranteed.
+  // `latest_score` is now normalized to number-or-null at the seam (it was read
+  // raw, and an absent upstream score reached here as undefined); everything
+  // else is copied straight off an unnormalized body.sites and is not.
   sites: z.array(open({
     domain: z.string(),
     cadence: z.string().optional(),

@@ -207,7 +207,19 @@ describe("declared output schemas", () => {
     }),
     // A freshly-enrolled row: no next_run_at, no last_audited_at, no digest flag.
     listTrackedDomains: async () => ({ limit: 5, used: 1, remaining: 4, tracked: [{ domain: "example.com" }] }),
-    getMonitoringStatus: async () => ({ limit: 5, used: 1, remaining: 4, sites: [{ domain: "example.com" }] }),
+    // Two rows: one with no `latest` at all, and one whose latest snapshot
+    // carries no score — the case that reaches the tool as `undefined` rather
+    // than null, which the previous fixture missed entirely by omitting
+    // `latest` and so only ever exercised the null path.
+    getMonitoringStatus: async () => ({
+      limit: 5,
+      used: 2,
+      remaining: 3,
+      sites: [
+        { domain: "example.com" },
+        { domain: "scoreless.example", latest: { by_engine: {} } },
+      ],
+    }),
     getRecommendations: async () => ({ recommendations: [{ action: "Add FAQ schema" }] }),
     generateSchema: async () => ({ jsonld: {}, placement_notes: "" }),
     getReport: async () => ({ report_url: "", badge_html: "" }),
