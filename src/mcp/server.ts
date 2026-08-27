@@ -25,7 +25,7 @@ import { getReport } from "../tools/getReport.js";
 import { checkUpgradeStatus } from "../tools/checkUpgradeStatus.js";
 import { getSampleAudit } from "../tools/sampleAudit.js";
 import { upgradeLink } from "../tools/upgrade.js";
-import { securitySchemesFor } from "../auth/oauth.js";
+import { oauthEnabled, securitySchemesFor } from "../auth/oauth.js";
 import { buildInstructions } from "./instructions.js";
 import { PROMPT_SPECS } from "./prompts.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
@@ -157,7 +157,12 @@ export function createServer(deps: ToolDeps): McpServer {
       // funnel leaked. The full history, and why the string is shaped the way it
       // is, lives in ./instructions.ts; the ordering and proportion it must keep
       // are pinned by tests/mcp/instructionTriggers.test.ts.
-      instructions: buildInstructions(signupUrl, deps.config.upsellStyle, deps.transport),
+      instructions: buildInstructions(
+        signupUrl,
+        deps.config.upsellStyle,
+        deps.transport,
+        deps.transport === "http" && oauthEnabled(deps.config),
+      ),
     },
   );
 
@@ -192,7 +197,7 @@ export function createServer(deps: ToolDeps): McpServer {
     // an Apps SDK extension rather than MCP core, and registerTool's config
     // accepts no top-level field for it, so a value placed anywhere else would
     // be dropped before it reached the wire.
-    const securitySchemes = securitySchemesFor(spec.tier, deps.config);
+    const securitySchemes = securitySchemesFor(spec.tier, deps.config, deps.transport);
     server.registerTool(
       spec.name,
       {

@@ -74,7 +74,7 @@ export async function compareCompetitors(
   try {
     primaryHost = normalizeDomain(args.domain);
   } catch (e) {
-    return fromApiError(e, deps.config);
+    return fromApiError(e, deps.config, deps.transport);
   }
 
   const seen = new Set<string>([primaryHost]);
@@ -118,7 +118,7 @@ export async function compareCompetitors(
         `The site at ${args.domain} could not be reached, so it can't be compared. Check the domain is correct and publicly reachable.`,
       );
     case "error":
-      return fromApiError(primaryOutcome.error, deps.config);
+      return fromApiError(primaryOutcome.error, deps.config, deps.transport);
   }
   const primaryAv = primaryOutcome.av;
 
@@ -141,7 +141,7 @@ export async function compareCompetitors(
         // Any key rejection, however the API named it — a revoked key fails
         // every remaining domain exactly as an unrecognised one does.
         if (outcome.error instanceof WaApiError && isKeyRejection(outcome.error.code)) {
-          return fromApiError(outcome.error, deps.config);
+          return fromApiError(outcome.error, deps.config, deps.transport);
         }
         skipped.push({
           domain: host,

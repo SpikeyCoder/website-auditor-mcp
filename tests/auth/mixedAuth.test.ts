@@ -22,8 +22,10 @@ import {
   wwwAuthenticateChallenge,
 } from "../../src/auth/oauth.js";
 import { IntrospectionTokenExchange } from "../../src/auth/tokenExchange.js";
-import { gateProTool } from "../../src/tools/context.js";
+import { fromApiError, gateProTool } from "../../src/tools/context.js";
+import { WaApiError } from "../../src/api/errors.js";
 import { toCallResult } from "../../src/mcp/server.js";
+import { buildInstructions } from "../../src/mcp/instructions.js";
 import { makeDeps, testConfig } from "../helpers.js";
 
 const OAUTH = {
@@ -44,6 +46,14 @@ describe("oauthEnabled — both halves or nothing", () => {
 
   it("is on only when both an issuer and a resource identifier are present", () => {
     expect(oauthEnabled(testConfig(OAUTH))).toBe(true);
+  });
+
+  it("requires them to be real URLs, not merely non-empty", () => {
+    // A truthy-only test turned Mixed Auth fully on for a value that is not a
+    // URL: a 200 metadata document with an invalid resource, and challenges
+    // carrying a bare relative path no client can resolve.
+    expect(oauthEnabled(testConfig({ ...OAUTH, oauthResourceUrl: "mcp.website-auditor.io/mcp" }))).toBe(false);
+    expect(oauthEnabled(testConfig({ ...OAUTH, oauthIssuer: "not a url" }))).toBe(false);
   });
 });
 
@@ -101,16 +111,24 @@ describe("the WWW-Authenticate challenge", () => {
 
 describe("securitySchemes — derived from the registry's own tier", () => {
   it("publishes nothing at all when OAuth is off", () => {
-    expect(securitySchemesFor("pro", testConfig())).toBeUndefined();
-    expect(securitySchemesFor("free", testConfig())).toBeUndefined();
+    expect(securitySchemesFor("pro", testConfig(), "http")).toBeUndefined();
+    expect(securitySchemesFor("free", testConfig(), "http")).toBeUndefined();
   });
 
   it("marks pro tools oauth2 with the configured scope", () => {
-    expect(securitySchemesFor("pro", testConfig(OAUTH))).toEqual([{ type: "oauth2", scopes: ["audit"] }]);
+    expect(securitySchemesFor("pro", testConfig(OAUTH), "http")).toEqual([{ type: "oauth2", scopes: ["audit"] }]);
   });
 
   it("marks free tools noauth, so the sample stays reachable without a login", () => {
-    expect(securitySchemesFor("free", testConfig(OAUTH))).toEqual([{ type: "noauth" }]);
+    expect(securitySchemesFor("free", testConfig(OAUTH), "http")).toEqual([{ type: "noauth" }]);
+  });
+
+  it("publishes nothing over stdio, which can never answer the login it would advertise", () => {
+    // Half a Mixed Auth setup fails silently: a stdio process with the OAuth
+    // variables set would offer oauth2 on thirteen tools and be structurally
+    // unable to emit a challenge.
+    expect(securitySchemesFor("pro", testConfig(OAUTH), "stdio")).toBeUndefined();
+    expect(securitySchemesFor("pro", testConfig(OAUTH), undefined)).toBeUndefined();
   });
 });
 
@@ -213,6 +231,28 @@ describe("IntrospectionTokenExchange", () => {
     expect(ex.size()).toBe(1);
   });
 
+  it("dates a negative from when it was STORED, not from before a slow introspection", async () => {
+    // requestTimeoutMs is 120s by default, so a degraded endpoint could take
+    // far longer than the 5s negative window. Dating the entry from before the
+    // await wrote negatives that were already expired, and the flood bound
+    // vanished exactly when the endpoint could least absorb it.
+    let clock = 0;
+    let calls = 0;
+    const ex = exchangeWith(
+      async () => {
+        clock += 30_000;
+        calls += 1;
+        return jsonResponse({ active: false });
+      },
+      {},
+      () => clock,
+    );
+    await ex.resolve("opaque");
+    expect(calls).toBe(1);
+    await ex.resolve("opaque");
+    expect(calls).toBe(1);
+  });
+
   it("stays bounded even when nothing has expired yet", async () => {
     // All positives, one clock tick, so the TTL sweep can free nothing and only
     // the hard cap is holding the line.
@@ -310,6 +350,54 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     const error = await authError({ tier: "free", config: { ...OAUTH, apiKey: "wa_k" } }, "http");
     expect(error.code).toBe("PRO_REQUIRED");
     expect(error.wwwAuthenticate).toBeUndefined();
+  });
+});
+
+describe("handshake instructions", () => {
+  it("stop telling the model to obtain a key once Mixed Auth is live", () => {
+    // These are the first thing the model reads. Leaving the header
+    // instruction in place made them contradict the "there is no key to paste"
+    // copy every tool returns later — two procedures, no way to choose.
+    const mixed = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", true);
+    expect(mixed).toContain("connect a Website Auditor account");
+    expect(mixed).not.toContain("connector's authentication field");
+
+    const plain = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", false);
+    expect(plain).toContain("connector's authentication field");
+  });
+});
+
+describe("fromApiError — where an expired connection ACTUALLY surfaces", () => {
+  // gateProTool's matching branch only catches a connection that expired before
+  // it was ever used. Once a derived key has resolved once,
+  // DefaultSubscriptionProvider returns the cached tier before it tests for a
+  // key rejection, so the gate passes and the tool's own call is what 401s.
+  it("turns a key rejection into a reconnect, with the challenge", () => {
+    const result = fromApiError(
+      new WaApiError("REVOKED_KEY", "This API key has been revoked."),
+      testConfig(OAUTH),
+      "http",
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("AUTH_REQUIRED");
+    expect(result.error.wwwAuthenticate).toContain("resource_metadata=");
+    expect(result.error.message).toContain("expired");
+  });
+
+  it("leaves the upstream answer alone when OAuth is off", () => {
+    const result = fromApiError(new WaApiError("REVOKED_KEY", "revoked"), testConfig(), "http");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("REVOKED_KEY");
+    expect(result.error.wwwAuthenticate).toBeUndefined();
+  });
+
+  it("leaves it alone over stdio, and leaves non-key errors alone entirely", () => {
+    const overStdio = fromApiError(new WaApiError("REVOKED_KEY", "revoked"), testConfig(OAUTH), "stdio");
+    expect(overStdio.ok === false && overStdio.error.code).toBe("REVOKED_KEY");
+    const quota = fromApiError(new WaApiError("OVER_QUOTA", "slow down"), testConfig(OAUTH), "http");
+    expect(quota.ok === false && quota.error.code).toBe("OVER_QUOTA");
   });
 });
 

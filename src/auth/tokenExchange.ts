@@ -75,10 +75,17 @@ export class IntrospectionTokenExchange implements TokenExchange {
     if (cached && cached.expiresAt > at) return cached.key;
 
     const key = await this.introspect(token);
-    this.evict(at);
+    // Re-sampled AFTER the await, not reused from before it. The introspection
+    // call can take up to requestTimeoutMs (120s by default), and dating the
+    // entry from before it meant a degraded endpoint wrote negatives that were
+    // already expired — so every junk token re-introspected on every request
+    // and the flood bound this cache exists to provide silently disappeared,
+    // precisely when the endpoint was least able to absorb it.
+    const storedAt = this.now();
+    this.evict(storedAt);
     this.cache.set(token, {
       key,
-      expiresAt: at + (key ? this.ttlMs : NEGATIVE_TTL_MS),
+      expiresAt: storedAt + (key ? this.ttlMs : NEGATIVE_TTL_MS),
     });
     return key;
   }

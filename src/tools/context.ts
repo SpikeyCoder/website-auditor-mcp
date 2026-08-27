@@ -103,8 +103,46 @@ export function err(
 }
 
 /** Map a thrown WaApiError (or unknown error) to a ToolError result. */
-export function fromApiError(e: unknown, config: WaConfig): ToolResult<never> {
+export function fromApiError(
+  e: unknown,
+  config: WaConfig,
+  transport?: ToolDeps["transport"],
+): ToolResult<never> {
   if (e instanceof WaApiError) {
+    // Under Mixed Auth a key rejection means the CONNECTION died, not that a
+    // pasted key went bad — and this is where that actually surfaces, which
+    // gateProTool's matching branch does not cover.
+    //
+    // The reason is DefaultSubscriptionProvider's outage rule: on a failed
+    // lookup it returns the last-known cached tier BEFORE testing for a key
+    // rejection (entitlements.ts), and the cache entry is honored even once
+    // expired. So a derived key that dies after one successful call keeps
+    // resolving "pro", the gate passes, and the tool's own request is what
+    // 401s. gateProTool's branch only catches the cold-cache case — a
+    // connection that was never used before it expired.
+    //
+    // Without this, the commonest expiry path answered "This API key has been
+    // revoked. Generate a new key from the admin portal" to somebody who never
+    // had a key to replace, and no login was re-offered.
+    if (
+      transport === "http" &&
+      oauthEnabled(config) &&
+      isKeyRejection(e.code)
+    ) {
+      return err(
+        "AUTH_REQUIRED",
+        `The Website Auditor connection for this conversation has expired. ` +
+          `Reconnect when prompted — there is no key to paste. ` +
+          `get_sample_audit keeps working with no account at all in the meantime.`,
+        {
+          upgrade_url: upgradeLink(config),
+          wwwAuthenticate: wwwAuthenticateChallenge(
+            config,
+            "The Website Auditor connection expired. Reconnect to continue.",
+          ),
+        },
+      );
+    }
     // OVER_QUOTA is deliberately NOT in this list. It is the shared daily audit
     // cap, which only a subscriber can reach (there is no free API tier), so an
     // upgrade link there sells someone their own plan. See the 429 branch in

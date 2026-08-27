@@ -46,7 +46,23 @@ export function oauthEnabled(config: WaConfig): config is WaConfig & {
   oauthIssuer: string;
   oauthResourceUrl: string;
 } {
-  return Boolean(config.oauthIssuer && config.oauthResourceUrl);
+  if (!config.oauthIssuer || !config.oauthResourceUrl) return false;
+  // PARSEABLE, not merely present. A truthy-only test turned Mixed Auth fully
+  // on for a resource URL that is not a URL — serving a 200 metadata document
+  // with an invalid `resource`, and challenges whose resource_metadata was the
+  // bare relative path, which no client can resolve. That is the one-sided
+  // configuration this file's header calls silent: the host sees an offer it
+  // can never complete. Nothing validates these at boot, so it is checked here.
+  return isAbsoluteUrl(config.oauthIssuer) && isAbsoluteUrl(config.oauthResourceUrl);
+}
+
+function isAbsoluteUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -125,8 +141,18 @@ export function wwwAuthenticateChallenge(config: WaConfig, description: string):
  * drift would be invisible until a reviewer found a tool that gates at runtime
  * but advertises itself as open.
  */
-export function securitySchemesFor(tier: ToolTier, config: WaConfig): unknown[] | undefined {
-  if (!oauthEnabled(config)) return undefined;
+export function securitySchemesFor(
+  tier: ToolTier,
+  config: WaConfig,
+  transport?: "stdio" | "http",
+): unknown[] | undefined {
+  // Transport-gated for the same reason the runtime challenge is, and it was a
+  // real gap that only this half was not: a stdio process that happens to have
+  // the OAuth variables set advertised `oauth2` on thirteen tools while being
+  // structurally unable to ever emit a challenge — a client offered a login
+  // that cannot exist. Half a Mixed Auth setup fails silently, so both halves
+  // answer to the same condition.
+  if (transport !== "http" || !oauthEnabled(config)) return undefined;
   return tier === "pro"
     ? [{ type: "oauth2", scopes: [config.oauthScope] }]
     : [{ type: "noauth" }];

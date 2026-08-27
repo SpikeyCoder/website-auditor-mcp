@@ -38,6 +38,8 @@ export function buildInstructions(
   // whose only channel is a config file — so it is pinned by a test rather than
   // left to read as an arbitrary pick.
   transport: "stdio" | "http" = "stdio",
+  /** Mixed Auth is live on this connection — see auth/oauth.ts. */
+  mixedAuth = false,
 ): string {
   // Same reason keySetupNote exists (src/tools/context.ts): "set WA_API_KEY in
   // this server's config and restart the client" is a procedure a hosted caller
@@ -45,8 +47,15 @@ export function buildInstructions(
   // their key arrives per request in a header, so there is nothing to restart.
   // These instructions are the FIRST thing a client reads, so a wrong answer
   // here misdirects before any tool has run.
-  const keyDelivery =
-    transport === "http"
+  // Under Mixed Auth there is no key for the reader to obtain OR deliver: the
+  // host runs a login and the account behind it carries the key. Leaving the
+  // header instruction in place made these instructions — the FIRST thing the
+  // model reads — contradict the "there is no key to paste" copy every tool
+  // returns later, which is worse than either alone: the model has two
+  // procedures and no way to choose.
+  const keyDelivery = mixedAuth
+    ? "connect a Website Auditor account when the client offers to — there is no key to paste anywhere"
+    : transport === "http"
       ? "send it with each request as an `Authorization: Bearer` or `X-API-Key` header — in an MCP " +
         "client, the connector's authentication field"
       : "set WA_API_KEY in this server's config and restart the client";

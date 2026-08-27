@@ -26,6 +26,6 @@ export async function getChanges(args: GetChangesArgs, deps: ToolDeps): Promise<
     const changes = await deps.client.getChanges({ domain: args.domain, since: args.since });
     return ok(changes);
   } catch (e) {
-    return fromApiError(e, deps.config);
+    return fromApiError(e, deps.config, deps.transport);
   }
 }
