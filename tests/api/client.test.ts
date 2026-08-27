@@ -749,3 +749,42 @@ describe("WaApiClient.getGtmPlan surfaces the proxy's own refusals", () => {
     }
   });
 });
+
+describe("WaApiClient.getChanges — snapshots without a usable score", () => {
+  /**
+   * Subtracting an absent score yields NaN, and NaN is not merely untidy: it
+   * serialises to `null` in the text content and fails the tool's declared
+   * output schema outright, so a successful call came back as an
+   * "Output validation error" naming neither the domain nor the bad row.
+   *
+   * getAiVisibilityHistory already filters this exact endpoint for this exact
+   * reason ("rather than inventing zeros that would poison deltas"); getChanges
+   * simply did not.
+   */
+  const cfg = { ...baseCfg };
+
+  it("drops them rather than producing a NaN delta", async () => {
+    const fetchImpl = makeFetch(200, {
+      snapshots: [
+        { score: 40, by_engine: { chatgpt: 40 } },
+        { score: null, by_engine: {} },
+        { score: 55, by_engine: { chatgpt: 55 } },
+      ],
+    });
+    const client = new WaApiClient(cfg, { fetch: fetchImpl as unknown as typeof fetch });
+    const changes = await client.getChanges({ domain: "example.com" });
+    expect(Number.isNaN(changes.score_delta)).toBe(false);
+    expect(changes.score_delta).toBe(15);
+  });
+
+  it("still reports insufficient history when filtering leaves fewer than two", async () => {
+    // The filter must not turn "not enough history" into a silent zero delta.
+    const fetchImpl = makeFetch(200, {
+      snapshots: [{ score: 40, by_engine: {} }, { score: null, by_engine: {} }],
+    });
+    const client = new WaApiClient(cfg, { fetch: fetchImpl as unknown as typeof fetch });
+    await expect(client.getChanges({ domain: "example.com" })).rejects.toMatchObject({
+      code: "NOT_YET_AVAILABLE",
+    });
+  });
+});

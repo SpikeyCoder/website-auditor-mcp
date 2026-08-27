@@ -204,6 +204,12 @@ export function createServer(deps: ToolDeps): McpServer {
         title: spec.title,
         description: spec.description,
         inputSchema: spec.inputSchema,
+        // Declared where a tool has a stable result shape. The portal flags
+        // every tool without one ("so models can better understand this tool's
+        // results"); the SDK also validates `structuredContent` against it on
+        // success, which is why the schemas in outputSchemas.ts are written to
+        // match reality rather than to tighten it.
+        ...(spec.outputSchema ? { outputSchema: spec.outputSchema } : {}),
         annotations,
         ...(securitySchemes ? { _meta: { securitySchemes } } : {}),
       },

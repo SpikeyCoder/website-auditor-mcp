@@ -52,7 +52,14 @@ export async function getMonitoringStatus(
   try {
     const status = await deps.client.getMonitoringStatus();
     const sites: MonitoringStatusSite[] = status.sites.map((s) => {
-      const latestScore = s.latest ? s.latest.score : null;
+      // `s.latest ? s.latest.score : null` was not enough: a latest snapshot
+      // that carries no score yields UNDEFINED, not null, and the two are not
+      // interchangeable here. siteSummary reads `latestScore == null` to say
+      // "not audited yet", so undefined slipped past it into
+      // "AI visibility undefined/100", and the declared output schema — which
+      // types this as a number-or-null — rejected the whole successful call.
+      // `num()` is already used two lines down for exactly this row.
+      const latestScore = typeof s.latest?.score === "number" ? s.latest.score : null;
       const change =
         s.latest && s.previous
           ? computeChanges(

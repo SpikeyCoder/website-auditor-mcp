@@ -284,7 +284,13 @@ export class WaApiClient implements WaApiClientLike {
       insufficient_history?: boolean;
     };
 
-    const snaps = body.snapshots ?? [];
+    // Same filter its sibling getAiVisibilityHistory applies to this very
+    // endpoint, and for the reason stated there: a row with no usable score
+    // poisons the delta. Here it did worse than invent a zero — subtracting an
+    // absent score yields NaN, which JSON.stringify writes as `null` in the
+    // text content and which fails the declared output schema outright, so a
+    // successful call came back as an error naming neither.
+    const snaps = (body.snapshots ?? []).filter((s) => typeof s?.score === "number");
     if (snaps.length < 2) {
       throw new WaApiError(
         "NOT_YET_AVAILABLE",

@@ -12,7 +12,13 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createWaHttpServer, httpOptionsFromEnv, portFromEnv, type HttpServerOptions } from "../../src/http.js";
+import {
+  createWaHttpServer,
+  httpOptionsFromEnv,
+  mixedAuthSummary,
+  portFromEnv,
+  type HttpServerOptions,
+} from "../../src/http.js";
 import { loadConfig, type WaConfig } from "../../src/config.js";
 import type { ToolDeps } from "../../src/tools/context.js";
 import { makeDeps, testConfig, RecordingEventSink, UNEXPANDED_PLACEHOLDERS } from "../helpers.js";
@@ -406,6 +412,66 @@ describe("httpOptionsFromEnv / portFromEnv (what main() reads)", () => {
   it("names WHICH variable was bad, since the reader is staring at two of them", () => {
     expect(() => portFromEnv({ WA_HTTP_PORT: "havoc" })).toThrow(/WA_HTTP_PORT/);
     expect(() => portFromEnv({ PORT: "havoc" })).toThrow(/\bPORT\b/);
+  });
+
+  /**
+   * The boot line that says whether Mixed Auth is actually on.
+   *
+   * It exists because a misconfigured Mixed Auth setup is invisible from
+   * outside: an unconfigured server 404s the metadata path, which looks exactly
+   * like an OLDER IMAGE that never had the route — the two were told apart by
+   * the wording of a 404 body after a deploy shipped a stale `src/`. These
+   * assertions are about what an operator can conclude from one log line.
+   */
+  it("says OFF — and why — for every configuration that leaves Mixed Auth off", () => {
+    const off = /Mixed Auth OFF/;
+    expect(mixedAuthSummary(loadConfig({}))).toMatch(off);
+    // Half-configured is off, not half-on.
+    expect(mixedAuthSummary(loadConfig({ WA_OAUTH_ISSUER: "https://api.example" }))).toMatch(off);
+    expect(mixedAuthSummary(loadConfig({ WA_OAUTH_RESOURCE_URL: "https://mcp.example/mcp" }))).toMatch(off);
+    // The silent one: both present, but a bare host is not an absolute URL, so
+    // oauthEnabled rejects it and nothing downstream ever publishes a scheme.
+    // Without this line that box looks identical to a stale deploy.
+    expect(
+      mixedAuthSummary(
+        loadConfig({ WA_OAUTH_ISSUER: "api.example", WA_OAUTH_RESOURCE_URL: "https://mcp.example/mcp" }),
+      ),
+    ).toMatch(off);
+    // …and names the two variables, since "OFF" alone tells nobody what to set.
+    expect(mixedAuthSummary(loadConfig({}))).toMatch(/WA_OAUTH_ISSUER.*WA_OAUTH_RESOURCE_URL/);
+  });
+
+  it("reports the secret by LENGTH, never by value", () => {
+    // Obviously fake, and 44 chars so the length assertion means something —
+    // a realistic-looking base64 blob in a repo is a secret-scanner finding
+    // whether or not it was ever live.
+    const secret = "not-a-real-secret-only-its-length-matters-44";
+    const line = mixedAuthSummary(
+      loadConfig({
+        WA_OAUTH_ISSUER: "https://api.example",
+        WA_OAUTH_RESOURCE_URL: "https://mcp.example/mcp",
+        WA_OAUTH_INTROSPECTION_SECRET: secret,
+      }),
+    );
+    expect(line).toMatch(/Mixed Auth ON/);
+    expect(line).toContain("https://api.example");
+    expect(line).toContain("https://mcp.example/mcp");
+    // The length is the point: a 23-char value against the server's 44-char one
+    // was a real mismatch, and it cost a full verification cycle to find.
+    expect(line).toContain(`${secret.length} chars`);
+    // Cloud Run logs are not a vault. This is a shared HMAC key.
+    expect(line).not.toContain(secret);
+  });
+
+  it("calls out a missing introspection secret, which oauthEnabled does not check", () => {
+    // The nastiest state: metadata serves 200, every tool publishes a scheme,
+    // the challenge is well-formed — and every real login dies at introspection,
+    // because oauthEnabled() gates on the two URLs alone.
+    const line = mixedAuthSummary(
+      loadConfig({ WA_OAUTH_ISSUER: "https://api.example", WA_OAUTH_RESOURCE_URL: "https://mcp.example/mcp" }),
+    );
+    expect(line).toMatch(/Mixed Auth ON/);
+    expect(line).toMatch(/WA_OAUTH_INTROSPECTION_SECRET MISSING/);
   });
 
   it("lets an explicit WA_HTTP_PORT override a junk PORT instead of dying", () => {
