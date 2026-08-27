@@ -28,7 +28,7 @@ listing's OAuth flow, unless a case says keyless.
 
 ---
 
-## 0. Pre-flight — do not start the cases until all five pass
+## 0. Pre-flight — do not start the cases until every row passes
 
 A case that fails because the server was half-configured tells you nothing, and
 a portal rescan against a half-configured server bakes the wrong metadata into
@@ -36,12 +36,88 @@ the submission snapshot.
 
 | # | Check | Command / action | Pass condition | ✅ |
 |---|---|---|---|---|
-| 0.1 | OIDC key set | `gcloud run services update website-auditor-api --region us-central1 --update-env-vars "OIDC_PRIVATE_KEY=$(cat ~/.wa-oidc-key)"` | command succeeds, new revision serving | ☐ |
+| 0.1 | The API's secrets survived the last deploy | `gcloud run services describe website-auditor-api --region us-central1 --format='value(spec.template.spec.containers[0].env[].name)' \| tr ';' '\n' \| grep -c -E 'OAUTH_INTROSPECTION_SECRET\|OIDC_PRIVATE_KEY'` | `2` | ☐ |
 | 0.2 | OIDC live | `curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq '{issuer,scopes_supported,userinfo_endpoint,jwks_uri}'` | `scopes_supported` is `["audit","openid","email"]` | ☐ |
 | 0.3 | MCP deployed | from a clean `main`: `git rev-parse --short HEAD` then `gcloud run deploy website-auditor-mcp --source . --region us-central1` | HEAD contains `8c14a48`; deploy succeeds | ☐ |
 | 0.4 | Mixed Auth on | `gcloud run services logs read website-auditor-mcp --region us-central1 --limit 20 \| grep "Mixed Auth"` | reads `Mixed Auth ON`, with the issuer and a secret length of 44 | ☐ |
-| 0.5 | End to end | `OAUTH_INTROSPECTION_SECRET="$(cat ~/.wa-oauth-secret)" node verify-oauth.mjs` | `ALL CHECKS PASSED`, exit 0 | ☐ |
+| 0.4b | The resource declares the scopes its AS offers | `diff <(curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq -S .scopes_supported) <(curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource \| jq -S .scopes_supported) && echo MATCH` | `MATCH` | ☐ |
+| 0.5 | Readable from a browser | the loop below | four `access-control-allow-origin: *`, no `allow-credentials` | ☐ |
+| 0.6 | End to end | `OAUTH_INTROSPECTION_SECRET="$(cat ~/.wa-oauth-secret)" node verify-oauth.mjs` | `ALL CHECKS PASSED`, exit 0 | ☐ |
 
+**0.1 is first because it is the one that has actually failed.** Both secrets are
+supplied by `.github/workflows/deploy.yml`, which uses `--set-env-vars` — that
+REPLACES the whole environment rather than merging into it, so any variable
+missing from that list is silently deleted on the next deploy. That is not
+hypothetical: it wiped `OAUTH_INTROSPECTION_SECRET` and took the entire OAuth
+stack down for eleven hours. Never set either by hand with `--update-env-vars`;
+the next deploy would remove it again. Add the secret in GitHub and to that
+list.
+
+**0.4b checks the deployed document, not an environment variable, and that
+distinction is the point.** The MCP's `scopes_supported` comes from
+`WA_OAUTH_SCOPES`, which **defaults to `WA_OAUTH_SCOPE`** — so a build carrying
+the fix, merged and redeployed, still serves `["audit"]` until that variable is
+actually set to `"audit openid email"`. Checking the variable would tell you
+what someone intended; checking the document tells you what ChatGPT will read.
+
+The two lists must agree because the resource must not under-declare relative to
+its own authorization server: ChatGPT reads this document to learn what it may
+ask for, so a resource claiming only `audit` cannot be granted identity scopes
+no matter what the AS offers. The default is deliberately the narrow one —
+advertising a scope the AS will reject turns every login into `invalid_scope`,
+a failure that lands on users rather than on a scan — so widening it is an
+explicit act, and this row is what confirms the act happened.
+
+Unlike the API, the MCP has no deploy workflow: it is deployed by hand with
+`gcloud run deploy --source .`, which PRESERVES the existing environment. So
+`--update-env-vars` is safe here, and is the right way to set it — the
+never-set-it-by-hand rule in 0.1 is specific to services whose CI passes
+`--set-env-vars`. If an MCP deploy workflow is ever added, it inherits that
+hazard and this row is what will catch it.
+
+**0.5, the cross-origin check.** `curl` sends no `Origin` and enforces no CORS,
+so every other row here passes against a server the portal cannot read a single
+byte from. That is not a theoretical gap — it is what "OAuth metadata load
+failed: Failed to fetch" was, and it survived two rounds behind green checks.
+
+```bash
+for u in \
+  https://api.website-auditor.io/.well-known/oauth-authorization-server \
+  https://api.website-auditor.io/.well-known/openid-configuration \
+  https://api.website-auditor.io/.well-known/jwks.json \
+  https://mcp.website-auditor.io/.well-known/oauth-protected-resource
+do
+  echo "── $u"
+  curl -sS -o /dev/null -D - -H 'Origin: https://platform.openai.com' "$u" \
+    | grep -Ei '^(HTTP|access-control)' | sed 's/^/   /'
+done
+```
+
+**`-o /dev/null -D -`, not `-I`.** `curl -I` sends **HEAD**, and the two servers
+used to disagree about it: the API is Express, which answers HEAD from a GET
+route by itself, while the MCP matched GET alone and dropped HEAD into its
+catch-all — so the same loop returned three 200s and one `404` for a document
+that was being served correctly the whole time. A false 404 there is
+indistinguishable from an MCP whose OAuth is off or whose image predates the
+OAuth code, which are the two real failures this row exists to catch. The MCP
+answers HEAD now, but the loop reads the headers off a real GET regardless: the
+check should not depend on a method the portal never uses.
+
+Every one must show `access-control-allow-origin: *` and **no**
+`access-control-allow-credentials`. `Failed to fetch` in the portal is a CORS
+block, not an HTTP error — a document answering 200 to `curl` and unreadable to
+a browser looks identical to a server that is down, from the only place you can
+see it.
+
+Row 0.6 re-checks the same thing, plus the CORS **preflight**, which the loop
+above does not send. That distinction is load-bearing: `cors` answers `OPTIONS`
+itself before any route handler runs, so a fix applied inside the handlers
+passes the loop and still blocks the MCP SDK, which sends
+`MCP-Protocol-Version` on discovery and therefore always preflights.
+
+> `verify-oauth.mjs` lives in the repository root. It used to exist only on one
+> laptop while this document instructed people to run it.
+>
 > The `gcloud` invocations in 0.1, 0.3 and 0.4 were written from the service
 > configuration and have **not been executed**. If one is rejected over a flag or
 > a format string, that is the command being wrong rather than the check failing
@@ -51,10 +127,11 @@ Then, and only then, rescan in the portal:
 
 | # | Check | Pass condition | ✅ |
 |---|---|---|---|
-| 0.6 | Scan Tools | 15 tools listed | ☐ |
-| 0.7 | outputSchema warning | gone from all 15 | ☐ |
-| 0.8 | Enterprise domain warning | gone | ☐ |
-| 0.9 | Auth mode | **Mixed Auth** on the draft version | ☐ |
+| 0.7 | Scan Tools | 15 tools listed | ☐ |
+| 0.8 | outputSchema warning | gone from all 15 | ☐ |
+| 0.9 | OAuth metadata | no "OAuth metadata load failed" under the server URL | ☐ |
+| 0.10 | Enterprise domain warning | gone | ☐ |
+| 0.11 | Auth mode | **Mixed Auth** on the draft version | ☐ |
 
 `curl -s -X POST https://mcp.website-auditor.io/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq '[.result.tools[] | select(.outputSchema == null) | .name]'` → expect `[]`.
 
@@ -73,7 +150,7 @@ Mixed Auth have to be live and a real ChatGPT client has to draw it.
 | 1.4 | Approve | returns to ChatGPT, connected, no error | ☐ | ☐ |
 
 **If 1.1 does not appear**, stop: the declarative half or the runtime half is
-missing, and no case below will behave. Re-run 0.4 and 0.5.
+missing, and no case below will behave. Re-run 0.4, 0.5 and 0.6.
 
 > **Record the client identity ChatGPT sends** (visible in Cloud Run logs as the
 > `client_name` on the consent screen). Our authorization server issues public
