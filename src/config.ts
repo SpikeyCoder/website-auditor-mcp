@@ -94,6 +94,13 @@ export interface WaConfig {
    */
   oauthScope: string;
   /**
+   * Every scope this resource's authorization requests use, for the RFC 9728
+   * document. A SUPERSET of oauthScope: that one names the audit capability a
+   * tool needs, while this also carries the identity scopes ChatGPT requests
+   * alongside it. Separate values because a tool needs `audit`, never `openid`.
+   */
+  oauthScopes: string[];
+  /**
    * RFC 7662 introspection endpoint, where an access token is exchanged for the
    * account's API key. Defaults to the API's own path because that is where the
    * authorization server lives for this product; overridable because the issuer
@@ -250,6 +257,13 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     oauthIssuer: normalizeEnvValue(env.WA_OAUTH_ISSUER),
     oauthResourceUrl: normalizeEnvValue(env.WA_OAUTH_RESOURCE_URL),
     oauthScope: normalizeEnvValue(env.WA_OAUTH_SCOPE) || "audit",
+    // Defaults to the single scope, so an unset value behaves exactly as before.
+    // The MCP must never advertise a scope the authorization server lacks — it
+    // cannot see the AS's capabilities from here — so this is configured rather
+    // than inferred.
+    oauthScopes: (normalizeEnvValue(env.WA_OAUTH_SCOPES) || normalizeEnvValue(env.WA_OAUTH_SCOPE) || "audit")
+      .split(/\s+/)
+      .filter(Boolean),
     oauthIntrospectionUrl:
       normalizeEnvValue(env.WA_OAUTH_INTROSPECTION_URL) ||
       `${stripTrailingSlash(normalizeEnvValue(env.WA_API_BASE_URL) || "https://api.website-auditor.io")}/api/oauth/introspect`,

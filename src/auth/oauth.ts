@@ -91,7 +91,12 @@ export function protectedResourceMetadata(config: WaConfig): Record<string, unkn
   return {
     resource: config.oauthResourceUrl,
     authorization_servers: [config.oauthIssuer],
-    scopes_supported: [config.oauthScope],
+    // Every scope the authorization requests for this resource use, not just
+    // the one a tool needs. It published `["audit"]` alone, which under-declares
+    // the resource: ChatGPT reads this document to learn what it may ask for, so
+    // omitting the identity scopes is one of the ways a connector ends up unable
+    // to offer enterprise domain restrictions. See oauthScopes in config.ts.
+    scopes_supported: config.oauthScopes,
     // Header only. This server reads the token from `Authorization` (see
     // apiKeyFrom in http.ts); it has never accepted a token in a query string
     // or form body, and advertising either would invite a caller to put a

@@ -34,6 +34,7 @@ export function testConfig(over: Partial<WaConfig> = {}): WaConfig {
     // Auth on (see oauthEnabled), so the default config stays a pre-OAuth
     // server and every existing expectation keeps describing one.
     oauthScope: "audit",
+    oauthScopes: ["audit"],
     ...over,
   };
 }

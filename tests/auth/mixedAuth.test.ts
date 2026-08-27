@@ -27,6 +27,7 @@ import { WaApiError } from "../../src/api/errors.js";
 import { toCallResult } from "../../src/mcp/server.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
 import { makeDeps, testConfig } from "../helpers.js";
+import { loadConfig } from "../../src/config.js";
 
 const OAUTH = {
   oauthIssuer: "https://api.website-auditor.io",
@@ -454,5 +455,35 @@ describe("toCallResult — the challenge is transport metadata, not payload", ()
   it("emits no _meta at all when there is no challenge", () => {
     const result = toCallResult({ ok: false, error: { code: "PRO_REQUIRED", message: "subscribe" } });
     expect(result._meta).toBeUndefined();
+  });
+});
+
+describe("the resource's advertised scopes", () => {
+  it("defaults to the single audit scope, so an unset WA_OAUTH_SCOPES changes nothing", () => {
+    expect(loadConfig({}).oauthScopes).toEqual(["audit"]);
+    expect(loadConfig({ WA_OAUTH_SCOPE: "custom" }).oauthScopes).toEqual(["custom"]);
+  });
+
+  it("publishes every scope the authorization requests use, not just the tool's", () => {
+    // ChatGPT reads this document to learn what it may ask for. Publishing
+    // ["audit"] alone under-declares the resource and is one of the ways a
+    // connector ends up unable to offer enterprise domain restrictions.
+    const config = testConfig({ ...OAUTH, oauthScopes: ["audit", "openid", "email"] });
+    expect(protectedResourceMetadata(config)).toMatchObject({
+      scopes_supported: ["audit", "openid", "email"],
+    });
+  });
+
+  it("splits WA_OAUTH_SCOPES on whitespace and drops empties", () => {
+    expect(loadConfig({ WA_OAUTH_SCOPES: "  audit   openid  email " }).oauthScopes)
+      .toEqual(["audit", "openid", "email"]);
+  });
+
+  it("leaves the challenge and the per-tool scheme naming the AUDIT scope alone", () => {
+    // A tool needs the audit capability, never an identity claim, so widening
+    // the resource document must not widen either of these.
+    const config = testConfig({ ...OAUTH, oauthScopes: ["audit", "openid", "email"] });
+    expect(wwwAuthenticateChallenge(config, "nope")).toContain('scope="audit"');
+    expect(securitySchemesFor("pro", config, "http")).toEqual([{ type: "oauth2", scopes: ["audit"] }]);
   });
 });
