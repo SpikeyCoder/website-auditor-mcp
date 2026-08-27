@@ -98,6 +98,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       new WaApiError("MALFORMED_KEY", `${MALFORMED_KEY_MESSAGE} ${keySetupNote(deps.transport)}`),
       deps.config,
       deps.transport,
+      deps.authVia,
     );
   }
 
@@ -105,7 +106,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   try {
     sub = await deps.client.getSubscription();
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 
   const periodEnd = sub.current_period_end ?? null;

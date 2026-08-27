@@ -285,8 +285,12 @@ describe("IntrospectionTokenExchange", () => {
 });
 
 describe("gateProTool — the runtime half, and who gets it", () => {
-  async function authError(over: Parameters<typeof makeDeps>[0], transport?: "stdio" | "http") {
-    const deps = { ...makeDeps(over), transport };
+  async function authError(
+    over: Parameters<typeof makeDeps>[0],
+    transport?: "stdio" | "http",
+    authVia?: "oauth" | "key",
+  ) {
+    const deps = { ...makeDeps(over), transport, authVia };
     const result = await gateProTool(deps);
     expect(result && result.ok).toBe(false);
     return result!.ok === false ? result.error : undefined!;
@@ -324,11 +328,30 @@ describe("gateProTool — the runtime half, and who gets it", () => {
         config: { ...OAUTH, apiKey: "wa_dead" },
       },
       "http",
+      "oauth",
     );
     expect(error.code).toBe("AUTH_REQUIRED");
     expect(error.wwwAuthenticate).toContain("resource_metadata=");
     expect(error.message).toContain("expired");
     expect(error.message).not.toContain("replace");
+  });
+
+  it("leaves a PASTED key's rejection alone, even with OAuth configured", async () => {
+    // http.ts promises curl, Codex and README callers byte-identical behaviour,
+    // and their key is a key. Answering "there is no key to paste — reconnect
+    // when prompted", with a challenge for a login they never started, breaks
+    // exactly that promise and drops the upstream remediation.
+    const error = await authError(
+      {
+        subscriptions: { resolve: async () => ({ tier: "invalid" as const, verified: true, rejection: "REVOKED_KEY" as const }) },
+        config: { ...OAUTH, apiKey: "wa_pasted" },
+      },
+      "http",
+      "key",
+    );
+    expect(error.code).toBe("REVOKED_KEY");
+    expect(error.wwwAuthenticate).toBeUndefined();
+    expect(error.message).toContain("replace the key");
   });
 
   it("keeps the replace-your-key copy for a revoked key when OAuth is off", async () => {
@@ -361,6 +384,15 @@ describe("handshake instructions", () => {
     const mixed = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", true);
     expect(mixed).toContain("connect a Website Auditor account");
     expect(mixed).not.toContain("connector's authentication field");
+    // The earlier version of this test checked only that the delivery clause
+    // changed, which let the SUBSCRIPTION sentence keep saying "creating an API
+    // key happen on the website" three words before "there is no key to paste".
+    expect(mixed).not.toContain("creating an API key");
+    expect(mixed).not.toContain("create an API key");
+    // AUTH_REQUIRED now also carries an expired connection, so answering it
+    // with a price would sell somebody a plan they already have.
+    expect(mixed).toContain("reconnect when prompted");
+    expect(mixed).toContain("do not quote a price for it");
 
     const plain = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", false);
     expect(plain).toContain("connector's authentication field");
@@ -377,6 +409,7 @@ describe("fromApiError — where an expired connection ACTUALLY surfaces", () =>
       new WaApiError("REVOKED_KEY", "This API key has been revoked."),
       testConfig(OAUTH),
       "http",
+      "oauth",
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -385,8 +418,14 @@ describe("fromApiError — where an expired connection ACTUALLY surfaces", () =>
     expect(result.error.message).toContain("expired");
   });
 
+  it("leaves a pasted key's rejection alone — the credential decides, not the config", () => {
+    const asKey = fromApiError(new WaApiError("REVOKED_KEY", "revoked"), testConfig(OAUTH), "http", "key");
+    expect(asKey.ok === false && asKey.error.code).toBe("REVOKED_KEY");
+    expect(asKey.ok === false && asKey.error.wwwAuthenticate).toBeUndefined();
+  });
+
   it("leaves the upstream answer alone when OAuth is off", () => {
-    const result = fromApiError(new WaApiError("REVOKED_KEY", "revoked"), testConfig(), "http");
+    const result = fromApiError(new WaApiError("REVOKED_KEY", "revoked"), testConfig(), "http", "oauth");
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("REVOKED_KEY");
@@ -394,9 +433,9 @@ describe("fromApiError — where an expired connection ACTUALLY surfaces", () =>
   });
 
   it("leaves it alone over stdio, and leaves non-key errors alone entirely", () => {
-    const overStdio = fromApiError(new WaApiError("REVOKED_KEY", "revoked"), testConfig(OAUTH), "stdio");
+    const overStdio = fromApiError(new WaApiError("REVOKED_KEY", "revoked"), testConfig(OAUTH), "stdio", "oauth");
     expect(overStdio.ok === false && overStdio.error.code).toBe("REVOKED_KEY");
-    const quota = fromApiError(new WaApiError("OVER_QUOTA", "slow down"), testConfig(OAUTH), "http");
+    const quota = fromApiError(new WaApiError("OVER_QUOTA", "slow down"), testConfig(OAUTH), "http", "oauth");
     expect(quota.ok === false && quota.error.code).toBe("OVER_QUOTA");
   });
 });

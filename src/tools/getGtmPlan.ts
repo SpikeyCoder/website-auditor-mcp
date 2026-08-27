@@ -81,7 +81,7 @@ export async function getGtmPlan(
   try {
     domain = normalizeDomain(args.domain);
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 
   try {
@@ -128,6 +128,6 @@ export async function getGtmPlan(
         `No audit on record for ${domain}. Run run_audit for ${domain} first, then ask for the plan again.`,
       );
     }
-    return fromApiError(e, deps.config, deps.transport);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 }

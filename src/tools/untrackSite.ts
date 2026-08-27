@@ -44,6 +44,6 @@ export async function untrackSite(args: UntrackSiteArgs, deps: ToolDeps): Promis
       message,
     });
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 }

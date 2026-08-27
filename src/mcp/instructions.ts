@@ -66,8 +66,20 @@ export function buildInstructions(
   // described at <info page>", because marketplace rules (OpenAI plugin
   // review) allow explaining a paid plan but forbid initiating the purchase.
   // The trigger-before-billing ordering and proportion tests cover BOTH styles.
-  const billing =
-    style === "info"
+  // Mixed Auth changes the SUBSCRIPTION sentence too, not just the delivery
+  // clause. Threading the flag into keyDelivery alone left the stem intact, so
+  // the paragraph read "…creating an API key happen on the website … Once you
+  // have a key, connect a Website Auditor account … there is no key to paste
+  // anywhere" — the same two-procedure contradiction, now inside one sentence.
+  // There is no key to create on this surface: signing in IS the step, and a
+  // subscription is a separate thing the signed-in account either has or does
+  // not.
+  const billing = mixedAuth
+    ? `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
+      "a 7-day free trial — payment method required to start, no charge until the trial ends). Connecting " +
+      `an account and subscribing are separate steps: ${keyDelivery}, and plans are described at ${signupUrl}. ` +
+      "check_upgrade_status reports the connected account's own standing."
+    : style === "info"
       ? `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
         "a 7-day free trial — payment method required to start, no charge until the trial ends). Plans " +
         `are described at ${signupUrl} — subscribing and creating an API key happen on the website, outside ` +
@@ -78,8 +90,18 @@ export function buildInstructions(
         `and create an API key at ${signupUrl} , then ${keyDelivery}. ` +
         "check_upgrade_status reports the caller's own standing with any valid key.";
 
-  const errorGuidance =
-    style === "info"
+  // AUTH_REQUIRED means something different under Mixed Auth, and the two codes
+  // stop sharing an answer. It is now also what a REVOKED key remaps to
+  // (context.ts), so "give them the price and the signup link" would answer an
+  // expired connection with a sales pitch. Reconnecting is free and is the
+  // whole remedy; PRO_REQUIRED keeps the billing answer, because there the
+  // money genuinely is the blocker.
+  const errorGuidance = mixedAuth
+    ? "When a tool returns AUTH_REQUIRED, the account is not connected or the connection expired — tell " +
+      "the user to reconnect when prompted, and offer get_sample_audit meanwhile; do not quote a price " +
+      "for it. When a tool returns PRO_REQUIRED the account IS connected but has no subscription: give " +
+      `the price, the trial and its prerequisites, and where plans are described (${signupUrl}).`
+    : style === "info"
       ? "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price, the trial and its " +
         `prerequisites, and where plans are described (${signupUrl}) — never just the error code.`
       : "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, give the user the price, the trial and its " +

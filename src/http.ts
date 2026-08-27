@@ -399,13 +399,24 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
    * OAuth one — the direction that misleads fewer people, stated because it IS
    * a trade rather than an oversight.
    */
-  async function credentialFor(req: IncomingMessage): Promise<string | undefined> {
+  async function credentialFor(
+    req: IncomingMessage,
+  ): Promise<{ key: string | undefined; authVia: ToolDeps["authVia"] }> {
     const presented = apiKeyFrom(req);
     // Presented nothing: the default identity applies, exactly as before. A
     // caller who DID present something never lands on the box's account.
-    if (presented === undefined) return defaultApiKey;
-    if (!tokenExchange || looksLikeApiKey(presented)) return presented;
-    return tokenExchange.resolve(presented);
+    // A configured default is a KEY, not a connection — nobody logged in to
+    // produce it, so its failures must read as key failures.
+    if (presented === undefined) {
+      return { key: defaultApiKey, authVia: defaultApiKey ? "key" : undefined };
+    }
+    if (!tokenExchange || looksLikeApiKey(presented)) {
+      return { key: presented, authVia: "key" };
+    }
+    const resolved = await tokenExchange.resolve(presented);
+    // Unresolvable is not "authenticated via OAuth" — it is nobody, and the
+    // keyless surface's own copy is the right answer.
+    return { key: resolved, authVia: resolved ? "oauth" : undefined };
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -474,7 +485,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    const deps = tenants.forKey(await credentialFor(req));
+    const { key, authVia } = await credentialFor(req);
+    // Spread, not mutate: the bundle is CACHED and shared across every request
+    // for this key, while authVia describes THIS request. The copy is shallow
+    // on purpose — client, caches and sink stay the same objects, which is the
+    // whole reason the bundle is reused.
+    const deps: ToolDeps = { ...tenants.forKey(key), authVia };
     // Fresh server+transport per request over long-lived tenant deps: the
     // stateless Streamable HTTP pattern. Closed with the response so an
     // abandoned connection cannot leak either.

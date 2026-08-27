@@ -26,6 +26,23 @@ export interface ToolDeps {
    * HTTP endpoint. Optional: absent means a build predating the field (stdio).
    */
   transport?: "stdio" | "http";
+  /**
+   * HOW this request authenticated, which is not the same question as whether
+   * the server has OAuth configured.
+   *
+   *   "oauth"    — an access token was introspected into a derived key
+   *   "key"      — a `wa_` key was presented verbatim, or configured on the box
+   *   undefined  — nothing was presented
+   *
+   * Load-bearing for the reconnect copy. Gating that on server-wide config
+   * alone told a curl or Codex caller whose PASTED key was revoked that "there
+   * is no key to paste — reconnect when prompted", handed them a challenge for
+   * a login they never started, and dropped the API's own remediation text: the
+   * byte-identical promise http.ts makes to exactly those callers, broken by a
+   * message meant for somebody else. Per REQUEST, not per tenant — the bundle
+   * is shared and cached, this is not.
+   */
+  authVia?: "oauth" | "key";
 }
 
 export interface ToolError {
@@ -107,6 +124,7 @@ export function fromApiError(
   e: unknown,
   config: WaConfig,
   transport?: ToolDeps["transport"],
+  authVia?: ToolDeps["authVia"],
 ): ToolResult<never> {
   if (e instanceof WaApiError) {
     // Under Mixed Auth a key rejection means the CONNECTION died, not that a
@@ -124,8 +142,12 @@ export function fromApiError(
     // Without this, the commonest expiry path answered "This API key has been
     // revoked. Generate a new key from the admin portal" to somebody who never
     // had a key to replace, and no login was re-offered.
+    // authVia, not just the server's configuration: a pasted key that was
+    // revoked is a pasted key, and its reader needs the upstream remediation —
+    // not an invitation to reconnect a connection they never made.
     if (
       transport === "http" &&
+      authVia === "oauth" &&
       oauthEnabled(config) &&
       isKeyRejection(e.code)
     ) {
@@ -262,7 +284,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     // resolved key for 60s, so a derived key that expires inside that window
     // sends the next call upstream with a dead credential and lands exactly
     // here. The challenge turns that into a reconnect instead of a dead end.
-    if (deps.transport === "http" && oauthEnabled(deps.config)) {
+    if (deps.transport === "http" && deps.authVia === "oauth" && oauthEnabled(deps.config)) {
       return err(
         "AUTH_REQUIRED",
         `The Website Auditor connection for this conversation has expired. ` +

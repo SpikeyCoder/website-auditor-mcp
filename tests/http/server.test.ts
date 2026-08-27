@@ -739,6 +739,46 @@ describe("Mixed Auth over Streamable HTTP", () => {
   });
 });
 
+describe("who gets the reconnect copy — the credential decides, not the config", () => {
+  /** A server where every key resolves as revoked, so the rejection copy shows. */
+  async function revokedKeyServer() {
+    return listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      tokenExchange: { resolve: async (t) => (t === "opaque-token" ? "wa_from_token" : undefined) },
+      depsFactory: (config: WaConfig): ToolDeps => ({
+        ...makeDeps({
+          config,
+          subscriptions: {
+            resolve: async () => ({ tier: "invalid", verified: true, rejection: "REVOKED_KEY" }),
+          },
+        }),
+        transport: "http",
+      }),
+    });
+  }
+
+  it("an OAuth connection that died is offered the login again", async () => {
+    const { url } = await revokedKeyServer();
+    const client = await connectClient(url, { Authorization: "Bearer opaque-token" });
+    const res = await client.callTool({ name: "run_audit", arguments: { domain: "example.com" } });
+    expect((res.structuredContent as { code: string }).code).toBe("AUTH_REQUIRED");
+    expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
+    await client.close();
+  });
+
+  it("a PASTED key that was revoked keeps the upstream answer, and gets no challenge", async () => {
+    // The byte-identical promise http.ts makes to curl, Codex and the README:
+    // their credential is a key, and "there is no key to paste — reconnect when
+    // prompted" is a message for somebody else entirely.
+    const { url } = await revokedKeyServer();
+    const client = await connectClient(url, { Authorization: "Bearer wa_pasted_key" });
+    const res = await client.callTool({ name: "run_audit", arguments: { domain: "example.com" } });
+    expect((res.structuredContent as { code: string }).code).toBe("REVOKED_KEY");
+    expect(res._meta?.["mcp/www_authenticate"]).toBeUndefined();
+    await client.close();
+  });
+});
+
 /**
  * The eight submitted OpenAI test cases, pinned against the KEYLESS surface.
  *
