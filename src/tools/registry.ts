@@ -11,6 +11,7 @@
  */
 import { z } from "zod";
 import type { ZodRawShape } from "zod";
+import { OUTPUT_SCHEMAS } from "./outputSchemas.js";
 
 export type ToolTier = "free" | "pro";
 
@@ -23,6 +24,17 @@ export interface ToolSpec {
   description: string;
   /** Zod raw shape registered as the tool's input schema. */
   inputSchema: ZodRawShape;
+  /**
+   * Zod raw shape registered as the tool's output schema, when one is declared.
+   *
+   * Optional rather than required so a tool without a stable result shape
+   * simply omits it — the SDK validates `structuredContent` against this on
+   * every successful call, so declaring a shape we cannot honour turns a
+   * working tool into an McpError. Sourced from OUTPUT_SCHEMAS rather than
+   * written inline: this file keeps names and descriptions VERBATIM from the
+   * listing doc, and the schemas carry their own rationale.
+   */
+  outputSchema?: ZodRawShape;
 }
 
 const domainArg = z.string().describe('The website domain, e.g. "example.com".');
@@ -258,6 +270,19 @@ const GET_GTM_PLAN_TOOL: ToolSpec = {
   },
 };
 
+/**
+ * Attaches the declared output shape, by name.
+ *
+ * Applied here rather than written into each literal above: the specs are kept
+ * verbatim from the listing doc, and one lookup keyed on `name` cannot drift
+ * from the map the way fifteen inline fields could. A tool with no entry in
+ * OUTPUT_SCHEMAS keeps `outputSchema` undefined and registers exactly as before.
+ */
+const withOutput = (spec: ToolSpec): ToolSpec => {
+  const outputSchema = OUTPUT_SCHEMAS[spec.name];
+  return outputSchema ? { ...spec, outputSchema } : spec;
+};
+
 export const ALL_TOOL_SPECS: ToolSpec[] = [
   ...P0_TOOLS,
   ...P1_TOOLS,
@@ -265,7 +290,7 @@ export const ALL_TOOL_SPECS: ToolSpec[] = [
   GET_GTM_PLAN_TOOL,
   CHECK_UPGRADE_STATUS_TOOL,
   GET_SAMPLE_AUDIT_TOOL,
-];
+].map(withOutput);
 
 const TRACK_SITE_TOOL: ToolSpec = P1_TOOLS.find((t) => t.name === "track_site")!;
 
@@ -316,4 +341,4 @@ export const SERVED_TOOLS: ToolSpec[] = [
   GET_GTM_PLAN_TOOL,
   CHECK_UPGRADE_STATUS_TOOL,
   GET_SAMPLE_AUDIT_TOOL,
-].map(withProSuffix);
+].map(withProSuffix).map(withOutput);
