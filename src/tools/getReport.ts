@@ -22,6 +22,6 @@ export async function getReport(args: GetReportArgs, deps: ToolDeps): Promise<To
     const report = await deps.client.getReport({ domain: args.domain });
     return ok(report);
   } catch (e) {
-    return fromApiError(e, deps.config);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 }

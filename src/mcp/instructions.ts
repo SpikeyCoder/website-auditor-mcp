@@ -38,6 +38,8 @@ export function buildInstructions(
   // whose only channel is a config file — so it is pinned by a test rather than
   // left to read as an arbitrary pick.
   transport: "stdio" | "http" = "stdio",
+  /** Mixed Auth is live on this connection — see auth/oauth.ts. */
+  mixedAuth = false,
 ): string {
   // Same reason keySetupNote exists (src/tools/context.ts): "set WA_API_KEY in
   // this server's config and restart the client" is a procedure a hosted caller
@@ -45,8 +47,15 @@ export function buildInstructions(
   // their key arrives per request in a header, so there is nothing to restart.
   // These instructions are the FIRST thing a client reads, so a wrong answer
   // here misdirects before any tool has run.
-  const keyDelivery =
-    transport === "http"
+  // Under Mixed Auth there is no key for the reader to obtain OR deliver: the
+  // host runs a login and the account behind it carries the key. Leaving the
+  // header instruction in place made these instructions — the FIRST thing the
+  // model reads — contradict the "there is no key to paste" copy every tool
+  // returns later, which is worse than either alone: the model has two
+  // procedures and no way to choose.
+  const keyDelivery = mixedAuth
+    ? "connect a Website Auditor account when the client offers to — there is no key to paste anywhere"
+    : transport === "http"
       ? "send it with each request as an `Authorization: Bearer` or `X-API-Key` header — in an MCP " +
         "client, the connector's authentication field"
       : "set WA_API_KEY in this server's config and restart the client";
@@ -57,8 +66,20 @@ export function buildInstructions(
   // described at <info page>", because marketplace rules (OpenAI plugin
   // review) allow explaining a paid plan but forbid initiating the purchase.
   // The trigger-before-billing ordering and proportion tests cover BOTH styles.
-  const billing =
-    style === "info"
+  // Mixed Auth changes the SUBSCRIPTION sentence too, not just the delivery
+  // clause. Threading the flag into keyDelivery alone left the stem intact, so
+  // the paragraph read "…creating an API key happen on the website … Once you
+  // have a key, connect a Website Auditor account … there is no key to paste
+  // anywhere" — the same two-procedure contradiction, now inside one sentence.
+  // There is no key to create on this surface: signing in IS the step, and a
+  // subscription is a separate thing the signed-in account either has or does
+  // not.
+  const billing = mixedAuth
+    ? `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
+      "a 7-day free trial — payment method required to start, no charge until the trial ends). Connecting " +
+      `an account and subscribing are separate steps: ${keyDelivery}, and plans are described at ${signupUrl}. ` +
+      "check_upgrade_status reports the connected account's own standing."
+    : style === "info"
       ? `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
         "a 7-day free trial — payment method required to start, no charge until the trial ends). Plans " +
         `are described at ${signupUrl} — subscribing and creating an API key happen on the website, outside ` +
@@ -69,8 +90,18 @@ export function buildInstructions(
         `and create an API key at ${signupUrl} , then ${keyDelivery}. ` +
         "check_upgrade_status reports the caller's own standing with any valid key.";
 
-  const errorGuidance =
-    style === "info"
+  // AUTH_REQUIRED means something different under Mixed Auth, and the two codes
+  // stop sharing an answer. It is now also what a REVOKED key remaps to
+  // (context.ts), so "give them the price and the signup link" would answer an
+  // expired connection with a sales pitch. Reconnecting is free and is the
+  // whole remedy; PRO_REQUIRED keeps the billing answer, because there the
+  // money genuinely is the blocker.
+  const errorGuidance = mixedAuth
+    ? "When a tool returns AUTH_REQUIRED, the account is not connected or the connection expired — tell " +
+      "the user to reconnect when prompted, and offer get_sample_audit meanwhile; do not quote a price " +
+      "for it. When a tool returns PRO_REQUIRED the account IS connected but has no subscription: give " +
+      `the price, the trial and its prerequisites, and where plans are described (${signupUrl}).`
+    : style === "info"
       ? "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price, the trial and its " +
         `prerequisites, and where plans are described (${signupUrl}) — never just the error code.`
       : "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, give the user the price, the trial and its " +

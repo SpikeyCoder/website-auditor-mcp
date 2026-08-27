@@ -10,6 +10,7 @@ import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
 import { upgradeLink, tagSource, PRICE } from "./upgrade.js";
+import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
 import type { EventSink } from "../telemetry/events.js";
 
 export interface ToolDeps {
@@ -25,6 +26,23 @@ export interface ToolDeps {
    * HTTP endpoint. Optional: absent means a build predating the field (stdio).
    */
   transport?: "stdio" | "http";
+  /**
+   * HOW this request authenticated, which is not the same question as whether
+   * the server has OAuth configured.
+   *
+   *   "oauth"    — an access token was introspected into a derived key
+   *   "key"      — a `wa_` key was presented verbatim, or configured on the box
+   *   undefined  — nothing was presented
+   *
+   * Load-bearing for the reconnect copy. Gating that on server-wide config
+   * alone told a curl or Codex caller whose PASTED key was revoked that "there
+   * is no key to paste — reconnect when prompted", handed them a challenge for
+   * a login they never started, and dropped the API's own remediation text: the
+   * byte-identical promise http.ts makes to exactly those callers, broken by a
+   * message meant for somebody else. Per REQUEST, not per tenant — the bundle
+   * is shared and cached, this is not.
+   */
+  authVia?: "oauth" | "key";
 }
 
 export interface ToolError {
@@ -32,6 +50,14 @@ export interface ToolError {
   message: string;
   upgrade_url?: string;
   details?: unknown;
+  /**
+   * The Mixed Auth challenge, when this error is the one that should open a
+   * login. TRANSPORT METADATA, not part of the error contract: toCallResult
+   * lifts it into the result's `_meta["mcp/www_authenticate"]` and strips it
+   * from the payload, because the Apps SDK reads it there and the model has no
+   * use for a header it cannot act on. See auth/oauth.ts.
+   */
+  wwwAuthenticate?: string;
 }
 
 export type ToolResult<T> = { ok: true; data: T } | { ok: false; error: ToolError };
@@ -85,13 +111,60 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
     : `Set it as WA_API_KEY in this server's config. ${RESTART_NOTE}`;
 }
 
-export function err(code: ErrorCode, message: string, extra: { upgrade_url?: string; details?: unknown } = {}): ToolResult<never> {
+export function err(
+  code: ErrorCode,
+  message: string,
+  extra: { upgrade_url?: string; details?: unknown; wwwAuthenticate?: string } = {},
+): ToolResult<never> {
   return { ok: false, error: { code, message, ...extra } };
 }
 
 /** Map a thrown WaApiError (or unknown error) to a ToolError result. */
-export function fromApiError(e: unknown, config: WaConfig): ToolResult<never> {
+export function fromApiError(
+  e: unknown,
+  config: WaConfig,
+  transport?: ToolDeps["transport"],
+  authVia?: ToolDeps["authVia"],
+): ToolResult<never> {
   if (e instanceof WaApiError) {
+    // Under Mixed Auth a key rejection means the CONNECTION died, not that a
+    // pasted key went bad — and this is where that actually surfaces, which
+    // gateProTool's matching branch does not cover.
+    //
+    // The reason is DefaultSubscriptionProvider's outage rule: on a failed
+    // lookup it returns the last-known cached tier BEFORE testing for a key
+    // rejection (entitlements.ts), and the cache entry is honored even once
+    // expired. So a derived key that dies after one successful call keeps
+    // resolving "pro", the gate passes, and the tool's own request is what
+    // 401s. gateProTool's branch only catches the cold-cache case — a
+    // connection that was never used before it expired.
+    //
+    // Without this, the commonest expiry path answered "This API key has been
+    // revoked. Generate a new key from the admin portal" to somebody who never
+    // had a key to replace, and no login was re-offered.
+    // authVia, not just the server's configuration: a pasted key that was
+    // revoked is a pasted key, and its reader needs the upstream remediation —
+    // not an invitation to reconnect a connection they never made.
+    if (
+      transport === "http" &&
+      authVia === "oauth" &&
+      oauthEnabled(config) &&
+      isKeyRejection(e.code)
+    ) {
+      return err(
+        "AUTH_REQUIRED",
+        `The Website Auditor connection for this conversation has expired. ` +
+          `Reconnect when prompted — there is no key to paste. ` +
+          `get_sample_audit keeps working with no account at all in the meantime.`,
+        {
+          upgrade_url: upgradeLink(config),
+          wwwAuthenticate: wwwAuthenticateChallenge(
+            config,
+            "The Website Auditor connection expired. Reconnect to continue.",
+          ),
+        },
+      );
+    }
     // OVER_QUOTA is deliberately NOT in this list. It is the shared daily audit
     // cap, which only a subscriber can reach (there is no free API tier), so an
     // upgrade link there sells someone their own plan. See the 429 branch in
@@ -149,6 +222,35 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
   const upgradeUrl = upgradeLink(deps.config);
 
   if (tier === "none") {
+    // One tier, two different problems, and under Mixed Auth they need opposite
+    // advice. Without OAuth the reader configures a key by hand, which is what
+    // this message has always assumed and what keySetupNote explains. WITH it,
+    // nobody pastes a key anywhere — the host offers a login and the account
+    // behind it carries the key — so "create a key and restart your client"
+    // describes a procedure that does not exist on that surface, addressed to
+    // someone who never saw a config file.
+    //
+    // The challenge rides this branch and only this branch. Emitting it without
+    // the declarative half would point the host at an authorization server it
+    // cannot discover, and oauthEnabled is what keeps the two in step; see
+    // auth/oauth.ts for why half a Mixed Auth setup fails silently.
+    if (deps.transport === "http" && oauthEnabled(deps.config)) {
+      return err(
+        "AUTH_REQUIRED",
+        `This tool needs a connected Website Auditor account, and this conversation has none yet. ` +
+          `Connect one when prompted — there is no key to paste. ` +
+          `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
+          `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
+          `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`,
+        {
+          upgrade_url: upgradeUrl,
+          wwwAuthenticate: wwwAuthenticateChallenge(
+            deps.config,
+            "Connect a Website Auditor account to use this tool.",
+          ),
+        },
+      );
+    }
     return err(
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +
@@ -172,6 +274,31 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
   // they weren't warned about — hence stating both, in the order they must
   // happen. The API's own remediation text is passed through, not replaced.
   if (tier === "invalid") {
+    // Under Mixed Auth this is almost never a pasted key gone bad — it is the
+    // OAuth-derived key having expired or been revoked, and that key was never
+    // something the reader typed. The stock copy below tells them to create a
+    // replacement in the portal, which is advice for a credential they do not
+    // have and cannot act on; what they actually need is the login re-offered.
+    //
+    // Reachable through no fault of theirs, too: the hosted transport caches a
+    // resolved key for 60s, so a derived key that expires inside that window
+    // sends the next call upstream with a dead credential and lands exactly
+    // here. The challenge turns that into a reconnect instead of a dead end.
+    if (deps.transport === "http" && deps.authVia === "oauth" && oauthEnabled(deps.config)) {
+      return err(
+        "AUTH_REQUIRED",
+        `The Website Auditor connection for this conversation has expired. ` +
+          `Reconnect when prompted — there is no key to paste. ` +
+          `get_sample_audit keeps working with no account at all in the meantime.`,
+        {
+          upgrade_url: upgradeUrl,
+          wwwAuthenticate: wwwAuthenticateChallenge(
+            deps.config,
+            "The Website Auditor connection expired. Reconnect to continue.",
+          ),
+        },
+      );
+    }
     // The upstream message already carries the "generate a new key" instruction,
     // so only the portal URL and the subscription caveat are added — restating
     // it produced "Generate a new key from the admin portal. Create a

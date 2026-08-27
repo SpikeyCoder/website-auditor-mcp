@@ -25,6 +25,6 @@ export async function getRecommendations(
     const recommendations = await deps.client.getRecommendations({ domain: args.domain });
     return ok(recommendations);
   } catch (e) {
-    return fromApiError(e, deps.config);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 }

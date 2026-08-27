@@ -17,6 +17,7 @@
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
 import { fromApiError, keySetupNote, ok, type ToolDeps, type ToolResult } from "./context.js";
+import { oauthEnabled } from "../auth/oauth.js";
 import { PRICE, upgradeLink } from "./upgrade.js";
 
 export interface UpgradeStatus {
@@ -51,9 +52,20 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       // who ARE subscribed and simply haven't set a key, so it states the
       // requirement rather than pitching the trial (the never-subscribed
       // branch below does that, with the full disclosure).
+      // This is the tool an UNLINKED ChatGPT user actually reaches — it is one
+      // of the two declared `noauth`, so it answers before any login exists.
+      // Telling that reader to mint a key and put it in a header describes a
+      // procedure their client does not have, and contradicts the "there is no
+      // key to paste" copy the same model reads from every other tool. It
+      // cannot carry a challenge (this is a success, and `_meta` is lifted only
+      // from errors), so the wording is the whole remedy.
       message:
-        `No API key is configured. Create one at ${upgradeUrl} — minting a key requires an ` +
-        `active subscription (${PRICE}). ${keySetupNote(deps.transport)}`,
+        deps.transport === "http" && oauthEnabled(deps.config)
+          ? `No Website Auditor account is connected to this conversation yet. ` +
+            `Connect one when prompted — there is no key to paste. Audits also need an ` +
+            `active subscription (${PRICE}) on the connected account: ${upgradeUrl}`
+          : `No API key is configured. Create one at ${upgradeUrl} — minting a key requires an ` +
+            `active subscription (${PRICE}). ${keySetupNote(deps.transport)}`,
     });
   }
 
@@ -85,6 +97,8 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     return fromApiError(
       new WaApiError("MALFORMED_KEY", `${MALFORMED_KEY_MESSAGE} ${keySetupNote(deps.transport)}`),
       deps.config,
+      deps.transport,
+      deps.authVia,
     );
   }
 
@@ -92,7 +106,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   try {
     sub = await deps.client.getSubscription();
   } catch (e) {
-    return fromApiError(e, deps.config);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 
   const periodEnd = sub.current_period_end ?? null;

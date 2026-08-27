@@ -25,6 +25,7 @@ import { getReport } from "../tools/getReport.js";
 import { checkUpgradeStatus } from "../tools/checkUpgradeStatus.js";
 import { getSampleAudit } from "../tools/sampleAudit.js";
 import { upgradeLink } from "../tools/upgrade.js";
+import { oauthEnabled, securitySchemesFor } from "../auth/oauth.js";
 import { buildInstructions } from "./instructions.js";
 import { PROMPT_SPECS } from "./prompts.js";
 import { classifyAgentOrigin, type ClientInfo, type EventSink, type McpEvent } from "../telemetry/events.js";
@@ -110,10 +111,18 @@ export function toCallResult(result: ToolResult<unknown>): CallToolResult {
       structuredContent: result.data as Record<string, unknown>,
     };
   }
+  // The auth challenge is transport metadata and leaves the payload entirely.
+  // The Apps SDK reads it at `_meta["mcp/www_authenticate"]` — serializing it
+  // into the error body as well would put a header the model cannot act on in
+  // front of the model, and make it part of an error contract that tests and
+  // callers would then pin. Destructured out rather than deleted so the
+  // remaining object is still typed.
+  const { wwwAuthenticate, ...payload } = result.error;
   return {
     isError: true,
-    content: [{ type: "text", text: JSON.stringify(result.error, null, 2) }],
-    structuredContent: result.error as unknown as Record<string, unknown>,
+    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+    structuredContent: payload as unknown as Record<string, unknown>,
+    ...(wwwAuthenticate ? { _meta: { "mcp/www_authenticate": wwwAuthenticate } } : {}),
   };
 }
 
@@ -148,7 +157,12 @@ export function createServer(deps: ToolDeps): McpServer {
       // funnel leaked. The full history, and why the string is shaped the way it
       // is, lives in ./instructions.ts; the ordering and proportion it must keep
       // are pinned by tests/mcp/instructionTriggers.test.ts.
-      instructions: buildInstructions(signupUrl, deps.config.upsellStyle, deps.transport),
+      instructions: buildInstructions(
+        signupUrl,
+        deps.config.upsellStyle,
+        deps.transport,
+        deps.transport === "http" && oauthEnabled(deps.config),
+      ),
     },
   );
 
@@ -174,6 +188,16 @@ export function createServer(deps: ToolDeps): McpServer {
     // required by the Claude connector directory and the OpenAI plugin review
     // alike. The values are per-tool; see annotationsFor above.
     const annotations = annotationsFor(spec);
+    // The declarative half of Mixed Auth: which tools need a connected account
+    // and for what scope. Undefined unless OAuth is configured, so an
+    // unconfigured server publishes no `_meta` at all and its tool list is
+    // byte-identical to what it served before — see auth/oauth.ts.
+    //
+    // `_meta` is the only channel the SDK exposes for this: securitySchemes is
+    // an Apps SDK extension rather than MCP core, and registerTool's config
+    // accepts no top-level field for it, so a value placed anywhere else would
+    // be dropped before it reached the wire.
+    const securitySchemes = securitySchemesFor(spec.tier, deps.config, deps.transport);
     server.registerTool(
       spec.name,
       {
@@ -181,6 +205,7 @@ export function createServer(deps: ToolDeps): McpServer {
         description: spec.description,
         inputSchema: spec.inputSchema,
         annotations,
+        ...(securitySchemes ? { _meta: { securitySchemes } } : {}),
       },
       async (args: Record<string, unknown>) => {
         const startedAt = Date.now();

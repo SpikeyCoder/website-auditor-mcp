@@ -53,7 +53,7 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
       businessCity: args.business_location,
     });
   } catch (e) {
-    return fromApiError(e, deps.config);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 
   if (detectUnreachable(response.report)) {

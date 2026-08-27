@@ -79,7 +79,7 @@ export async function getMonitoringStatus(
 
     return ok({ limit: status.limit, used: status.used, remaining: status.remaining, sites, summary });
   } catch (e) {
-    return fromApiError(e, deps.config);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 }
 
