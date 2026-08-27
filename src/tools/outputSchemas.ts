@@ -18,10 +18,15 @@
  *
  *   * anything optional in the TypeScript type is `.optional()` here;
  *   * anything nullable is `.nullable()`;
- *   * every object that carries upstream data is `.passthrough()`, which is
- *     also the honest thing to publish — it emits `additionalProperties: true`,
- *     telling the model more fields may appear rather than implying a closed
- *     set;
+ *   * every NESTED object that carries upstream data is `.passthrough()`, which
+ *     is also the honest thing to publish — it emits `additionalProperties:
+ *     true`, telling the model more fields may appear rather than implying a
+ *     closed set. This does NOT reach the top level: the SDK wraps the exported
+ *     raw shape in a plain `z.object(shape)`, so each tool's root object
+ *     publishes `additionalProperties: false`. That is accurate today — every
+ *     root key each tool returns is declared below — but it is the SDK's choice
+ *     rather than this file's, and adding an undeclared root key would make the
+ *     published schema wrong before it made anything fail;
  *   * fields whose VALUES come from upstream are typed `z.string()` rather than
  *     enums, even where a union type narrows them locally.
  *
@@ -93,13 +98,19 @@ const aiVisibilitySource = open({
   title: z.string(),
 });
 
+// Every field optional but `severity`, which toAuditSummary filters on and so
+// must exist. The rest are copied VERBATIM from upstream result rows
+// (mappers.ts toAuditSummary) with no defaulting — and mappers.ts guards the
+// same field names with `?? ""` elsewhere, which is the repo's own evidence
+// that they arrive missing. Requiring them here would have turned a successful,
+// quota-spending run_audit into an McpError.
 const auditIssue = open({
-  name: z.string(),
+  name: z.string().optional(),
   severity: z.string(),
-  module: z.string(),
-  url: z.string(),
-  details: z.string(),
-  recommendation: z.string(),
+  module: z.string().optional(),
+  url: z.string().optional(),
+  details: z.string().optional(),
+  recommendation: z.string().optional(),
 });
 
 const changes = open({
@@ -204,13 +215,16 @@ export const listTrackedSitesOutput: ZodRawShape = {
   limit: z.number(),
   used: z.number(),
   remaining: z.number(),
+  // Passed through from listTrackedDomains without per-row normalization, so
+  // only `domain` is guaranteed. `.nullable()` does not cover an ABSENT key —
+  // a newly-enrolled row that carries no next_run_at yet would fail.
   tracked: z.array(open({
     domain: z.string(),
-    cadence: z.string(),
-    active: z.boolean(),
-    digest_enabled: z.boolean(),
-    last_audited_at: z.string().nullable(),
-    next_run_at: z.string().nullable(),
+    cadence: z.string().optional(),
+    active: z.boolean().optional(),
+    digest_enabled: z.boolean().optional(),
+    last_audited_at: z.string().nullable().optional(),
+    next_run_at: z.string().nullable().optional(),
     created_at: z.string().nullable().optional(),
   })),
   summary: z.string(),
@@ -220,13 +234,16 @@ export const getMonitoringStatusOutput: ZodRawShape = {
   limit: z.number(),
   used: z.number(),
   remaining: z.number(),
+  // `latest_score`, `change` and `summary` are computed by the tool, so they
+  // are guaranteed; everything else is copied raw from an unnormalized
+  // body.sites and is not.
   sites: z.array(open({
     domain: z.string(),
-    cadence: z.string(),
-    active: z.boolean(),
+    cadence: z.string().optional(),
+    active: z.boolean().optional(),
     latest_score: z.number().nullable(),
-    last_audited_at: z.string().nullable(),
-    next_run_at: z.string().nullable(),
+    last_audited_at: z.string().nullable().optional(),
+    next_run_at: z.string().nullable().optional(),
     change: changes.nullable().describe("Latest vs previous snapshot; null if fewer than two."),
     summary: z.string(),
   })),
@@ -241,11 +258,12 @@ export const getBenchmarkOutput: ZodRawShape = {
 };
 
 export const getRecommendationsOutput: ZodRawShape = {
+  // The client checks only that this IS an array; nothing validates the rows.
   recommendations: z.array(open({
-    action: z.string(),
-    why: z.string(),
-    expected_impact: z.string(),
-    effort: z.string(),
+    action: z.string().optional(),
+    why: z.string().optional(),
+    expected_impact: z.string().optional(),
+    effort: z.string().optional(),
   })),
 };
 
@@ -264,7 +282,10 @@ export const getGtmPlanOutput: ZodRawShape = {
   domain: z.string(),
   plan: open({
     markdown: z.string(),
-    sections: z.array(open({ title: z.string(), body_lines: z.array(z.string()) })),
+    // Behind an unchecked `as GtmPlanSection[]` over LLM-derived sections, so a
+    // heading with no body is entirely possible — and requiring body_lines
+    // would discard a plan the caller has already been billed for.
+    sections: z.array(open({ title: z.string().optional(), body_lines: z.array(z.string()).optional() })),
   }),
   sources_used: z.array(z.string()),
   model: z.string(),

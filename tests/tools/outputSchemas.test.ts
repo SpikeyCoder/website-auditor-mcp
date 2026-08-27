@@ -175,6 +175,59 @@ describe("declared output schemas", () => {
     });
   }
 
+  /**
+   * The rows a real response can actually carry, as opposed to the ones I wrote.
+   *
+   * This exists because the suite above could not have caught the bug it was
+   * meant to: `richClient` replaces WaApiClient entirely, so every payload it
+   * returns is complete BY CONSTRUCTION — the same assumption the schemas were
+   * written under. A code review found five schemas requiring fields the client
+   * passes through unnormalized, and all five were invisible here.
+   *
+   * So these payloads carry only what the code genuinely guarantees: whatever a
+   * mapper computes, plus the keys a row cannot exist without. Everything else
+   * is absent — not null, ABSENT, which is the case `.nullable()` does not
+   * cover.
+   */
+  const sparseClient = {
+    getSubscription: async () => ({ tier: "pro" as const, status: "active" }),
+    // No name/url/details/recommendation: toAuditSummary copies them verbatim.
+    runAudit: async () => ({
+      runId: "abc123def456",
+      report: { ...reachableReport(), results: [{ severity: "critical", module: "seo" }] },
+      raw: {},
+    }),
+    getChanges: async () => ({
+      score_delta: -4, engine_changes: [], competitor_changes: [], new_issues: [], resolved_issues: [],
+    }),
+    compareCompetitors: async () => ({
+      ranking: [{ domain: "rival.com", score: null }],
+      gaps: [], quota: { limit: null, remaining: null, audits_used: 0, audits_skipped: 0, cached_reused: 0, reset: null },
+      skipped: [], summary: "",
+    }),
+    // A freshly-enrolled row: no next_run_at, no last_audited_at, no digest flag.
+    listTrackedDomains: async () => ({ limit: 5, used: 1, remaining: 4, tracked: [{ domain: "example.com" }] }),
+    getMonitoringStatus: async () => ({ limit: 5, used: 1, remaining: 4, sites: [{ domain: "example.com" }] }),
+    getRecommendations: async () => ({ recommendations: [{ action: "Add FAQ schema" }] }),
+    generateSchema: async () => ({ jsonld: {}, placement_notes: "" }),
+    getReport: async () => ({ report_url: "", badge_html: "" }),
+    // A heading with no body — the LLM-derived shape behind an unchecked cast.
+    getGtmPlan: async () => ({
+      plan_markdown: "## Week 1", plan_sections: [{ title: "Week 1" }], sources_used: [], model: "gpt-5",
+    }),
+  };
+
+  for (const spec of SERVED_TOOLS) {
+    it(`${spec.name} accepts a MINIMAL upstream payload, not just a complete one`, async () => {
+      const client = await connect(makeDeps({ tier: "pro", client: sparseClient }));
+      const result = await client.callTool({ name: spec.name, arguments: ARGS[spec.name] ?? {} });
+      const text = JSON.stringify(result);
+      expect(text, `${spec.name} rejects a payload the client can really produce`)
+        .not.toContain("Output validation error");
+      expect(result.isError, `${spec.name}: ${text.slice(0, 300)}`).toBeFalsy();
+    });
+  }
+
   it("does NOT validate error results — the auth challenge is unaffected", async () => {
     // The SDK returns early on `isError` (server/mcp.js → validateToolOutput),
     // which is what lets a Pro tool answer AUTH_REQUIRED with an error payload
