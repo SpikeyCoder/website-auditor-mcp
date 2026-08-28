@@ -351,17 +351,23 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   // from its absence. devTier has no such override, so its strip is the guard
   // actually holding the boundary, and its removal IS caught.
   const base: WaConfig = { ...options.config, apiKey: undefined, devTier: undefined };
-  // Normalized at the consumer for the same reason defaultApiKey is: this
-  // factory is a published entry, and the guard one layer up in
-  // httpOptionsFromEnv does not travel with it. Unexpanded, the token is
-  // truthy, so the well-known route answers 200 with the literal `${...}` and
-  // the verifier reports a MISMATCH instead of the 404 naming the real cause.
   // Hoisted, like HEALTH_PATHS above: the resource URL is fixed for the
   // server's lifetime, so re-deriving these inside the handler made every
   // request — including every JSON-RPC POST, which never reaches this route —
   // pay a URL parse, a regex and an array allocation to answer a question whose
   // answer never changes. It replaced a single string comparison.
-  const metadataPaths = new Set(resourceMetadataPaths(options.config.oauthResourceUrl));
+  //
+  // From `base`, not options.config: the document served on these routes is
+  // built from base too, and reading the same field off two objects is how the
+  // routes and the `resource` they publish would silently disagree the day
+  // anything normalizes it — which this factory already does to three of its
+  // other inputs, a few lines down.
+  const metadataPaths = new Set(resourceMetadataPaths(base.oauthResourceUrl));
+  // Normalized at the consumer for the same reason defaultApiKey is: this
+  // factory is a published entry, and the guard one layer up in
+  // httpOptionsFromEnv does not travel with it. Unexpanded, the token is
+  // truthy, so the well-known route answers 200 with the literal `${...}` and
+  // the verifier reports a MISMATCH instead of the 404 naming the real cause.
   const challengeToken = normalizeEnvValue(options.challengeToken);
   // Normalized HERE, not only where main() reads the env, because this factory
   // is a published entry — package.json ships dist/**/*.js with no exports map,
@@ -471,6 +477,38 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     // rather than hardcoded: the resource path is configuration
     // (WA_OAUTH_RESOURCE_URL), and a literal `/mcp` here would be one more copy
     // of a path to keep in step. See resourceMetadataPaths() for why two.
+    if (metadataPaths.has(url.pathname) && req.method === "OPTIONS") {
+      // The PREFLIGHT, answered here rather than falling past the GET/HEAD
+      // guard below into the catch-all 404.
+      //
+      // A browser only sends the real GET if this succeeds, and it preflights
+      // as soon as the request carries a non-safelisted header — the MCP
+      // TypeScript SDK sends MCP-Protocol-Version on discovery, so the client
+      // that matters always does. Rejected here, the GET never runs and the
+      // caller sees "Failed to fetch", which is indistinguishable from OAuth
+      // being switched off.
+      //
+      // This is the identical gap that cost two rounds on the authorization
+      // server: a fix applied only to the GET handler passed every curl check
+      // and left every browser blocked. Answered unconditionally, exactly like
+      // the GET below — the document is public, and a preflight reveals nothing
+      // the document does not.
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      // Reflected: the spec-safe answer to "may I send this header?" for a
+      // resource with nothing to protect, and it avoids a list that has to be
+      // kept in step with whatever clients decide to send.
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        req.headers["access-control-request-headers"] ?? "Content-Type, Authorization, MCP-Protocol-Version",
+      );
+      // Ten minutes, matching the authorization server: without it every
+      // discovery fetch costs two round trips, permanently.
+      res.setHeader("Access-Control-Max-Age", "600");
+      res.writeHead(204).end();
+      return;
+    }
+
     if (isRead(req.method) && metadataPaths.has(url.pathname)) {
       const metadata = protectedResourceMetadata(base);
       if (!metadata) {

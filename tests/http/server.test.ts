@@ -728,6 +728,49 @@ describe("Mixed Auth over Streamable HTTP", () => {
       .toContain("/.well-known/oauth-protected-resource/mcp");
   });
 
+  it("answers the CORS preflight on both metadata locations", async () => {
+    // A browser sends the real GET only if the preflight succeeds, and it
+    // preflights as soon as the request carries a non-safelisted header — the
+    // MCP TypeScript SDK sends MCP-Protocol-Version on discovery, so the client
+    // that matters always does. These routes were GET/HEAD-only, so OPTIONS
+    // fell into the catch-all 404 with no CORS headers and the GET never ran.
+    //
+    // That is the identical gap that cost two rounds on the authorization
+    // server: a fix applied only to the GET handler passes every curl check and
+    // leaves every browser blocked, reporting "Failed to fetch" —
+    // indistinguishable from OAuth being switched off.
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: recordingFactory().factory,
+    });
+
+    for (const path of [
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-protected-resource",
+    ]) {
+      const pre = await fetch(url + path, {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://platform.openai.com",
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "mcp-protocol-version",
+        },
+      });
+      expect(pre.status, path).toBe(204);
+      expect(pre.headers.get("access-control-allow-origin"), path).toBe("*");
+      // The header the client asked to send has to come back allowed, or the
+      // preflight "succeeds" and the real request is refused anyway.
+      expect(pre.headers.get("access-control-allow-headers") ?? "", path)
+        .toMatch(/mcp-protocol-version/i);
+      expect(pre.headers.get("access-control-max-age"), path).toBe("600");
+    }
+
+    // And a path that is NOT a metadata location still 404s, so the preflight
+    // branch cannot become a blanket OPTIONS handler.
+    const stray = await fetch(`${url}/.well-known/oauth-protected-resource/wrong`, { method: "OPTIONS" });
+    expect(stray.status).toBe(404);
+  });
+
   it("serves exactly one location when the resource is the origin itself", async () => {
     // The path-inserted form and the root form coincide there, so what this
     // holds is that the coincidence produces a working route and no doubled

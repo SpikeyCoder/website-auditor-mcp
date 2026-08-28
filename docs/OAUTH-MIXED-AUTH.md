@@ -36,8 +36,8 @@ which is exactly the failure this document exists to prevent recurring:
    `/.well-known/oauth-protected-resource` between the host and the resource's
    path, so a resource at `/mcp` publishes at
    `/.well-known/oauth-protected-resource/mcp`. The origin-root form is served
-   too, for clients that already discovered it there — ChatGPT reaches it that
-   way after taking a 404 on the spec URL.
+   too, for clients that already discovered it there — which is how ChatGPT
+   reached it while the spec URL still 404'd, before that was fixed.
 2. **Runtime** — the error a protected tool returns without a usable token must
    carry `_meta["mcp/www_authenticate"]`, a challenge pointing back at that
    document.

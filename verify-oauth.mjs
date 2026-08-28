@@ -93,12 +93,17 @@ async function main() {
     [`${BASE}/.well-known/oauth-authorization-server`, 'RFC 8414 metadata'],
     [`${BASE}/.well-known/openid-configuration`, 'OIDC discovery'],
     [`${BASE}/.well-known/jwks.json`, 'JWKS'],
-    // BOTH served locations. They share one handler today so their headers
-    // cannot practically diverge — but listing only the fallback is the pattern
-    // that let a 404 on the primary survive, and a verifier that runs unattended
-    // should not disagree with the runbook about what needs checking.
-    [`${MCP}/.well-known/oauth-protected-resource/mcp`, 'RFC 9728 resource metadata (spec URL)'],
-    [`${MCP}/.well-known/oauth-protected-resource`, 'RFC 9728 resource metadata (root form)'],
+    // The ROOT form only, here. Step 1b runs before the resource identifier is
+    // known, and listing the spec URL would mean hardcoding `/mcp` — the very
+    // copy step 7 was rewritten to remove, reintroduced two hundred lines
+    // earlier in the same change. It hard-fails any deployment whose resource
+    // is not /mcp, including the origin-as-resource shape the server supports,
+    // and blames CORS for a URL that is simply not that deployment's.
+    //
+    // The spec URL's CORS and preflight are checked in step 7 instead, where
+    // `pr.resource` is known. Both locations share one handler, so this is a
+    // question of WHERE to check, not whether.
+    [`${MCP}/.well-known/oauth-protected-resource`, 'RFC 9728 resource metadata'],
   ];
 
   for (const [url, label] of PUBLIC_DOCS) {
@@ -336,6 +341,17 @@ async function main() {
   // hard-failed any other legal WA_OAUTH_RESOURCE_URL, including the
   // origin-as-resource shape the server explicitly supports. Reading it back
   // also turns this into a cross-check of the deployed configuration.
+  // FIRST: that the identifier itself is right. Everything below derives from
+  // `pr.resource`, so on its own it is circular — a server publishing the wrong
+  // resource passes every check by agreeing with itself. An operator who set
+  // WA_OAUTH_RESOURCE_URL to a bare origin while the endpoint is at /mcp gets a
+  // green step 7 and a document naming a URL no client ever POSTs to, which is
+  // exactly what this file's .env.example warning exists to prevent.
+  check('the published resource identifier is the URL clients actually POST to',
+    pr.resource === `${MCP}/mcp`,
+    `document says resource="${pr.resource}", but this script POSTs to ${MCP}/mcp.\n` +
+    '        Set WA_OAUTH_RESOURCE_URL to the endpoint URL, path included.');
+
   const specPath = `/.well-known/oauth-protected-resource${new URL(pr.resource).pathname.replace(/\/+$/, '')}`;
   const specRes = await fetch(`${MCP}${specPath}`);
   const specText = (await specRes.text()).trim();
@@ -348,16 +364,25 @@ async function main() {
   if (specRes.status === 200) {
     check('and the two locations answer the same document', specText === prText,
       'the path-inserted and root forms have drifted apart');
+    // Its CORS and preflight, checked HERE rather than in step 1b, because only
+    // here is the path known without hardcoding it. A browser sends the real
+    // GET only if the preflight succeeds, and the MCP SDK sends
+    // MCP-Protocol-Version on discovery, so the client that matters always
+    // preflights.
+    const cors = await fetch(`${MCP}${specPath}`, { headers: { Origin: FOREIGN } });
+    check('the spec URL is readable from another origin',
+      cors.headers.get('access-control-allow-origin') === '*',
+      `answered ${cors.status} with Access-Control-Allow-Origin: ${cors.headers.get('access-control-allow-origin') ?? '(absent)'}`);
+    const pre = await fetch(`${MCP}${specPath}`, {
+      method: 'OPTIONS',
+      headers: { Origin: FOREIGN, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'mcp-protocol-version' },
+    });
+    check('and answers the preflight a browser sends before it',
+      pre.headers.get('access-control-allow-origin') === '*',
+      `OPTIONS answered ${pre.status} with Access-Control-Allow-Origin: ${pre.headers.get('access-control-allow-origin') ?? '(absent)'}.\n` +
+      '        The GET never runs, and the caller sees "Failed to fetch".');
   }
 
-  // And the root form too, identically. Both are served on purpose — clients
-  // that already found the document there keep working — but two locations are
-  // only safe while they cannot disagree.
-  const rootRes = await fetch(`${MCP}/.well-known/oauth-protected-resource`);
-  const rootText = (await rootRes.text()).trim();
-  check('the root form answers the same document',
-    rootRes.status === 200 && rootText === prText,
-    `${rootRes.status}; ${rootText === prText ? 'same body' : 'DIFFERENT body — the two locations have drifted'}`);
   // A mismatch here is silent and fatal: the host discovers an authorization
   // server that is not the one holding the account, and every login 404s.
   check('it names the issuer discovery just returned',

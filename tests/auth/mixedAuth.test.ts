@@ -147,7 +147,13 @@ describe("protected-resource metadata (RFC 9728)", () => {
     // is that callers degrade rather than throw. Not reachable in production,
     // because oauthEnabled() requires http/https — but that guard lives in a
     // different function, and this symbol is exported from a published package.
-    for (const resource of ["file:///mcp", "urn:example:res", "mailto:a@b.c"]) {
+    // blob: is the one an origin-only guard lets through: it parses WITH a real
+    // origin, so no throw — but its pathname is the whole inner URL with no
+    // leading slash, producing
+    // "/.well-known/oauth-protected-resourcehttps://example.com/uuid". The guard
+    // is isAbsoluteUrl now, the same predicate oauthEnabled uses, so all three
+    // functions agree on what a usable resource identifier is.
+    for (const resource of ["file:///mcp", "urn:example:res", "mailto:a@b.c", "blob:https://example.com/uuid"]) {
       expect(() => protectedResourceMetadataUrl(resource), resource).not.toThrow();
       expect(protectedResourceMetadataUrl(resource), resource).toBe("/.well-known/oauth-protected-resource");
       expect(resourceMetadataPaths(resource), resource).toEqual(["/.well-known/oauth-protected-resource"]);
