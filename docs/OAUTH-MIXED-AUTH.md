@@ -31,8 +31,13 @@ Each is silent when missing — the tool just answers "not authenticated" foreve
 which is exactly the failure this document exists to prevent recurring:
 
 1. **Declarative** — `_meta.securitySchemes` on every tool (`oauth2` with a scope,
-   or `noauth`), plus an RFC 9728 protected-resource metadata document at
-   `/.well-known/oauth-protected-resource`.
+   or `noauth`), plus an RFC 9728 protected-resource metadata document. Its
+   location follows the resource identifier: §3.1 inserts
+   `/.well-known/oauth-protected-resource` between the host and the resource's
+   path, so a resource at `/mcp` publishes at
+   `/.well-known/oauth-protected-resource/mcp`. The origin-root form is served
+   too, for clients that already discovered it there — ChatGPT reaches it that
+   way after taking a 404 on the spec URL.
 2. **Runtime** — the error a protected tool returns without a usable token must
    carry `_meta["mcp/www_authenticate"]`, a challenge pointing back at that
    document.
@@ -52,7 +57,7 @@ install and existing `Bearer wa_…` caller is byte-identical to before.
 |---|---|
 | `oauthEnabled`, metadata document, challenge builder, scheme derivation, `looksLikeApiKey` | `src/auth/oauth.ts` |
 | Access token → derived API key, with bounded TTL cache | `src/auth/tokenExchange.ts` |
-| `/.well-known/oauth-protected-resource` route; `credentialFor()` | `src/http.ts` |
+| Both protected-resource metadata routes (`resourceMetadataPaths`); `credentialFor()` | `src/http.ts` |
 | `_meta.securitySchemes` on registration; `_meta["mcp/www_authenticate"]` lifting | `src/mcp/server.ts` |
 | The challenge on `AUTH_REQUIRED`, and the two-gate copy | `src/tools/context.ts` |
 | Config + env | `src/config.ts`, `.env.example` |
@@ -154,8 +159,15 @@ cannot cover is whether ChatGPT actually renders the linking UI, because that
 depends on it reading both halves. Check explicitly after deploying:
 
 ```bash
-curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource | jq
+# The SPEC url — the one a conforming client builds, and the one that 404'd
+# until it was fixed. Checking only the root form confirms the fallback and
+# says nothing about the primary.
+curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource/mcp | jq
 # expect: resource, authorization_servers, scopes_supported, bearer_methods_supported
+
+# And the root form, which must answer the same document.
+diff <(curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource/mcp) \
+     <(curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource) && echo IDENTICAL
 
 curl -s -X POST https://mcp.website-auditor.io/mcp \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \

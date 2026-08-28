@@ -729,9 +729,12 @@ describe("Mixed Auth over Streamable HTTP", () => {
   });
 
   it("serves exactly one location when the resource is the origin itself", async () => {
-    // The path-inserted form and the root form coincide there. Asserted so the
-    // dedupe in resourceMetadataPaths cannot regress into a doubled slash or a
-    // route that shadows itself.
+    // The path-inserted form and the root form coincide there, so what this
+    // holds is that the coincidence produces a working route and no doubled
+    // slash — NOT the dedupe itself, which is invisible over HTTP because
+    // Array.includes cannot tell one entry from two identical ones. Proved by
+    // mutation: removing the dedupe leaves this test green. The dedupe is
+    // pinned in tests/auth/mixedAuth.test.ts, where it is observable.
     const { url } = await listen({
       config: testConfig({
         apiKey: undefined,

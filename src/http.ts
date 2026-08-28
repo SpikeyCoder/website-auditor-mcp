@@ -356,6 +356,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   // httpOptionsFromEnv does not travel with it. Unexpanded, the token is
   // truthy, so the well-known route answers 200 with the literal `${...}` and
   // the verifier reports a MISMATCH instead of the 404 naming the real cause.
+  // Hoisted, like HEALTH_PATHS above: the resource URL is fixed for the
+  // server's lifetime, so re-deriving these inside the handler made every
+  // request — including every JSON-RPC POST, which never reaches this route —
+  // pay a URL parse, a regex and an array allocation to answer a question whose
+  // answer never changes. It replaced a single string comparison.
+  const metadataPaths = new Set(resourceMetadataPaths(options.config.oauthResourceUrl));
   const challengeToken = normalizeEnvValue(options.challengeToken);
   // Normalized HERE, not only where main() reads the env, because this factory
   // is a published entry — package.json ships dist/**/*.js with no exports map,
@@ -465,7 +471,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     // rather than hardcoded: the resource path is configuration
     // (WA_OAUTH_RESOURCE_URL), and a literal `/mcp` here would be one more copy
     // of a path to keep in step. See resourceMetadataPaths() for why two.
-    if (resourceMetadataPaths(base.oauthResourceUrl).includes(url.pathname) && isRead(req.method)) {
+    if (isRead(req.method) && metadataPaths.has(url.pathname)) {
       const metadata = protectedResourceMetadata(base);
       if (!metadata) {
         // A 404 is the honest answer for a server with no OAuth configured, and

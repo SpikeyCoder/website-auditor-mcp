@@ -138,6 +138,21 @@ describe("protected-resource metadata (RFC 9728)", () => {
   it("degrades to the bare path instead of throwing on an unparseable resource", () => {
     expect(protectedResourceMetadataUrl("not a url")).toBe("/.well-known/oauth-protected-resource");
   });
+
+  it("degrades on an identifier that PARSES but has no usable origin", () => {
+    // The case a null-check on the path alone lets through. `file:///mcp` parses
+    // and has pathname "/mcp", so the path is fine — but its origin is the
+    // STRING "null", which is not a base any URL resolves against, and building
+    // the URL outside the guard threw a TypeError from a function whose contract
+    // is that callers degrade rather than throw. Not reachable in production,
+    // because oauthEnabled() requires http/https — but that guard lives in a
+    // different function, and this symbol is exported from a published package.
+    for (const resource of ["file:///mcp", "urn:example:res", "mailto:a@b.c"]) {
+      expect(() => protectedResourceMetadataUrl(resource), resource).not.toThrow();
+      expect(protectedResourceMetadataUrl(resource), resource).toBe("/.well-known/oauth-protected-resource");
+      expect(resourceMetadataPaths(resource), resource).toEqual(["/.well-known/oauth-protected-resource"]);
+    }
+  });
 });
 
 describe("the WWW-Authenticate challenge", () => {

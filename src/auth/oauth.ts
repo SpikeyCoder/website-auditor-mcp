@@ -84,6 +84,25 @@ function isAbsoluteUrl(value: string): boolean {
 }
 
 /**
+ * The resource identifier as a URL with a usable ORIGIN, or null.
+ *
+ * `new URL()` succeeding is not enough: a non-special scheme (`file:`, `urn:`,
+ * `mailto:`) parses fine and yields the STRING "null" for `.origin`, which is
+ * not a base any URL can be resolved against. Both callers need the same
+ * answer, and both must degrade rather than throw — they run on the request
+ * path.
+ */
+function parseResource(resourceUrl: string): URL | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(resourceUrl);
+  } catch {
+    return null;
+  }
+  return parsed.origin === "null" ? null : parsed;
+}
+
+/**
  * The metadata document's path for a given resource identifier, per RFC 9728
  * §3.1: the well-known segment inserted between the host and the resource's
  * own path, with any terminating slash removed first.
@@ -96,12 +115,9 @@ function isAbsoluteUrl(value: string): boolean {
  * insert before, and produces the root form.
  */
 function resourceMetadataPath(resourceUrl: string): string | null {
-  let path: string;
-  try {
-    path = new URL(resourceUrl).pathname;
-  } catch {
-    return null;
-  }
+  const parsed = parseResource(resourceUrl);
+  if (parsed === null) return null;
+  const path = parsed.pathname;
   // "any terminating / MUST be removed before inserting" — otherwise the same
   // resource spelled two ways yields two metadata URLs, only one of them served.
   const trimmed = path.replace(/\/+$/, "");
@@ -154,11 +170,20 @@ export function resourceMetadataPaths(resourceUrl: string | undefined): string[]
  * get it wrong.
  */
 export function protectedResourceMetadataUrl(resourceUrl: string): string {
+  const parsed = parseResource(resourceUrl);
   const path = resourceMetadataPath(resourceUrl);
-  // Unparseable: return the bare path so the challenge stays well-formed and
-  // relative rather than carrying a broken absolute URL.
-  if (path === null) return PROTECTED_RESOURCE_PATH;
-  return new URL(path, new URL(resourceUrl).origin).toString();
+  // No usable origin, or no usable path: return the bare path so the challenge
+  // stays well-formed and relative rather than carrying a broken absolute URL.
+  //
+  // Both conditions, not just the path. An earlier version checked only the
+  // path and then built the URL outside the guard — which throws for an
+  // identifier that PARSES but has an opaque origin (`file:///mcp` has pathname
+  // "/mcp", so the path check passes, while its origin is the string "null" and
+  // `new URL(path, "null")` is a TypeError). The previous code wrapped the whole
+  // construction, so narrowing the guard was a regression against the promise
+  // three lines above this one.
+  if (parsed === null || path === null) return PROTECTED_RESOURCE_PATH;
+  return new URL(path, parsed.origin).toString();
 }
 
 /** The RFC 9728 protected-resource metadata document, served verbatim as JSON. */

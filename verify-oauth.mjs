@@ -93,7 +93,12 @@ async function main() {
     [`${BASE}/.well-known/oauth-authorization-server`, 'RFC 8414 metadata'],
     [`${BASE}/.well-known/openid-configuration`, 'OIDC discovery'],
     [`${BASE}/.well-known/jwks.json`, 'JWKS'],
-    [`${MCP}/.well-known/oauth-protected-resource`, 'RFC 9728 resource metadata'],
+    // BOTH served locations. They share one handler today so their headers
+    // cannot practically diverge — but listing only the fallback is the pattern
+    // that let a 404 on the primary survive, and a verifier that runs unattended
+    // should not disagree with the runbook about what needs checking.
+    [`${MCP}/.well-known/oauth-protected-resource/mcp`, 'RFC 9728 resource metadata (spec URL)'],
+    [`${MCP}/.well-known/oauth-protected-resource`, 'RFC 9728 resource metadata (root form)'],
   ];
 
   for (const [url, label] of PUBLIC_DOCS) {
@@ -290,15 +295,22 @@ async function main() {
     return { status: r.status, body, text };
   };
 
-  // The SPEC url first — the well-known segment inserted between host and path
-  // (RFC 9728 §3.1) — because that is the one a conforming client builds. This
-  // script probed only the root form, which is why it stayed green while
-  // ChatGPT was taking a 404 on its first request and reaching the document
-  // solely by guessing further than the spec requires. A verifier that only
-  // ever asks for the fallback cannot see a broken primary.
-  const resourcePath = new URL(`${MCP}/mcp`).pathname.replace(/\/+$/, '');
-  const specUrl = `${MCP}/.well-known/oauth-protected-resource${resourcePath}`;
-  const prRes = await fetch(specUrl);
+  // THE ROOT FORM FIRST — and the ordering is the whole point, twice over.
+  //
+  // It is the location served in EVERY configuration, including the ones that
+  // are broken: an unconfigured server answers it `no oauth configured`, a
+  // pre-OAuth image answers it `not found`, and those two bodies are the entire
+  // diagnosis below. Probing the spec URL first, as a previous version did,
+  // destroyed that: on an unconfigured server the spec path is not registered
+  // at all, so it falls into the catch-all and returns `not found` — and this
+  // script confidently reported a stale image and told the operator to redeploy
+  // when the actual fix was two environment variables.
+  //
+  // The spec URL is then asserted separately, because a check that only ever
+  // asks for the fallback cannot see a broken primary — which is exactly how
+  // the 404 on it survived until Cloud Run logs showed ChatGPT taking it.
+  const rootUrl = `${MCP}/.well-known/oauth-protected-resource`;
+  const prRes = await fetch(rootUrl);
   const prText = (await prRes.text()).trim();
   if (prRes.status !== 200) {
     // The two 404 bodies this server can emit mean different things and point
@@ -315,8 +327,28 @@ async function main() {
     fail('the MCP serves protected-resource metadata', `got ${prRes.status} — ${cause}`);
     process.exit(1);
   }
-  pass('the MCP serves protected-resource metadata at the RFC 9728 URL');
+  pass('the MCP serves protected-resource metadata');
   const pr = JSON.parse(prText);
+
+  // The RFC 9728 §3.1 location, derived from the resource identifier THE SERVER
+  // JUST REPORTED rather than from a literal here. `${MCP}/mcp` was hardcoded,
+  // which is the copy this PR's own http.ts comment argues against — and it
+  // hard-failed any other legal WA_OAUTH_RESOURCE_URL, including the
+  // origin-as-resource shape the server explicitly supports. Reading it back
+  // also turns this into a cross-check of the deployed configuration.
+  const specPath = `/.well-known/oauth-protected-resource${new URL(pr.resource).pathname.replace(/\/+$/, '')}`;
+  const specRes = await fetch(`${MCP}${specPath}`);
+  const specText = (await specRes.text()).trim();
+  check('it is served at the RFC 9728 path-inserted URL, which clients build first',
+    specRes.status === 200,
+    `GET ${specPath} answered ${specRes.status}. A conforming client builds this URL from\n` +
+    `        resource="${pr.resource}" and does not have to guess further — so it never\n` +
+    '        discovers the authorization server, and the failure looks like OAuth being off.');
+  // Two locations are safe only while they cannot disagree.
+  if (specRes.status === 200) {
+    check('and the two locations answer the same document', specText === prText,
+      'the path-inserted and root forms have drifted apart');
+  }
 
   // And the root form too, identically. Both are served on purpose — clients
   // that already found the document there keep working — but two locations are
