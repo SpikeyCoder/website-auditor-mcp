@@ -93,18 +93,27 @@ async function main() {
     [`${BASE}/.well-known/oauth-authorization-server`, 'RFC 8414 metadata'],
     [`${BASE}/.well-known/openid-configuration`, 'OIDC discovery'],
     [`${BASE}/.well-known/jwks.json`, 'JWKS'],
-    // The ROOT form only, here. Step 1b runs before the resource identifier is
-    // known, and listing the spec URL would mean hardcoding `/mcp` — the very
-    // copy step 7 was rewritten to remove, reintroduced two hundred lines
-    // earlier in the same change. It hard-fails any deployment whose resource
-    // is not /mcp, including the origin-as-resource shape the server supports,
-    // and blames CORS for a URL that is simply not that deployment's.
-    //
-    // The spec URL's CORS and preflight are checked in step 7 instead, where
-    // `pr.resource` is known. Both locations share one handler, so this is a
-    // question of WHERE to check, not whether.
-    [`${MCP}/.well-known/oauth-protected-resource`, 'RFC 9728 resource metadata'],
+    [`${MCP}/.well-known/oauth-protected-resource`, 'RFC 9728 resource metadata (root form)'],
   ];
+
+  // The SPEC url is checked here too — but its path is READ from the root
+  // document rather than written down. Hardcoding `/mcp` hard-fails any
+  // deployment whose resource is not /mcp; moving the check to step 7 to avoid
+  // that put it behind five process.exit gates and an interactive browser
+  // sign-in, so a CORS break went unreported whenever anything earlier failed.
+  // Deriving it needs neither compromise, and this stays in the cheap,
+  // browserless section its own comment calls "a precondition for the rest of
+  // the flow, not a detail".
+  try {
+    const seed = await (await fetch(`${MCP}/.well-known/oauth-protected-resource`)).json();
+    const specPath = `/.well-known/oauth-protected-resource${new URL(seed.resource).pathname.replace(/\/+$/, '')}`;
+    if (specPath !== '/.well-known/oauth-protected-resource') {
+      PUBLIC_DOCS.push([`${MCP}${specPath}`, 'RFC 9728 resource metadata (spec URL)']);
+    }
+  } catch {
+    // Unreadable or malformed: step 7 diagnoses that properly, with the body in
+    // hand. Skipping one CORS check is the right cost for not masking it here.
+  }
 
   for (const [url, label] of PUBLIC_DOCS) {
     const res = await fetch(url, { headers: { Origin: FOREIGN } });
@@ -347,13 +356,24 @@ async function main() {
   // WA_OAUTH_RESOURCE_URL to a bare origin while the endpoint is at /mcp gets a
   // green step 7 and a document naming a URL no client ever POSTs to, which is
   // exactly what this file's .env.example warning exists to prevent.
-  check('the published resource identifier is the URL clients actually POST to',
+  //
+  // GATED, because everything below parses this value. Reporting it and then
+  // calling `new URL(pr.resource)` two lines later turns a friendly FAIL into
+  // a HARNESS ERROR that skips 7b, 7c, 7d — including the introspection-secret
+  // check this file's header calls the only one that catches a mismatched
+  // secret — and step 8. `check()` returns the boolean for exactly this.
+  if (!check('the published resource identifier is the URL clients actually POST to',
     pr.resource === `${MCP}/mcp`,
     `document says resource="${pr.resource}", but this script POSTs to ${MCP}/mcp.\n` +
-    '        Set WA_OAUTH_RESOURCE_URL to the endpoint URL, path included.');
+    '        Set WA_OAUTH_RESOURCE_URL to the endpoint URL, path included.')) {
+    process.exit(1);
+  }
 
   const specPath = `/.well-known/oauth-protected-resource${new URL(pr.resource).pathname.replace(/\/+$/, '')}`;
-  const specRes = await fetch(`${MCP}${specPath}`);
+  // One fetch, carrying Origin: the route sets Access-Control-Allow-Origin
+  // unconditionally and does not vary the body by it, so status, body and the
+  // CORS header all come from this single production round trip.
+  const specRes = await fetch(`${MCP}${specPath}`, { headers: { Origin: FOREIGN } });
   const specText = (await specRes.text()).trim();
   check('it is served at the RFC 9728 path-inserted URL, which clients build first',
     specRes.status === 200,
@@ -364,15 +384,11 @@ async function main() {
   if (specRes.status === 200) {
     check('and the two locations answer the same document', specText === prText,
       'the path-inserted and root forms have drifted apart');
-    // Its CORS and preflight, checked HERE rather than in step 1b, because only
-    // here is the path known without hardcoding it. A browser sends the real
-    // GET only if the preflight succeeds, and the MCP SDK sends
-    // MCP-Protocol-Version on discovery, so the client that matters always
-    // preflights.
-    const cors = await fetch(`${MCP}${specPath}`, { headers: { Origin: FOREIGN } });
-    check('the spec URL is readable from another origin',
-      cors.headers.get('access-control-allow-origin') === '*',
-      `answered ${cors.status} with Access-Control-Allow-Origin: ${cors.headers.get('access-control-allow-origin') ?? '(absent)'}`);
+    // Step 1b already checked this URL's CORS headers (it derives the same path
+    // from the same document). What it cannot send is a preflight, so that is
+    // checked here: a browser sends the real GET only if the preflight
+    // succeeds, and the MCP SDK sends MCP-Protocol-Version on discovery, so the
+    // client that matters always preflights.
     const pre = await fetch(`${MCP}${specPath}`, {
       method: 'OPTIONS',
       headers: { Origin: FOREIGN, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'mcp-protocol-version' },

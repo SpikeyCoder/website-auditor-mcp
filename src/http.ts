@@ -294,9 +294,28 @@ function sendRpcError(res: ServerResponse, status: number, code: number, message
   sendJson(res, status, { jsonrpc: "2.0", error: { code, message }, id: null });
 }
 
+/**
+ * Every request header a client may send us, in ONE place.
+ *
+ * The metadata preflight below reflects what was asked for and falls back to
+ * this; the /mcp preflight allows it outright. A second hardcoded list is how
+ * adding a header a client sends becomes a bug that only shows up in a browser.
+ */
+const ALLOWED_REQUEST_HEADERS =
+  "Content-Type, Authorization, X-API-Key, Mcp-Session-Id, MCP-Protocol-Version";
+
+/**
+ * How long a browser may cache a preflight. Without it EVERY preflighted
+ * request costs two round trips — and for /mcp that is every JSON-RPC POST, since
+ * a JSON content-type with Authorization and MCP-Protocol-Version is never a
+ * simple request. Ten minutes, matching the authorization server.
+ */
+const CORS_MAX_AGE = "600";
+
 const CORS_METHODS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key, Mcp-Session-Id, MCP-Protocol-Version",
+  "Access-Control-Allow-Headers": ALLOWED_REQUEST_HEADERS,
+  "Access-Control-Max-Age": CORS_MAX_AGE,
 };
 
 /**
@@ -496,15 +515,21 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
       // Reflected: the spec-safe answer to "may I send this header?" for a
-      // resource with nothing to protect, and it avoids a list that has to be
-      // kept in step with whatever clients decide to send.
+      // resource with nothing to protect. Falls back to the SHARED list rather
+      // than a second copy — a private list here is how adding a header a
+      // client sends becomes a browser-only bug.
       res.setHeader(
         "Access-Control-Allow-Headers",
-        req.headers["access-control-request-headers"] ?? "Content-Type, Authorization, MCP-Protocol-Version",
+        req.headers["access-control-request-headers"] ?? ALLOWED_REQUEST_HEADERS,
       );
-      // Ten minutes, matching the authorization server: without it every
-      // discovery fetch costs two round trips, permanently.
-      res.setHeader("Access-Control-Max-Age", "600");
+      // Vary, because the line above makes this response depend on a REQUEST
+      // header while Max-Age invites a cache to keep it. Without it a shared
+      // cache can hand one client's echoed allow-list to another for ten
+      // minutes, over- or under-permitting its real request. Same reasoning as
+      // the Vary on Origin further down; this response just varies on a
+      // different header.
+      res.setHeader("Vary", "Access-Control-Request-Headers");
+      res.setHeader("Access-Control-Max-Age", CORS_MAX_AGE);
       res.writeHead(204).end();
       return;
     }
@@ -516,6 +541,14 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
         // it is what a host's discovery probe expects — serving an empty or
         // half-filled document instead would advertise an authorization server
         // that does not exist and fail later, further from the cause.
+        //
+        // READABLE cross-origin, exactly like the 200. The preflight above
+        // answers unconditionally, so a 404 without this header promises a
+        // browser access the real request then refuses: it reports a CORS
+        // error, cannot read `no oauth configured`, and sends the operator
+        // hunting a CORS fault that does not exist — burying the one string
+        // that names the actual cause.
+        res.setHeader("Access-Control-Allow-Origin", "*");
         res.writeHead(404, { "Content-Type": "text/plain" }).end("no oauth configured");
         return;
       }

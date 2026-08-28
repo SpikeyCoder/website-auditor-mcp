@@ -758,17 +758,63 @@ describe("Mixed Auth over Streamable HTTP", () => {
       });
       expect(pre.status, path).toBe(204);
       expect(pre.headers.get("access-control-allow-origin"), path).toBe("*");
-      // The header the client asked to send has to come back allowed, or the
-      // preflight "succeeds" and the real request is refused anyway.
-      expect(pre.headers.get("access-control-allow-headers") ?? "", path)
-        .toMatch(/mcp-protocol-version/i);
+      // A method the browser must be told it may use, or the preflight
+      // "succeeds" and the GET is refused anyway.
+      expect(pre.headers.get("access-control-allow-methods") ?? "", path).toMatch(/GET/);
       expect(pre.headers.get("access-control-max-age"), path).toBe("600");
+      // Varies on the reflected header, so a shared cache cannot hand one
+      // client's allow-list to another for the length of that Max-Age.
+      expect(pre.headers.get("vary") ?? "", path).toMatch(/access-control-request-headers/i);
+    }
+
+    // The REFLECTION, asserted with a header the fallback list does not contain.
+    // Asking for MCP-Protocol-Version could not distinguish reflection from the
+    // hardcoded fallback — both contain it — so the assertion passed against a
+    // server with the reflection deleted. Proved by mutation.
+    for (const path of [
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-protected-resource",
+    ]) {
+      const pre = await fetch(url + path, {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://platform.openai.com",
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "x-not-in-the-fallback-list",
+        },
+      });
+      expect(pre.headers.get("access-control-allow-headers") ?? "", path)
+        .toMatch(/x-not-in-the-fallback-list/i);
     }
 
     // And a path that is NOT a metadata location still 404s, so the preflight
     // branch cannot become a blanket OPTIONS handler.
     const stray = await fetch(`${url}/.well-known/oauth-protected-resource/wrong`, { method: "OPTIONS" });
     expect(stray.status).toBe(404);
+  });
+
+  it("keeps the unconfigured 404 readable, so its diagnosis is not hidden by CORS", async () => {
+    // The preflight answers unconditionally, so a 404 without Access-Control-
+    // Allow-Origin promises a browser access the real request then refuses it:
+    // it reports a CORS error, never reads `no oauth configured`, and sends the
+    // operator hunting a CORS fault that does not exist — burying the one
+    // string that names the real cause.
+    const { url } = await listen({ depsFactory: recordingFactory().factory });
+
+    const pre = await fetch(`${url}/.well-known/oauth-protected-resource`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://platform.openai.com", "Access-Control-Request-Method": "GET" },
+    });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get("access-control-allow-origin")).toBe("*");
+
+    // The GET the preflight just authorised must be readable by the same caller.
+    const res = await fetch(`${url}/.well-known/oauth-protected-resource`, {
+      headers: { Origin: "https://platform.openai.com" },
+    });
+    expect(res.status).toBe(404);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await res.text()).toContain("no oauth configured");
   });
 
   it("serves exactly one location when the resource is the origin itself", async () => {

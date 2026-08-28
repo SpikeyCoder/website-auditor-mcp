@@ -104,18 +104,30 @@ function isAbsoluteUrl(value: string): boolean {
  * Both callers must degrade rather than throw: they run on the request path.
  */
 function parseResource(resourceUrl: string): URL | null {
-  if (!isAbsoluteUrl(resourceUrl)) return null;
-  return new URL(resourceUrl);
+  // Parsed ONCE. Calling isAbsoluteUrl() here would build a URL, test its
+  // protocol and throw it away, then build the same URL again — on the request
+  // path, in the same change whose http.ts half hoists a call specifically to
+  // stop paying a parse per request. Same predicate, one construction.
+  let parsed: URL;
+  try {
+    parsed = new URL(resourceUrl);
+  } catch {
+    return null;
+  }
+  return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed : null;
 }
 
 /**
- * The metadata document's path for a given resource identifier, per RFC 9728
- * §3.1: the well-known segment inserted between the host and the resource's
- * own path, with any terminating slash removed first.
+ * The metadata document's path for an ALREADY-PARSED resource identifier, per
+ * RFC 9728 §3.1: the well-known segment inserted between the host and the
+ * resource's own path, with any terminating slash removed first.
  *
- * Null when the resource identifier will not parse — a boot-time
- * misconfiguration, but this runs on the request path, so callers degrade
- * rather than throwing from inside a mapper.
+ * Takes a URL, not a string, and always returns one — it cannot fail, because
+ * every way of failing was hoisted into parseResource(). The degrade-don't-
+ * throw promise this file makes is kept by the `parsed === null` guard in
+ * protectedResourceMetadataUrl(), which is now the SINGLE thing keeping it;
+ * this docstring used to claim the duty and would have sent a maintainer to
+ * remove that guard as redundant.
  *
  * A path-less resource is not a special case: the rule simply has nothing to
  * insert before, and produces the root form.
