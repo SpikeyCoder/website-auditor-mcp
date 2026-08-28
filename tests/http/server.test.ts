@@ -694,6 +694,56 @@ describe("Mixed Auth over Streamable HTTP", () => {
     expect(resp.status).toBe(404);
   });
 
+  it("serves the metadata at the RFC 9728 path-inserted URL, not only the root", async () => {
+    // MIXED_AUTH's resource is https://mcp.website-auditor.io/mcp, so §3.1 puts
+    // its metadata at /.well-known/oauth-protected-resource/mcp. We answered
+    // only the root form, and Cloud Run logs of a ChatGPT scan show it asking
+    // for the path-inserted URL FIRST, taking the 404, and reaching the
+    // document only by guessing further than the spec requires.
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: recordingFactory().factory,
+    });
+
+    const spec = await fetch(`${url}/.well-known/oauth-protected-resource/mcp`);
+    expect(spec.status).toBe(200);
+
+    // Both, and IDENTICAL. Serving two locations is only safe while they cannot
+    // disagree — they answer from one protectedResourceMetadata() call, and
+    // this is what holds that true.
+    const root = await fetch(`${url}/.well-known/oauth-protected-resource`);
+    expect(root.status).toBe(200);
+    expect(await spec.text()).toBe(await root.text());
+    expect(spec.headers.get("access-control-allow-origin")).toBe("*");
+    expect(spec.headers.get("cache-control")).toBe("no-store");
+
+    // And the challenge points at the spec form — a served URL nobody is told
+    // about fixes nothing for a client that trusts the challenge.
+    const denied = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "run_audit", arguments: { domain: "example.com" } } }),
+    });
+    expect(JSON.stringify(await denied.json()))
+      .toContain("/.well-known/oauth-protected-resource/mcp");
+  });
+
+  it("serves exactly one location when the resource is the origin itself", async () => {
+    // The path-inserted form and the root form coincide there. Asserted so the
+    // dedupe in resourceMetadataPaths cannot regress into a doubled slash or a
+    // route that shadows itself.
+    const { url } = await listen({
+      config: testConfig({
+        apiKey: undefined,
+        ...MIXED_AUTH,
+        oauthResourceUrl: "https://mcp.website-auditor.io",
+      }),
+      depsFactory: recordingFactory().factory,
+    });
+    expect((await fetch(`${url}/.well-known/oauth-protected-resource`)).status).toBe(200);
+    expect((await fetch(`${url}/.well-known/oauth-protected-resource/`)).status).toBe(404);
+  });
+
   it("answers HEAD on the metadata document, not a false 404", async () => {
     // A discovery probe using HEAD used to fall past the GET-only route into
     // the catch-all and get `404 not found` — indistinguishable, from outside,

@@ -18,6 +18,7 @@ import {
   oauthEnabled,
   protectedResourceMetadata,
   protectedResourceMetadataUrl,
+  resourceMetadataPaths,
   securitySchemesFor,
   wwwAuthenticateChallenge,
 } from "../../src/auth/oauth.js";
@@ -72,12 +73,66 @@ describe("protected-resource metadata (RFC 9728)", () => {
     });
   });
 
-  it("derives its own URL from the resource ORIGIN, not the resource path", () => {
-    // The document lives at the origin root even though the resource itself is
-    // at /mcp — a client that found the resource looks for its metadata there.
+  it("inserts the well-known segment BETWEEN the host and the resource path", () => {
+    // This assertion used to be its own opposite — "the document lives at the
+    // origin root even though the resource itself is at /mcp". That is not what
+    // RFC 9728 §3.1 says and not what clients do. The metadata URL is formed by
+    // inserting the well-known path between the host and the path components,
+    // so a resource at /mcp has its metadata at
+    // /.well-known/oauth-protected-resource/mcp.
+    //
+    // Observed, not just read: Cloud Run logs of a ChatGPT scan show it
+    // requesting the path-inserted form FIRST, taking a 404, and only then
+    // falling back to the root form we served. A client that builds the URL per
+    // the spec and does not guess further never discovers the authorization
+    // server at all.
     expect(protectedResourceMetadataUrl("https://mcp.website-auditor.io/mcp")).toBe(
-      "https://mcp.website-auditor.io/.well-known/oauth-protected-resource",
+      "https://mcp.website-auditor.io/.well-known/oauth-protected-resource/mcp",
     );
+  });
+
+  it("strips a terminating slash before inserting, per RFC 9728 §3.1", () => {
+    // Otherwise the same resource, spelled with and without the trailing slash,
+    // yields two different metadata URLs — and only one of them is served.
+    expect(protectedResourceMetadataUrl("https://mcp.website-auditor.io/mcp/")).toBe(
+      "https://mcp.website-auditor.io/.well-known/oauth-protected-resource/mcp",
+    );
+  });
+
+  it("has nothing to insert when the resource is the origin itself", () => {
+    // The path-inserted and root forms coincide here, which is why the root
+    // form is not a special case in the code — it is what the general rule
+    // produces for a path-less resource.
+    for (const resource of ["https://mcp.website-auditor.io", "https://mcp.website-auditor.io/"]) {
+      expect(protectedResourceMetadataUrl(resource), resource).toBe(
+        "https://mcp.website-auditor.io/.well-known/oauth-protected-resource",
+      );
+    }
+  });
+
+  it("lists both served paths for a resource with a path, spec form first", () => {
+    expect(resourceMetadataPaths("https://mcp.website-auditor.io/mcp")).toEqual([
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-protected-resource",
+    ]);
+  });
+
+  it("lists the shared path ONCE when the two forms coincide", () => {
+    // A path-less resource makes both forms the same string. The contract is
+    // "every path this is served on", so naming it twice would mislead anyone
+    // counting or registering them — it happens to change nothing for today's
+    // caller, which only tests membership, which is exactly why it needs a test.
+    for (const resource of ["https://mcp.website-auditor.io", "https://mcp.website-auditor.io/"]) {
+      expect(resourceMetadataPaths(resource), resource).toEqual(["/.well-known/oauth-protected-resource"]);
+    }
+  });
+
+  it("still answers the root path when the resource is unset, so OAuth-off can say so", () => {
+    // The handler replies `no oauth configured` — a diagnosis that distinguishes
+    // an unconfigured server from a build predating the OAuth code. It has to be
+    // reached to say it; falling through to the generic 404 loses the difference.
+    expect(resourceMetadataPaths(undefined)).toEqual(["/.well-known/oauth-protected-resource"]);
+    expect(resourceMetadataPaths("not a url")).toEqual(["/.well-known/oauth-protected-resource"]);
   });
 
   it("degrades to the bare path instead of throwing on an unparseable resource", () => {
@@ -93,8 +148,11 @@ describe("the WWW-Authenticate challenge", () => {
   it("carries the metadata pointer, the scope, and the error pair the Apps SDK requires", () => {
     const challenge = wwwAuthenticateChallenge(testConfig(OAUTH), "Connect an account.")!;
     expect(challenge).toMatch(/^Bearer /);
+    // The path-inserted form, because this parameter is the ONLY thing that
+    // tells a client where to look. A route serving the spec URL is useless if
+    // the challenge keeps pointing at the other one.
     expect(challenge).toContain(
-      'resource_metadata="https://mcp.website-auditor.io/.well-known/oauth-protected-resource"',
+      'resource_metadata="https://mcp.website-auditor.io/.well-known/oauth-protected-resource/mcp"',
     );
     expect(challenge).toContain('scope="audit"');
     expect(challenge).toContain('error="invalid_token"');

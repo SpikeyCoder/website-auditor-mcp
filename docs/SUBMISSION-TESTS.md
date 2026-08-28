@@ -42,7 +42,7 @@ the submission snapshot.
 | 0.4 | Mixed Auth on | `gcloud run services logs read website-auditor-mcp --region us-central1 --limit 20 \| grep "Mixed Auth"` | reads `Mixed Auth ON`, with the issuer and a secret length of 44 | ☐ |
 | 0.4b | The resource declares the scopes its AS offers | `diff <(curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq -S .scopes_supported) <(curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource \| jq -S .scopes_supported) && echo MATCH` | `MATCH` | ☐ |
 | 0.4c | …and the tools ASK for them | `curl -s -X POST https://mcp.website-auditor.io/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \| jq -S '[.result.tools[]._meta.securitySchemes[0] \| select(.type=="oauth2") .scopes] \| unique'` | one entry, equal to 0.4b's list | ☐ |
-| 0.5 | Readable from a browser | the loop below | four `access-control-allow-origin: *`, no `allow-credentials` | ☐ |
+| 0.5 | Readable from a browser | the loop below | five `access-control-allow-origin: *`, no `allow-credentials` | ☐ |
 | 0.6 | End to end | `OAUTH_INTROSPECTION_SECRET="$(cat ~/.wa-oauth-secret)" node verify-oauth.mjs` | `ALL CHECKS PASSED`, exit 0 | ☐ |
 
 **0.1 is first because it is the one that has actually failed.** Both secrets are
@@ -97,6 +97,7 @@ for u in \
   https://api.website-auditor.io/.well-known/oauth-authorization-server \
   https://api.website-auditor.io/.well-known/openid-configuration \
   https://api.website-auditor.io/.well-known/jwks.json \
+  https://mcp.website-auditor.io/.well-known/oauth-protected-resource/mcp \
   https://mcp.website-auditor.io/.well-known/oauth-protected-resource
 do
   echo "── $u"
@@ -104,6 +105,16 @@ do
     | grep -Ei '^(HTTP|access-control)' | sed 's/^/   /'
 done
 ```
+
+**Both MCP spellings are listed on purpose.** RFC 9728 §3.1 puts the metadata
+for a resource at `https://mcp.website-auditor.io/mcp` at
+`/.well-known/oauth-protected-resource/mcp` — the well-known segment inserted
+between host and path — and that is the URL a conforming client builds. We
+served only the root form, and Cloud Run logs of a ChatGPT scan showed it asking
+for the path-inserted URL first, taking the 404, and reaching the document only
+by guessing further than the spec requires. Both are served now; both are
+checked, because a check that only ever probes the fallback cannot see a broken
+primary.
 
 **`-o /dev/null -D -`, not `-I`.** `curl -I` sends **HEAD**, and the two servers
 used to disagree about it: the API is Express, which answers HEAD from a GET

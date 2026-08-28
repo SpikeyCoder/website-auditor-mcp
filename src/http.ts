@@ -44,7 +44,7 @@ import { NoopEventSink } from "./telemetry/events.js";
 import { createServer } from "./mcp/server.js";
 import { SERVER_VERSION } from "./version.js";
 import type { ToolDeps } from "./tools/context.js";
-import { PROTECTED_RESOURCE_PATH, looksLikeApiKey, oauthEnabled, protectedResourceMetadata } from "./auth/oauth.js";
+import { looksLikeApiKey, oauthEnabled, protectedResourceMetadata, resourceMetadataPaths } from "./auth/oauth.js";
 import { IntrospectionTokenExchange, type TokenExchange } from "./auth/tokenExchange.js";
 
 const MCP_PATH = "/mcp";
@@ -461,7 +461,11 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    if (url.pathname === PROTECTED_RESOURCE_PATH && isRead(req.method)) {
+    // Both RFC 9728 locations, derived from the configured resource identifier
+    // rather than hardcoded: the resource path is configuration
+    // (WA_OAUTH_RESOURCE_URL), and a literal `/mcp` here would be one more copy
+    // of a path to keep in step. See resourceMetadataPaths() for why two.
+    if (resourceMetadataPaths(base.oauthResourceUrl).includes(url.pathname) && isRead(req.method)) {
       const metadata = protectedResourceMetadata(base);
       if (!metadata) {
         // A 404 is the honest answer for a server with no OAuth configured, and

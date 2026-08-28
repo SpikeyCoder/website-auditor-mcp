@@ -290,7 +290,15 @@ async function main() {
     return { status: r.status, body, text };
   };
 
-  const prRes = await fetch(`${MCP}/.well-known/oauth-protected-resource`);
+  // The SPEC url first — the well-known segment inserted between host and path
+  // (RFC 9728 §3.1) — because that is the one a conforming client builds. This
+  // script probed only the root form, which is why it stayed green while
+  // ChatGPT was taking a 404 on its first request and reaching the document
+  // solely by guessing further than the spec requires. A verifier that only
+  // ever asks for the fallback cannot see a broken primary.
+  const resourcePath = new URL(`${MCP}/mcp`).pathname.replace(/\/+$/, '');
+  const specUrl = `${MCP}/.well-known/oauth-protected-resource${resourcePath}`;
+  const prRes = await fetch(specUrl);
   const prText = (await prRes.text()).trim();
   if (prRes.status !== 200) {
     // The two 404 bodies this server can emit mean different things and point
@@ -307,8 +315,17 @@ async function main() {
     fail('the MCP serves protected-resource metadata', `got ${prRes.status} — ${cause}`);
     process.exit(1);
   }
-  pass('the MCP serves protected-resource metadata');
+  pass('the MCP serves protected-resource metadata at the RFC 9728 URL');
   const pr = JSON.parse(prText);
+
+  // And the root form too, identically. Both are served on purpose — clients
+  // that already found the document there keep working — but two locations are
+  // only safe while they cannot disagree.
+  const rootRes = await fetch(`${MCP}/.well-known/oauth-protected-resource`);
+  const rootText = (await rootRes.text()).trim();
+  check('the root form answers the same document',
+    rootRes.status === 200 && rootText === prText,
+    `${rootRes.status}; ${rootText === prText ? 'same body' : 'DIFFERENT body — the two locations have drifted'}`);
   // A mismatch here is silent and fatal: the host discovers an authorization
   // server that is not the one holding the account, and every login 404s.
   check('it names the issuer discovery just returned',
