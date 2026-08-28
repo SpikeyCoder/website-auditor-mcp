@@ -44,7 +44,7 @@ import { NoopEventSink } from "./telemetry/events.js";
 import { createServer } from "./mcp/server.js";
 import { SERVER_VERSION } from "./version.js";
 import type { ToolDeps } from "./tools/context.js";
-import { PROTECTED_RESOURCE_PATH, looksLikeApiKey, oauthEnabled, protectedResourceMetadata } from "./auth/oauth.js";
+import { looksLikeApiKey, oauthEnabled, protectedResourceMetadata, resourceMetadataPaths } from "./auth/oauth.js";
 import { IntrospectionTokenExchange, type TokenExchange } from "./auth/tokenExchange.js";
 
 const MCP_PATH = "/mcp";
@@ -294,9 +294,27 @@ function sendRpcError(res: ServerResponse, status: number, code: number, message
   sendJson(res, status, { jsonrpc: "2.0", error: { code, message }, id: null });
 }
 
+/**
+ * Every request header a client may send us, in ONE place.
+ *
+ * The metadata preflight below reflects what was asked for and falls back to
+ * this; the /mcp preflight allows it outright. A second hardcoded list is how
+ * adding a header a client sends becomes a bug that only shows up in a browser.
+ */
+const ALLOWED_REQUEST_HEADERS =
+  "Content-Type, Authorization, X-API-Key, Mcp-Session-Id, MCP-Protocol-Version";
+
+/**
+ * How long a browser may cache a preflight. Without it EVERY preflighted
+ * request costs two round trips — and for /mcp that is every JSON-RPC POST, since
+ * a JSON content-type with Authorization and MCP-Protocol-Version is never a
+ * simple request. Ten minutes, matching the authorization server.
+ */
+const CORS_MAX_AGE = "600";
+
 const CORS_METHODS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key, Mcp-Session-Id, MCP-Protocol-Version",
+  "Access-Control-Allow-Headers": ALLOWED_REQUEST_HEADERS,
 };
 
 /**
@@ -351,6 +369,18 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   // from its absence. devTier has no such override, so its strip is the guard
   // actually holding the boundary, and its removal IS caught.
   const base: WaConfig = { ...options.config, apiKey: undefined, devTier: undefined };
+  // Hoisted, like HEALTH_PATHS above: the resource URL is fixed for the
+  // server's lifetime, so re-deriving these inside the handler made every
+  // request — including every JSON-RPC POST, which never reaches this route —
+  // pay a URL parse, a regex and an array allocation to answer a question whose
+  // answer never changes. It replaced a single string comparison.
+  //
+  // From `base`, not options.config: the document served on these routes is
+  // built from base too, and reading the same field off two objects is how the
+  // routes and the `resource` they publish would silently disagree the day
+  // anything normalizes it — which this factory already does to three of its
+  // other inputs, a few lines down.
+  const metadataPaths = new Set(resourceMetadataPaths(base.oauthResourceUrl));
   // Normalized at the consumer for the same reason defaultApiKey is: this
   // factory is a published entry, and the guard one layer up in
   // httpOptionsFromEnv does not travel with it. Unexpanded, the token is
@@ -461,13 +491,63 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    if (url.pathname === PROTECTED_RESOURCE_PATH && isRead(req.method)) {
+    // Both RFC 9728 locations, derived from the configured resource identifier
+    // rather than hardcoded: the resource path is configuration
+    // (WA_OAUTH_RESOURCE_URL), and a literal `/mcp` here would be one more copy
+    // of a path to keep in step. See resourceMetadataPaths() for why two.
+    if (metadataPaths.has(url.pathname) && req.method === "OPTIONS") {
+      // The PREFLIGHT, answered here rather than falling past the GET/HEAD
+      // guard below into the catch-all 404.
+      //
+      // A browser only sends the real GET if this succeeds, and it preflights
+      // as soon as the request carries a non-safelisted header — the MCP
+      // TypeScript SDK sends MCP-Protocol-Version on discovery, so the client
+      // that matters always does. Rejected here, the GET never runs and the
+      // caller sees "Failed to fetch", which is indistinguishable from OAuth
+      // being switched off.
+      //
+      // This is the identical gap that cost two rounds on the authorization
+      // server: a fix applied only to the GET handler passed every curl check
+      // and left every browser blocked. Answered unconditionally, exactly like
+      // the GET below — the document is public, and a preflight reveals nothing
+      // the document does not.
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      // Reflected: the spec-safe answer to "may I send this header?" for a
+      // resource with nothing to protect. Falls back to the SHARED list rather
+      // than a second copy — a private list here is how adding a header a
+      // client sends becomes a browser-only bug.
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        req.headers["access-control-request-headers"] ?? ALLOWED_REQUEST_HEADERS,
+      );
+      // Vary, because the line above makes this response depend on a REQUEST
+      // header while Max-Age invites a cache to keep it. Without it a shared
+      // cache can hand one client's echoed allow-list to another for ten
+      // minutes, over- or under-permitting its real request. Same reasoning as
+      // the Vary on Origin further down; this response just varies on a
+      // different header.
+      res.setHeader("Vary", "Access-Control-Request-Headers");
+      res.setHeader("Access-Control-Max-Age", CORS_MAX_AGE);
+      res.writeHead(204).end();
+      return;
+    }
+
+    if (isRead(req.method) && metadataPaths.has(url.pathname)) {
       const metadata = protectedResourceMetadata(base);
       if (!metadata) {
         // A 404 is the honest answer for a server with no OAuth configured, and
         // it is what a host's discovery probe expects — serving an empty or
         // half-filled document instead would advertise an authorization server
         // that does not exist and fail later, further from the cause.
+        //
+        // READABLE cross-origin, exactly like the 200. The preflight above
+        // answers unconditionally, so a 404 without this header promises a
+        // browser access the real request then refuses: it reports a CORS
+        // error, cannot read `no oauth configured`, and sends the operator
+        // hunting a CORS fault that does not exist — burying the one string
+        // that names the actual cause.
+        res.setHeader("Access-Control-Allow-Origin", "*");
         res.writeHead(404, { "Content-Type": "text/plain" }).end("no oauth configured");
         return;
       }
@@ -496,6 +576,10 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     if (allowedOrigins.length) res.setHeader("Vary", "Origin");
 
     if (req.method === "OPTIONS") {
+      // Max-Age HERE, not in CORS_METHODS_HEADERS above: that object is applied
+      // to every /mcp response, and the header means nothing on anything but a
+      // preflight. Inert there, but it reads as deliberate to the next person.
+      res.setHeader("Access-Control-Max-Age", CORS_MAX_AGE);
       res.writeHead(204).end();
       return;
     }

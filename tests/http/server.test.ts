@@ -694,6 +694,148 @@ describe("Mixed Auth over Streamable HTTP", () => {
     expect(resp.status).toBe(404);
   });
 
+  it("serves the metadata at the RFC 9728 path-inserted URL, not only the root", async () => {
+    // MIXED_AUTH's resource is https://mcp.website-auditor.io/mcp, so §3.1 puts
+    // its metadata at /.well-known/oauth-protected-resource/mcp. We answered
+    // only the root form, and Cloud Run logs of a ChatGPT scan show it asking
+    // for the path-inserted URL FIRST, taking the 404, and reaching the
+    // document only by guessing further than the spec requires.
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: recordingFactory().factory,
+    });
+
+    const spec = await fetch(`${url}/.well-known/oauth-protected-resource/mcp`);
+    expect(spec.status).toBe(200);
+
+    // Both, and IDENTICAL. Serving two locations is only safe while they cannot
+    // disagree — they answer from one protectedResourceMetadata() call, and
+    // this is what holds that true.
+    const root = await fetch(`${url}/.well-known/oauth-protected-resource`);
+    expect(root.status).toBe(200);
+    expect(await spec.text()).toBe(await root.text());
+    expect(spec.headers.get("access-control-allow-origin")).toBe("*");
+    expect(spec.headers.get("cache-control")).toBe("no-store");
+
+    // And the challenge points at the spec form — a served URL nobody is told
+    // about fixes nothing for a client that trusts the challenge.
+    const denied = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "run_audit", arguments: { domain: "example.com" } } }),
+    });
+    expect(JSON.stringify(await denied.json()))
+      .toContain("/.well-known/oauth-protected-resource/mcp");
+  });
+
+  it("answers the CORS preflight on both metadata locations", async () => {
+    // A browser sends the real GET only if the preflight succeeds, and it
+    // preflights as soon as the request carries a non-safelisted header — the
+    // MCP TypeScript SDK sends MCP-Protocol-Version on discovery, so the client
+    // that matters always does. These routes were GET/HEAD-only, so OPTIONS
+    // fell into the catch-all 404 with no CORS headers and the GET never ran.
+    //
+    // That is the identical gap that cost two rounds on the authorization
+    // server: a fix applied only to the GET handler passes every curl check and
+    // leaves every browser blocked, reporting "Failed to fetch" —
+    // indistinguishable from OAuth being switched off.
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: recordingFactory().factory,
+    });
+
+    for (const path of [
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-protected-resource",
+    ]) {
+      const pre = await fetch(url + path, {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://platform.openai.com",
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "mcp-protocol-version",
+        },
+      });
+      expect(pre.status, path).toBe(204);
+      expect(pre.headers.get("access-control-allow-origin"), path).toBe("*");
+      // A method the browser must be told it may use, or the preflight
+      // "succeeds" and the GET is refused anyway.
+      expect(pre.headers.get("access-control-allow-methods") ?? "", path).toMatch(/GET/);
+      expect(pre.headers.get("access-control-max-age"), path).toBe("600");
+      // Varies on the reflected header, so a shared cache cannot hand one
+      // client's allow-list to another for the length of that Max-Age.
+      expect(pre.headers.get("vary") ?? "", path).toMatch(/access-control-request-headers/i);
+    }
+
+    // The REFLECTION, asserted with a header the fallback list does not contain.
+    // Asking for MCP-Protocol-Version could not distinguish reflection from the
+    // hardcoded fallback — both contain it — so the assertion passed against a
+    // server with the reflection deleted. Proved by mutation.
+    for (const path of [
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-protected-resource",
+    ]) {
+      const pre = await fetch(url + path, {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://platform.openai.com",
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "x-not-in-the-fallback-list",
+        },
+      });
+      expect(pre.headers.get("access-control-allow-headers") ?? "", path)
+        .toMatch(/x-not-in-the-fallback-list/i);
+    }
+
+    // And a path that is NOT a metadata location still 404s, so the preflight
+    // branch cannot become a blanket OPTIONS handler.
+    const stray = await fetch(`${url}/.well-known/oauth-protected-resource/wrong`, { method: "OPTIONS" });
+    expect(stray.status).toBe(404);
+  });
+
+  it("keeps the unconfigured 404 readable, so its diagnosis is not hidden by CORS", async () => {
+    // The preflight answers unconditionally, so a 404 without Access-Control-
+    // Allow-Origin promises a browser access the real request then refuses it:
+    // it reports a CORS error, never reads `no oauth configured`, and sends the
+    // operator hunting a CORS fault that does not exist — burying the one
+    // string that names the real cause.
+    const { url } = await listen({ depsFactory: recordingFactory().factory });
+
+    const pre = await fetch(`${url}/.well-known/oauth-protected-resource`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://platform.openai.com", "Access-Control-Request-Method": "GET" },
+    });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get("access-control-allow-origin")).toBe("*");
+
+    // The GET the preflight just authorised must be readable by the same caller.
+    const res = await fetch(`${url}/.well-known/oauth-protected-resource`, {
+      headers: { Origin: "https://platform.openai.com" },
+    });
+    expect(res.status).toBe(404);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await res.text()).toContain("no oauth configured");
+  });
+
+  it("serves exactly one location when the resource is the origin itself", async () => {
+    // The path-inserted form and the root form coincide there, so what this
+    // holds is that the coincidence produces a working route and no doubled
+    // slash — NOT the dedupe itself, which is invisible over HTTP because
+    // Array.includes cannot tell one entry from two identical ones. Proved by
+    // mutation: removing the dedupe leaves this test green. The dedupe is
+    // pinned in tests/auth/mixedAuth.test.ts, where it is observable.
+    const { url } = await listen({
+      config: testConfig({
+        apiKey: undefined,
+        ...MIXED_AUTH,
+        oauthResourceUrl: "https://mcp.website-auditor.io",
+      }),
+      depsFactory: recordingFactory().factory,
+    });
+    expect((await fetch(`${url}/.well-known/oauth-protected-resource`)).status).toBe(200);
+    expect((await fetch(`${url}/.well-known/oauth-protected-resource/`)).status).toBe(404);
+  });
+
   it("answers HEAD on the metadata document, not a false 404", async () => {
     // A discovery probe using HEAD used to fall past the GET-only route into
     // the catch-all and get `404 not found` — indistinguishable, from outside,

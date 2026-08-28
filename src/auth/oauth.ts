@@ -29,10 +29,28 @@ import { API_KEY_PREFIX } from "./entitlements.js";
 import type { ToolTier } from "../tools/registry.js";
 
 /**
- * Where the metadata document is served. RFC 9728 defines both a root and a
- * path-inserted form; hosts probe the root first and it is the only one the
- * Apps SDK documents, so this server publishes exactly one location rather
- * than two that could disagree.
+ * The well-known segment of the metadata URL — not, by itself, where the
+ * document is served.
+ *
+ * This used to say: "hosts probe the root first and it is the only one the Apps
+ * SDK documents, so this server publishes exactly one location rather than two
+ * that could disagree." Cloud Run logs of a real ChatGPT scan say otherwise. It
+ * requests the PATH-INSERTED form first, takes the 404 we answered with, and
+ * only then falls back to the root:
+ *
+ *     GET /.well-known/oauth-protected-resource/mcp   404   ← first
+ *     GET /mcp/.well-known/oauth-protected-resource   404
+ *     GET /.well-known/oauth-protected-resource       200   ← fallback
+ *
+ * RFC 9728 §3.1 agrees with the client, not with the old comment: when the
+ * resource identifier carries a path, the metadata URL is formed by inserting
+ * this segment BETWEEN the host and that path. The discovery only worked
+ * because ChatGPT guesses further than the spec requires; a client that builds
+ * the URL correctly and stops there never finds the authorization server, and
+ * the failure is indistinguishable from OAuth being switched off.
+ *
+ * See resourceMetadataPaths() for the locations actually served, and
+ * protectedResourceMetadataUrl() for the one advertised in a challenge.
  */
 export const PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource";
 
@@ -66,23 +84,118 @@ function isAbsoluteUrl(value: string): boolean {
 }
 
 /**
- * The absolute URL of this server's metadata document, derived from the
- * resource identifier's ORIGIN.
+ * The resource identifier as an http(s) URL, or null.
+ *
+ * `new URL()` succeeding is not enough. Two different failures hide behind it:
+ *
+ *   * A non-special scheme (`file:`, `urn:`, `mailto:`) parses and yields the
+ *     STRING "null" for `.origin`, which is not a base any URL resolves
+ *     against — that throws.
+ *   * `blob:https://example.com/uuid` parses with a real origin, so an
+ *     origin-only guard passes it, and its pathname is the whole inner URL with
+ *     no leading slash. No throw, just a metadata path of
+ *     "/.well-known/oauth-protected-resourcehttps://example.com/uuid".
+ *
+ * So the test is isAbsoluteUrl — http or https — which is the same predicate
+ * oauthEnabled() uses. One definition of a usable resource identifier across
+ * all three functions, rather than a weaker one here that happens to prevent
+ * the crash without preventing the garbage.
+ *
+ * Both callers must degrade rather than throw: they run on the request path.
+ */
+function parseResource(resourceUrl: string): URL | null {
+  // Parsed ONCE. Calling isAbsoluteUrl() here would build a URL, test its
+  // protocol and throw it away, then build the same URL again — on the request
+  // path, in the same change whose http.ts half hoists a call specifically to
+  // stop paying a parse per request. Same predicate, one construction.
+  let parsed: URL;
+  try {
+    parsed = new URL(resourceUrl);
+  } catch {
+    return null;
+  }
+  return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed : null;
+}
+
+/**
+ * The metadata document's path for an ALREADY-PARSED resource identifier, per
+ * RFC 9728 §3.1: the well-known segment inserted between the host and the
+ * resource's own path, with any terminating slash removed first.
+ *
+ * Takes a URL, not a string, and always returns one — it cannot fail, because
+ * every way of failing was hoisted into parseResource(). The degrade-don't-
+ * throw promise this file makes is kept by the `parsed === null` guard in
+ * protectedResourceMetadataUrl(), which is now the SINGLE thing keeping it;
+ * this docstring used to claim the duty and would have sent a maintainer to
+ * remove that guard as redundant.
+ *
+ * A path-less resource is not a special case: the rule simply has nothing to
+ * insert before, and produces the root form.
+ */
+function resourceMetadataPath(parsed: URL): string {
+  const path = parsed.pathname;
+  // "any terminating / MUST be removed before inserting" — otherwise the same
+  // resource spelled two ways yields two metadata URLs, only one of them served.
+  const trimmed = path.replace(/\/+$/, "");
+  return `${PROTECTED_RESOURCE_PATH}${trimmed}`;
+}
+
+/**
+ * Every path this server answers the metadata document on, most-correct first.
+ *
+ * TWO, deliberately. The path-inserted form is what RFC 9728 specifies and what
+ * clients build; the root form is what this server has always served and what
+ * ChatGPT currently reaches by falling back. Dropping the root to fix the spec
+ * URL would trade a regression for a fix — anything that already discovered the
+ * document there would break.
+ *
+ * The old comment worried about "two locations that could disagree". They
+ * cannot: both routes answer from one protectedResourceMetadata() call, so
+ * there is one document served twice, not two documents. A test asserts the
+ * bodies are byte-identical.
+ *
+ * Deduplicated. For a path-less resource the two forms ARE the same string, and
+ * a function whose contract is "every path this is served on" must not name one
+ * twice — a caller counting entries, listing them, or registering them as
+ * routes would be misled. It changes nothing for the current caller, which only
+ * asks whether a path is a member, so the dedupe is pinned by its own test
+ * rather than left to be discovered as incidental.
+ *
+ * Answers the root form for an unset or unparseable resource too. OAuth is off
+ * in that case and the handler replies `no oauth configured` — but it has to be
+ * REACHED to say so. Falling through to the generic `not found` instead would
+ * lose the distinction between "this server has no OAuth" and "this build
+ * predates the OAuth code", which is the whole diagnosis when discovery 404s.
+ */
+export function resourceMetadataPaths(resourceUrl: string | undefined): string[] {
+  const parsed = resourceUrl === undefined ? null : parseResource(resourceUrl);
+  const specPath = parsed === null ? null : resourceMetadataPath(parsed);
+  if (specPath === null) return [PROTECTED_RESOURCE_PATH];
+  return specPath === PROTECTED_RESOURCE_PATH ? [specPath] : [specPath, PROTECTED_RESOURCE_PATH];
+}
+
+/**
+ * The absolute URL a `WWW-Authenticate` challenge points a client at.
+ *
+ * The spec form, because this parameter is the only thing telling a client
+ * where to look — serving the correct URL while advertising the other one would
+ * leave the fix inert for every client that trusts the challenge.
  *
  * Derived rather than separately configured because the two cannot legally
- * disagree: the document describes the resource, and a client that found the
- * resource at one origin will look for its metadata at that same origin. Making
- * it a third env var would only create a way to get it wrong.
+ * disagree: the document describes the resource, so its location follows from
+ * the resource identifier. Making it a third env var would only create a way to
+ * get it wrong.
  */
 export function protectedResourceMetadataUrl(resourceUrl: string): string {
-  try {
-    return new URL(PROTECTED_RESOURCE_PATH, new URL(resourceUrl).origin).toString();
-  } catch {
-    // A resource URL that will not parse is a boot-time misconfiguration, but
-    // this function is on the request path — returning the bare path keeps the
-    // challenge well-formed and relative rather than throwing inside a mapper.
-    return PROTECTED_RESOURCE_PATH;
-  }
+  const parsed = parseResource(resourceUrl);
+  // Not an http(s) identifier: return the bare path so the challenge stays
+  // well-formed and relative rather than carrying a broken absolute URL. This
+  // ONE guard is what keeps the promise above — an earlier version tested the
+  // derived path instead and built the URL outside the try, which threw for
+  // `file:///mcp` (pathname "/mcp" passes a path test; origin is the string
+  // "null", and `new URL(path, "null")` is a TypeError).
+  if (parsed === null) return PROTECTED_RESOURCE_PATH;
+  return new URL(resourceMetadataPath(parsed), parsed.origin).toString();
 }
 
 /** The RFC 9728 protected-resource metadata document, served verbatim as JSON. */
