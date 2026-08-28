@@ -357,19 +357,34 @@ async function main() {
   // green step 7 and a document naming a URL no client ever POSTs to, which is
   // exactly what this file's .env.example warning exists to prevent.
   //
-  // GATED, because everything below parses this value. Reporting it and then
-  // calling `new URL(pr.resource)` two lines later turns a friendly FAIL into
-  // a HARNESS ERROR that skips 7b, 7c, 7d — including the introspection-secret
-  // check this file's header calls the only one that catches a mismatched
-  // secret — and step 8. `check()` returns the boolean for exactly this.
-  if (!check('the published resource identifier is the URL clients actually POST to',
-    pr.resource === `${MCP}/mcp`,
-    `document says resource="${pr.resource}", but this script POSTs to ${MCP}/mcp.\n` +
-    '        Set WA_OAUTH_RESOURCE_URL to the endpoint URL, path included.')) {
+  // TWO problems here, and only one of them is fatal.
+  //
+  // UNPARSEABLE is fatal: everything below calls `new URL(pr.resource)`, so an
+  // absent or malformed value turns a friendly FAIL into a HARNESS ERROR that
+  // skips 7b, 7c, 7d — including the introspection-secret check this file's
+  // header calls the only one that catches a mismatched secret — and step 8.
+  //
+  // A MISMATCH is not. It is worth reporting loudly, but the token minted in
+  // steps 2-6 carries no `resource` parameter, so everything below still runs
+  // and still means something. An earlier version exited on ANY inequality,
+  // which charged the operator those same checks plus a full re-run of the
+  // interactive browser flow for a problem that blocks none of them — a gate
+  // wider than the crash it was added to prevent.
+  let resource = null;
+  try {
+    resource = new URL(pr.resource);
+  } catch { /* reported by the check below */ }
+  if (!check('the published resource identifier parses as a URL', resource !== null,
+    `document says resource=${JSON.stringify(pr.resource)}, which is not a URL.\n` +
+    '        Everything below derives from it, so this stops the run.')) {
     process.exit(1);
   }
+  check('and it is the URL clients actually POST to', pr.resource === `${MCP}/mcp`,
+    `document says resource="${pr.resource}", but this script POSTs to ${MCP}/mcp.\n` +
+    '        Set WA_OAUTH_RESOURCE_URL to the endpoint URL, path included.\n' +
+    '        Not fatal — the checks below do not depend on it.');
 
-  const specPath = `/.well-known/oauth-protected-resource${new URL(pr.resource).pathname.replace(/\/+$/, '')}`;
+  const specPath = `/.well-known/oauth-protected-resource${resource.pathname.replace(/\/+$/, '')}`;
   // One fetch, carrying Origin: the route sets Access-Control-Allow-Origin
   // unconditionally and does not vary the body by it, so status, body and the
   // CORS header all come from this single production round trip.

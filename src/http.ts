@@ -315,7 +315,6 @@ const CORS_MAX_AGE = "600";
 const CORS_METHODS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": ALLOWED_REQUEST_HEADERS,
-  "Access-Control-Max-Age": CORS_MAX_AGE,
 };
 
 /**
@@ -577,6 +576,10 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     if (allowedOrigins.length) res.setHeader("Vary", "Origin");
 
     if (req.method === "OPTIONS") {
+      // Max-Age HERE, not in CORS_METHODS_HEADERS above: that object is applied
+      // to every /mcp response, and the header means nothing on anything but a
+      // preflight. Inert there, but it reads as deliberate to the next person.
+      res.setHeader("Access-Control-Max-Age", CORS_MAX_AGE);
       res.writeHead(204).end();
       return;
     }
