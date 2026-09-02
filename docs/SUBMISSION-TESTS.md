@@ -38,7 +38,7 @@ the submission snapshot.
 |---|---|---|---|---|
 | 0.1 | The API's secrets survived the last deploy | `gcloud run services describe website-auditor-api --region us-central1 --format='value(spec.template.spec.containers[0].env[].name)' \| tr ';' '\n' \| grep -c -E 'OAUTH_INTROSPECTION_SECRET\|OIDC_PRIVATE_KEY'` | `2` | ☐ |
 | 0.2 | OIDC live | `curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq '{issuer,scopes_supported,userinfo_endpoint,jwks_uri}'` | `scopes_supported` is `["audit","openid","email"]` | ☐ |
-| 0.3 | MCP deployed | from a clean `main`: `git rev-parse --short HEAD` then `gcloud run deploy website-auditor-mcp --source . --region us-central1` | HEAD contains `8c14a48`; deploy succeeds | ☐ |
+| 0.3 | MCP deployed — and serving this build | from a clean `main`: `gcloud run deploy website-auditor-mcp --source . --region us-central1`, then the diff below | deploy succeeds; the diff prints `MATCH` | ☐ |
 | 0.4 | Mixed Auth on | `gcloud run services logs read website-auditor-mcp --region us-central1 --limit 20 \| grep "Mixed Auth"` | reads `Mixed Auth ON`, with the issuer and a secret length of 44 | ☐ |
 | 0.4b | The resource declares the scopes its AS offers | `diff <(curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq -S .scopes_supported) <(curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource \| jq -S .scopes_supported) && echo MATCH` | `MATCH` | ☐ |
 | 0.4c | …and the tools ASK for them | `curl -s -X POST https://mcp.website-auditor.io/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \| jq -S '[.result.tools[]._meta.securitySchemes[0] \| select(.type=="oauth2") .scopes] \| unique'` | one entry, equal to 0.4b's list | ☐ |
@@ -53,6 +53,35 @@ hypothetical: it wiped `OAUTH_INTROSPECTION_SECRET` and took the entire OAuth
 stack down for eleven hours. Never set either by hand with `--update-env-vars`;
 the next deploy would remove it again. Add the secret in GitHub and to that
 list.
+
+**0.3 compares the deployment to the checkout, because a commit pin cannot.**
+This row used to pass when `HEAD` contained `8c14a48`. That commit is now 31
+behind and a guaranteed ancestor, so the condition had become impossible to
+fail — a checkout missing the newest prompt entirely still turned the row green,
+which is exactly the state the row exists to catch. A literal in a pass
+condition does not just go wrong, it goes *quietly* wrong, and this table has
+already paid for that once.
+
+So the row no longer names a commit. It asks the deployed server what it serves
+and compares that against what this checkout declares:
+
+```bash
+diff <(jq -r '.prompts[].name' manifest.json | sort) \
+     <(curl -s -X POST https://mcp.website-auditor.io/mcp \
+         -H 'Content-Type: application/json' \
+         -H 'Accept: application/json, text/event-stream' \
+         -d '{"jsonrpc":"2.0","id":1,"method":"prompts/list","params":{}}' \
+       | jq -r '.result.prompts[].name' | sort) && echo MATCH
+```
+
+`manifest.json` is the right left-hand side because `tests/manifests.test.ts`
+pins it to `PROMPT_SPECS` — *"manifest.json lists exactly the prompts the server
+actually serves"* — so it cannot drift from the source without the suite going
+red. Nothing here needs editing when a prompt is added or renamed: both sides
+move together and the check keeps its power. Prompts rather than tools because
+prompts are what most recently changed, and because a version number cannot
+answer this question at all — Cloud Run does not read `package.json`, so a
+stale revision and a current one report the same version.
 
 **0.4b and 0.4c are two halves of one invariant: what the resource OFFERS and
 what the connector ASKS FOR must agree.** They were allowed to disagree, and
