@@ -32,7 +32,13 @@ function promptText(result: { messages: Array<{ content: unknown }> }): string {
     .join("\n");
 }
 
-const EXPECTED = ["audit_my_site", "check_ai_visibility", "compare_to_competitor", "see_sample_report"];
+const EXPECTED = [
+  "audit_my_site",
+  "build_growth_plan",
+  "check_ai_visibility",
+  "compare_to_competitor",
+  "see_sample_report",
+];
 
 describe("discovery prompts", () => {
   it("advertises the prompts capability so hosts render them at all", async () => {
@@ -40,7 +46,9 @@ describe("discovery prompts", () => {
     expect(client.getServerCapabilities()?.prompts).toBeDefined();
   });
 
-  it("lists the four discovery prompts under stable snake_case names", async () => {
+  it("lists every discovery prompt under a stable snake_case name", async () => {
+    // Not "the four": a count in a test name is a thing that rots silently,
+    // and this repo has already paid for one. EXPECTED is the enumeration.
     const client = await connect();
     const { prompts } = await client.listPrompts();
     expect(prompts.map((p) => p.name).sort()).toEqual(EXPECTED);
@@ -103,6 +111,28 @@ describe("discovery prompts", () => {
     );
     expect(compare).toContain("compare_competitors");
     expect(compare).toContain("rival.test");
+
+    const plan = promptText(
+      await client.getPrompt({ name: "build_growth_plan", arguments: { domain: "acme.test" } }),
+    );
+    expect(plan).toContain("get_gtm_plan");
+  });
+
+  it("tells the model to run the audit first, so a fresh domain is not a dead button", async () => {
+    // get_gtm_plan READS the domain's most recent audit and refuses when there
+    // is none (getGtmPlan.ts: "No audit on record for X. Run run_audit first").
+    // Every other prompt drives a tool that stands alone; this one has an
+    // ordering, and a render that omits it returns that refusal on the very
+    // first click and reads as a broken button.
+    const client = await connect();
+    const plan = promptText(
+      await client.getPrompt({ name: "build_growth_plan", arguments: { domain: "acme.test" } }),
+    );
+    expect(plan).toContain("get_gtm_plan");
+    expect(plan).toContain("run_audit");
+    // The plan tool first, the fallback second — reversing them would tell the
+    // model to audit unconditionally and spend a run the caller may not need.
+    expect(plan.indexOf("get_gtm_plan")).toBeLessThan(plan.indexOf("run_audit"));
   });
 
   it("keeps the exported specs and the served prompts in agreement", async () => {
