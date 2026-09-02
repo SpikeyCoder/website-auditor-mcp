@@ -156,7 +156,7 @@ update automatically — also with no stated interval. Privately distributed
 So: treat this channel as asynchronous and unbounded. Submit it, then keep
 shipping; do not block a release on it, and do not assume it followed.
 
-### Requirements, audited 2026-08-04, re-audited 2026-08-13
+### Requirements, audited 2026-08-04, re-audited 2026-08-13 and 2026-09-02
 
 Local connectors are held to a stricter bar than remote ones, and the docs
 warn that *"Missing or incomplete privacy policies result in immediate
@@ -166,11 +166,11 @@ applies:
 | Requirement | State |
 |---|---|
 | `privacy_policies` array in manifest.json (needs manifest_version ≥ 0.2) | PASS — `["https://website-auditor.io/privacy"]`, manifest_version 0.3 |
-| "Privacy Policy" section in README.md | PASS — README.md line ~148 |
+| "Privacy Policy" section in README.md | PASS — README.md line ~240 |
 | HTTPS privacy URL that resolves | PASS — 200 |
 | Policy covers collection, use/storage, third-party sharing, retention, contact | PASS — all five present on the live page |
-| Every tool carries a `title` | PASS — 14/14 |
-| Every tool carries `readOnlyHint` or `destructiveHint` | PASS — set for all in src/mcp/server.ts |
+| Every tool carries a `title` | PASS — 15/15 |
+| Every tool carries `readOnlyHint` or `destructiveHint` | PASS — 15/15, set in src/mcp/server.ts |
 
 The **submission form itself** states four more, which this table missed
 through the 1.0.16 submission because they live on the form rather than in the
