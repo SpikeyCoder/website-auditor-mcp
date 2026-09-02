@@ -233,20 +233,36 @@ Mixed Auth have to be live and a real ChatGPT client has to draw it.
 |---|---|---|---|---|
 | 1.1 | Open the connector with no account linked | a **Connect** / sign-in affordance appears | ☐ | ☐ |
 | 1.2 | Click it | lands on the Website Auditor consent screen | ☐ | ☐ |
-| 1.3 | Read the consent screen | it lists running audits **and** managing monitored sites, **and** names the account's email address | ☐ | ☐ |
+| 1.3 | Read the consent screen | it lists running audits **and** managing monitored sites, **and** the identity line reads "See the email address on your Website Auditor account" — **not** "Confirm which Website Auditor account you are signed in to" | ☐ | ☐ |
 | 1.4 | Approve | returns to ChatGPT, connected, no error | ☐ | ☐ |
 
 **If 1.1 does not appear**, stop: the declarative half or the runtime half is
 missing, and no case below will behave. Re-run 0.4, 0.5 and 0.6.
 
 **1.3 used to excuse the missing email** — "only if `email` scope was requested"
-— which made it unfailable, because the consent screen does not tell you which
-scopes were requested. But 0.2, 0.4b and 0.4c have already pinned `email` into
-the requested set by the time you reach this step, so an unnamed email is not a
-permitted variation: it is the one human-visible symptom that the identity
-scopes were not actually granted. If the email is absent, stop and re-check
-0.4b/0.4c and the `scope` parameter on the authorization request in the Cloud
-Run logs.
+— which made it unfailable, because the screen does not state which scopes were
+requested. By this step 0.2, 0.4b and 0.4c have already pinned `email` into the
+requested set, so the identity line is not a permitted variation: it is the one
+human-visible symptom of whether the identity scopes were actually granted.
+
+**The screen never prints the address itself**, so do not look for one. It
+renders a permission line built from the scope that was actually requested —
+`scopeLines()` in `src/routes/oauth.js` of **website-auditor-api** — and the
+three cases are distinguishable:
+
+| what was granted | the line you will read |
+|---|---|
+| `email` | "See the email address on your Website Auditor account" |
+| `openid` without `email` | "Confirm which Website Auditor account you are signed in to" |
+| neither | neither line appears |
+
+So the `openid` line is the failure this row catches: it means the connector
+asked for identity but not for the address, and the enterprise-domain check has
+nothing to read. Seeing it, stop and re-check 0.4b/0.4c and the `scope`
+parameter on the authorization request in the Cloud Run logs.
+
+That copy is not pinned by any test, so if the screen says something close but
+not identical, read `scopeLines()` rather than assuming this table is right.
 
 > **Record the client identity ChatGPT sends** (visible in Cloud Run logs as the
 > `client_name` on the consent screen). Our authorization server issues public
