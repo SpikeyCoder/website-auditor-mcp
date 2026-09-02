@@ -226,33 +226,22 @@ describe("declared output schemas", () => {
   }
 
   /**
-   * The PUBLISHED schema, not the Zod object — the only check a real client runs.
+   * The cards reach the wire, under a validator that is armed.
    *
-   * The loop above validates two ways and neither is what a client does. The
-   * SDK server parses with Zod; the direct `z.object(...).safeParse` here uses
-   * Zod's default object mode, which STRIPS an undeclared key instead of
-   * failing on it. A real client compiles the JSON Schema this server
-   * PUBLISHES and runs Ajv against it — and that schema's root carries
-   * `additionalProperties: false`, so a root key nobody declared passes both
-   * checks above and is rejected on every client in the field.
+   * This test was written with its own client because `connect` did not call
+   * `listTools`, so nothing in this file compiled the PUBLISHED JSON Schema —
+   * and the root of that schema carries `additionalProperties: false`, which
+   * neither the SDK server's Zod parse (strip mode) nor the direct
+   * `safeParse` above would have caught. Hanging `plan_phases` off the result
+   * ROOT rather than inside `plan` would have shipped green.
    *
-   * That is not hypothetical for this tool: `plan_phases` was new output, and
-   * hanging it off the result root rather than inside `plan` (declared, and
-   * `.passthrough()`) would have shipped green. The client only compiles its
-   * validators after `listTools`, which the helper above deliberately does not
-   * call — so this connects its own client and calls it.
+   * `connect` arms the validator for every tool now, so that mechanism is no
+   * longer this test's job and the bespoke setup is gone. What is left is the
+   * part the loop does not assert: that the phase cards actually survive to
+   * the wire rather than merely failing to violate a schema.
    */
-  it("get_gtm_plan's phase cards pass the schema a client actually compiles", async () => {
-    const server = createServer(makeDeps({ tier: "pro", client: richClient }));
-    const client = new Client({ name: "published-schema-test", version: "0.0.0" });
-    const [ct, st] = InMemoryTransport.createLinkedPair();
-    await Promise.all([server.connect(st), client.connect(ct)]);
-    // Caches the tool metadata, which is what arms the client-side validator.
-    await client.listTools();
-
-    // Throws McpError("Structured content does not match the tool's output
-    // schema") if the payload violates the published schema — nulls inside a
-    // card, an undeclared root key, anything.
+  it("get_gtm_plan's phase cards reach the caller intact", async () => {
+    const client = await connect();
     const result = await client.callTool({ name: "get_gtm_plan", arguments: ARGS.get_gtm_plan });
     expect(result.isError, JSON.stringify(result).slice(0, 300)).toBeFalsy();
     const plan = (result.structuredContent as { plan: { phases: unknown[] } }).plan;
