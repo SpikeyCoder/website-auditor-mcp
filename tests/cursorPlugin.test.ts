@@ -10,7 +10,7 @@ import { PROMPT_SPECS } from "../src/mcp/prompts.js";
  * reviews every listed version — so drift stays invisible until a reviewer or
  * a user hits it.
  *
- * The skills are the same four files as codex-plugin/'s: both re-express the
+ * The skills are the same files as codex-plugin/'s: both re-express the
  * MCP prompts from src/mcp/prompts.ts as instructions. docs/CODEX-PLUGIN.md
  * states the rule — "if the prompts change, change the skills in the same
  * PR" — and admits nothing enforces it. Now something does, two ways: skills

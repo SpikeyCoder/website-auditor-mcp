@@ -224,12 +224,37 @@ Then, and only then, rescan in the portal:
 | # | Check | Pass condition | ✅ |
 |---|---|---|---|
 | 0.7 | Scan Tools | 15 tools listed | ☐ |
+| 0.7b | Scan Prompts | 5 prompts listed, including `build_growth_plan` | ☐ |
+| 0.7c | Skills | 5 skills listed, including `build-growth-plan`, each Passed | ☐ |
 | 0.8 | outputSchema warning | gone from all 15 | ☐ |
 | 0.9 | OAuth metadata | no "OAuth metadata load failed" under the server URL | ☐ |
 | 0.10 | Enterprise domain warning | gone | ☐ |
 | 0.11 | Auth mode | **Mixed Auth** on the draft version | ☐ |
 
 `curl -s -X POST https://mcp.website-auditor.io/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq '[.result.tools[] | select(.outputSchema == null) | .name]'` → expect `[]`.
+
+**0.7b and 0.7c are here because a green 0.7 says nothing about either.** The
+three surfaces reach the listing by three different routes. Tools and prompts
+both come from the scan of the deployed server — so a scan taken before the last
+deploy shows the old set of both, and the tool count can be right while the
+prompt count is stale, because tools changed in 1.0.21 and prompts in 1.0.22.
+Skills do not come from the scan at all: they are uploaded by hand, one folder
+each, and **no rescan can add one**. A skill that was never uploaded simply is
+not there, and nothing else on this page would say so.
+
+The expected counts are not literals to maintain. Five prompts is
+`jq -r '.prompts[].name' manifest.json | wc -l`, five skills is
+`ls cursor-plugin/skills | wc -l`, and `tests/manifests.test.ts` and
+`tests/cursorPlugin.test.ts` pin both to `PROMPT_SPECS` — so adding a prompt
+moves all three together and turns the suite red until it does. Fifteen tools is
+checked live by the command above for the same reason 0.3 is: the requirement is
+about what the server serves, not what the source contains.
+
+This is the row that would have caught today's near-miss. `build_growth_plan`
+shipped in 1.0.22 specifically to give the growth plan an entry point a human can
+click, and the portal's Skills list still showed four entries afterwards — the
+upload is a separate manual act from the deploy, and nothing in this table
+mentioned it.
 
 ---
 
