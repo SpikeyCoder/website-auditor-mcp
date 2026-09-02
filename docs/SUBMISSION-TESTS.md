@@ -40,9 +40,9 @@ the submission snapshot.
 | 0.2 | OIDC live | `curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq '{issuer,scopes_supported,userinfo_endpoint,jwks_uri}'` | `scopes_supported` is `["audit","openid","email"]` | ☐ |
 | 0.3 | MCP deployed — and serving this build | from a clean `main`: `gcloud run deploy website-auditor-mcp --source . --region us-central1`, then the diff below | deploy succeeds; the diff prints `MATCH` | ☐ |
 | 0.4 | Mixed Auth on | `gcloud run services logs read website-auditor-mcp --region us-central1 --limit 20 \| grep "Mixed Auth"` | reads `Mixed Auth ON`, with the issuer and a secret length of 44 | ☐ |
-| 0.4b | The resource declares the scopes its AS offers | `diff <(curl -s https://api.website-auditor.io/.well-known/openid-configuration \| jq -S .scopes_supported) <(curl -s https://mcp.website-auditor.io/.well-known/oauth-protected-resource \| jq -S .scopes_supported) && echo MATCH` | `MATCH` | ☐ |
+| 0.4b | The resource declares the scopes its AS offers | the comparison below | `MATCH ["audit","email","openid"]` | ☐ |
 | 0.4c | …and the tools ASK for them | `curl -s -X POST https://mcp.website-auditor.io/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \| jq -S '[.result.tools[]._meta.securitySchemes[0] \| select(.type=="oauth2") .scopes] \| unique'` | one entry, equal to 0.4b's list | ☐ |
-| 0.5 | Readable from a browser | the loop below | five `access-control-allow-origin: *`, no `allow-credentials` | ☐ |
+| 0.5 | Readable from a browser | the loop below | five `HTTP/… 200` **and** five `access-control-allow-origin: *`, no `allow-credentials` | ☐ |
 | 0.6 | End to end | `OAUTH_INTROSPECTION_SECRET="$(cat ~/.wa-oauth-secret)" node verify-oauth.mjs` | `ALL CHECKS PASSED`, exit 0 | ☐ |
 
 **0.1 is first because it is the one that has actually failed.** Both secrets are
@@ -55,9 +55,9 @@ the next deploy would remove it again. Add the secret in GitHub and to that
 list.
 
 **0.3 compares the deployment to the checkout, because a commit pin cannot.**
-This row used to pass when `HEAD` contained `8c14a48`. That commit is now 31
-behind and a guaranteed ancestor, so the condition had become impossible to
-fail — a checkout missing the newest prompt entirely still turned the row green,
+This row used to pass when `HEAD` contained `8c14a48`. That commit has been an
+ancestor of every checkout since August, so the condition had become impossible
+to fail — a checkout missing the newest prompt entirely still turned the row green,
 which is exactly the state the row exists to catch. A literal in a pass
 condition does not just go wrong, it goes *quietly* wrong, and this table has
 already paid for that once.
@@ -93,6 +93,29 @@ nothing ever requested the identity scopes, no ID token or verified email could
 exist, and the portal reported enterprise domain restrictions as unavailable
 with every other row on this page green. Checking either half alone would have
 missed it; `verify-oauth.mjs` step 7b now compares them directly.
+
+```bash
+a=$(curl -fsS https://api.website-auditor.io/.well-known/openid-configuration \
+      | jq -c '.scopes_supported | sort')
+b=$(curl -fsS https://mcp.website-auditor.io/.well-known/oauth-protected-resource \
+      | jq -c '.scopes_supported | sort')
+[ -n "$a" ] && [ "$a" != null ] && [ "$a" = "$b" ] && echo "MATCH $a"
+```
+
+**This row used to be a `diff` of two process substitutions, and it could pass
+with both servers down.** `jq` writes parse errors to stderr and nothing to
+stdout, so two unreachable documents — or two that merely lack the key, which
+both emit `null` — compared equal and printed `MATCH`. That is not a remote
+scenario for this pair: the MCP serves the literal text `no oauth configured`
+when Mixed Auth is off, and the API side of the same pair was down for eleven
+hours in the incident 0.1 describes. Requiring a non-empty, non-`null` value
+that the row then prints means the token cannot appear without the evidence
+beside it — and it gives 0.4c the list it is told to compare against, which the
+bare word `MATCH` never showed.
+
+The `sort` is load-bearing too. The old command relied on `jq -S`, which sorts
+object **keys** and leaves array elements alone, so two services offering the
+identical scope set in a different order failed the row.
 
 **0.4b checks the deployed document, not an environment variable, and that
 distinction is the point.** The MCP's `scopes_supported` comes from
@@ -148,18 +171,30 @@ primary.
 **`-o /dev/null -D -`, not `-I`.** `curl -I` sends **HEAD**, and the two servers
 used to disagree about it: the API is Express, which answers HEAD from a GET
 route by itself, while the MCP matched GET alone and dropped HEAD into its
-catch-all — so the same loop returned three 200s and one `404` for a document
-that was being served correctly the whole time. A false 404 there is
+catch-all — so the same loop returned three 200s and two `404`s for documents
+that were being served correctly the whole time. A false 404 on either MCP
+spelling is
 indistinguishable from an MCP whose OAuth is off or whose image predates the
 OAuth code, which are the two real failures this row exists to catch. The MCP
 answers HEAD now, but the loop reads the headers off a real GET regardless: the
 check should not depend on a method the portal never uses.
 
-Every one must show `access-control-allow-origin: *` and **no**
+Every one must show `HTTP/… 200`, `access-control-allow-origin: *`, and **no**
 `access-control-allow-credentials`. `Failed to fetch` in the portal is a CORS
 block, not an HTTP error — a document answering 200 to `curl` and unreadable to
 a browser looks identical to a server that is down, from the only place you can
 see it.
+
+**The status line is not decoration, and this row used to ignore it.** The
+metadata 404 carries the wildcard on purpose: the `no oauth configured` branch
+in `src/http.ts` sets `Access-Control-Allow-Origin: *` before writing the 404,
+so an operator reads the one string that names the cause instead of a CORS error
+that misdirects. The consequence is that the wildcard alone is equally true of
+an MCP whose Mixed Auth is OFF while `WA_OAUTH_RESOURCE_URL` is still set — an
+issuer that was lost, or that arrived as a literal `${WA_OAUTH_ISSUER}` — which
+answers 404-plus-wildcard on **both** MCP spellings and shows the five wildcards
+this row asked for. The 200 proves the document exists; the wildcard proves a
+browser may read it. Neither half decides the row alone.
 
 Row 0.6 re-checks the same thing, plus the CORS **preflight**, which the loop
 above does not send. That distinction is load-bearing: `cors` answers `OPTIONS`
@@ -198,11 +233,20 @@ Mixed Auth have to be live and a real ChatGPT client has to draw it.
 |---|---|---|---|---|
 | 1.1 | Open the connector with no account linked | a **Connect** / sign-in affordance appears | ☐ | ☐ |
 | 1.2 | Click it | lands on the Website Auditor consent screen | ☐ | ☐ |
-| 1.3 | Read the consent screen | it lists running audits **and** managing monitored sites; it names the email address only if `email` scope was requested | ☐ | ☐ |
+| 1.3 | Read the consent screen | it lists running audits **and** managing monitored sites, **and** names the account's email address | ☐ | ☐ |
 | 1.4 | Approve | returns to ChatGPT, connected, no error | ☐ | ☐ |
 
 **If 1.1 does not appear**, stop: the declarative half or the runtime half is
 missing, and no case below will behave. Re-run 0.4, 0.5 and 0.6.
+
+**1.3 used to excuse the missing email** — "only if `email` scope was requested"
+— which made it unfailable, because the consent screen does not tell you which
+scopes were requested. But 0.2, 0.4b and 0.4c have already pinned `email` into
+the requested set by the time you reach this step, so an unnamed email is not a
+permitted variation: it is the one human-visible symptom that the identity
+scopes were not actually granted. If the email is absent, stop and re-check
+0.4b/0.4c and the `scope` parameter on the authorization request in the Cloud
+Run logs.
 
 > **Record the client identity ChatGPT sends** (visible in Cloud Run logs as the
 > `client_name` on the consent screen). Our authorization server issues public
@@ -264,12 +308,18 @@ one you expected.
 
 **Timing — measure it, do not estimate it.** The prior claim ("well inside the
 300s tool budget, typical 15–30s") was never a measurement. A live audit queries
-four assistants in sequence, so this is the slowest tool in the set, and two
-ceilings sit above it:
+four assistants in sequence, so this is the slowest tool **this protocol
+exercises** — not the slowest in the set. `get_ai_visibility` (P2) runs the same
+audit plus a history lookup; `compare_competitors` awaits one `auditDomain` per
+domain in sequence, so it costs roughly N+1 audits; and `get_gtm_plan` carries
+its own 270 s budget (`GROWTH_PLAN_TIMEOUT_MS`, `src/api/client.ts`), more than
+double the ceiling below. Time P2 alongside P3 and quote the larger. Two
+ceilings sit above P3:
 
-- the MCP client's own request timeout — **120 s** (`WA_REQUEST_TIMEOUT_MS`
-  default, `src/config.ts:240`, verified in the code); exceeding it surfaces as
-  `TIMEOUT`
+- the MCP client's own request timeout — **120 s** (the `WA_REQUEST_TIMEOUT_MS`
+  default in `loadConfig`, `src/config.ts` — cited by symbol because the line
+  number this used to carry had already drifted onto an unrelated statement);
+  exceeding it surfaces as `TIMEOUT`
 - the host's tool budget — **300 s**. OpenAI's published figure, carried over
   from the previous version of this document and **not measured here**. If your
   P3 runs approach it, trust the measurement over this number.
@@ -291,9 +341,15 @@ to the answer. Mobile separately: the rejection named mobile.
 - max < 60 s → quote the observed range in the listing; no change needed.
 - 60–110 s → quote it, but say so plainly; it is close enough to the 120 s
   client timeout that a slow day will trip it.
-- ≥ 110 s, or any `TIMEOUT` → **do not quote a more optimistic sentence.** Move
-  this case to a smaller domain, or raise `WA_REQUEST_TIMEOUT_MS`. A number that
-  is wrong under load is the same class of error as the No Auth mismatch.
+- ≥ 110 s, or a `TIMEOUT` **at ~110 s or later** → **do not quote a more
+  optimistic sentence.** The client abort tripped; move this case to a smaller
+  domain, or raise `WA_REQUEST_TIMEOUT_MS`. A number that is wrong under load is
+  the same class of error as the No Auth mismatch.
+- a `TIMEOUT` arriving **well before** 110 s → upstream, and raising
+  `WA_REQUEST_TIMEOUT_MS` will not touch it. `src/api/client.ts` raises this
+  code from four places: two are the client's own abort, and two derive it from
+  the upstream status (a 504, or a 502/503 past the gateway floor). Chase the
+  API, not the variable.
 
 Observed range to put in the listing: `________________`
 
@@ -364,9 +420,19 @@ Observed range to put in the listing: `________________`
   `gateProTool` runs before the domain is ever fetched, so an unauthenticated
   caller gets `AUTH_REQUIRED` and the dead domain is never looked up. This was
   the clearest of the five failures in the rejected submission.
-- **Decides it:** no score and no partial report is invented.
-- **Expected:** `run_audit` returns `UNREACHABLE_DOMAIN` with the API's own
-  explanation.
+- **Decides it:** the error code is `UNREACHABLE_DOMAIN`, **and** no score or
+  partial report is invented. Any other code fails this case even though nothing
+  was fabricated — `AUTH_REQUIRED` above all, which means the token never
+  resolved and the domain was never fetched, not that the server behaved well.
+  "Nothing was invented" alone is true of every possible refusal, including the
+  one the fixture note directly above calls the clearest of the five failures in
+  the rejected submission.
+- **Expected:** `run_audit` returns `UNREACHABLE_DOMAIN` with the MCP's own
+  sentence — "The site at … could not be reached, so no audit scores can be
+  produced. Check the domain is correct and publicly reachable." The API does
+  not emit this code: it answers 200 with a completed report, and
+  `detectUnreachable` (`src/api/mappers.ts`) reads the availability rows and
+  raises the code client-side, so no wording from the API reaches the caller.
 - **Rationale:** a made-up number about an unreachable site would be worse than
   an error; accuracy of results is a review criterion.
 
