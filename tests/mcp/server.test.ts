@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/mcp/server.js";
-import { makeDeps } from "../helpers.js";
+import { makeDeps, errorPayload } from "../helpers.js";
 
 async function connect(deps = makeDeps({ tier: "pro" })) {
   const server = createServer(deps);
@@ -80,7 +80,7 @@ describe("MCP server (end-to-end over in-memory transport)", () => {
     const { client } = await connect(makeDeps({ tier: "free" }));
     const res = await client.callTool({ name: "get_changes", arguments: { domain: "example.com" } });
     expect(res.isError).toBe(true);
-    const errObj = res.structuredContent as { code: string; upgrade_url?: string };
+    const errObj = errorPayload(res);
     expect(errObj.code).toBe("PRO_REQUIRED");
     expect(errObj.upgrade_url).toContain("website-auditor.io");
   });

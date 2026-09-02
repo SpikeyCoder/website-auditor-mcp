@@ -527,8 +527,10 @@ describe("toCallResult — the challenge is transport metadata, not payload", ()
       error: { code: "AUTH_REQUIRED", message: "connect", wwwAuthenticate: "Bearer resource_metadata=\"x\"" },
     });
     expect(result._meta).toEqual({ "mcp/www_authenticate": 'Bearer resource_metadata="x"' });
-    expect(result.structuredContent).not.toHaveProperty("wwwAuthenticate");
     expect(String(result.content[0]!.text)).not.toContain("wwwAuthenticate");
+    // And nowhere else either: an error result carries no structuredContent at
+    // all, so there is no second copy of the challenge to leak.
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it("emits no _meta at all when there is no challenge", () => {

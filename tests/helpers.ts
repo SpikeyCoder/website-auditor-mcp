@@ -158,3 +158,22 @@ export const UNEXPANDED_PLACEHOLDERS = [
   "{{WA_API_KEY}}", // moustache-style templating
   "$WA_API_KEY", // bare shell-style
 ] as const;
+
+/**
+ * The error payload of a failed tool call, read from where it actually lives.
+ *
+ * Error results carry NO `structuredContent` — see the comment in
+ * src/mcp/server.ts's toCallResult. The body is the JSON in `content[0].text`,
+ * so every assertion about an error payload goes through here rather than
+ * reaching for a field the server deliberately no longer sets.
+ */
+export function errorPayload(result: {
+  content?: unknown;
+}): { code: string; message: string; upgrade_url?: string; details?: unknown } {
+  const content = result.content as Array<{ type: string; text?: string }> | undefined;
+  const text = content?.[0]?.text;
+  if (typeof text !== "string") {
+    throw new Error(`expected a text error payload, got: ${JSON.stringify(result.content)}`);
+  }
+  return JSON.parse(text);
+}
