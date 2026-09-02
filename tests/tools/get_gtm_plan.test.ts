@@ -221,6 +221,32 @@ describe("get_gtm_plan: the wire the proxy actually accepts", () => {
     expect(res.error.message).toMatch(/run_audit/);
     expect(res.error.message).not.toMatch(/GET \/api\/audit/);
   });
+
+  // A 404 is not one answer. The proxy's ownership refusal is the one the
+  // remap above exists for; a 404 from an endpoint that is not MOUNTED is a
+  // different event entirely, and sending that caller to run_audit is the
+  // worst possible advice — it spends one of their ten daily audits, changes
+  // nothing, and returns the identical message. The move to /api/growth-plan
+  // is exactly what makes this reachable: the path is newer than the API
+  // deployments this build can meet.
+  it.each([
+    ["an unmounted route", "Not found"],
+    ["a 404 with no JSON body at all", "Website Auditor API returned HTTP 404."],
+    ["an edge or proxy in front of the API", "The requested URL was not found on this server."],
+  ])("does not answer %s with run_audit", async (_label, upstream) => {
+    const fn = vi.fn(async () => {
+      throw new WaApiError("UPSTREAM_ERROR", upstream, { status: 404 });
+    });
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    // The remedy that cannot work must not be offered.
+    expect(res.error.message).not.toMatch(/run_audit/);
+    expect(res.error.code).toBe("UPSTREAM_ERROR");
+    // And the upstream text survives, because it is the only evidence an
+    // operator has about which 404 this was.
+    expect(res.error.message).toContain(upstream);
+  });
 });
 
 describe("get_gtm_plan: the evidence note claims only what the wire proves", () => {

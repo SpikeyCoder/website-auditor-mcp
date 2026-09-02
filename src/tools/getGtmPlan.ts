@@ -167,10 +167,46 @@ export async function getGtmPlan(
     // that actually fixes it. Unchanged by the move to /api/growth-plan: the
     // ownership lookup runs before the counter on both names, so a domain the
     // caller never audited still costs nothing and still reads as a 404.
+    //
+    // ON THE MESSAGE, NOT ON THE STATUS ALONE. A 404 from this endpoint is
+    // not one event. The ownership refusal is the one this remap translates;
+    // a 404 because the endpoint is not MOUNTED is a different one, and the
+    // move to /api/growth-plan is what makes it reachable — that path is
+    // newer than the API deployments a shipped build can meet, and an
+    // unmatched route on the API answers 404 {"error":"Not found"} from its
+    // own notFoundHandler. Remapping that told the caller to run an audit
+    // they had already run: it spends one of their ten daily audits, changes
+    // nothing, and returns the identical message next time. Same for a 404
+    // from an edge in front of the API, or a misconfigured base URL.
+    //
+    // The phrase is the discriminator because it is the only signal on the
+    // wire, and it is a stable one: the proxy's ownership 404 is the ONLY
+    // 404 the plan route emits (its engine-404 branch answers 503), and it
+    // has read "No audit on record for that run." on both the deployed and
+    // the growth-plan versions. If that prose ever does drift, this stops
+    // firing and the caller sees the proxy's own sentence — a REST route
+    // they cannot use, which is unhelpful but no longer sends them to spend
+    // audits in a loop. That is the safe direction for the check to fail in.
+    const NOT_ON_RECORD = /no audit on record/i;
     if (e instanceof WaApiError && e.status === 404) {
+      if (NOT_ON_RECORD.test(e.message)) {
+        return err(
+          "INVALID_INPUT",
+          `No audit on record for ${domain}. Run run_audit for ${domain} first, then ask for the plan again.`,
+        );
+      }
+      // Not the ownership refusal, so the audit is not the problem and
+      // run_audit is not the remedy. Say only what is known — the upstream
+      // text is the only evidence of which 404 this was — and name the one
+      // thing the caller can rule out, so nobody burns an audit finding out.
       return err(
-        "INVALID_INPUT",
-        `No audit on record for ${domain}. Run run_audit for ${domain} first, then ask for the plan again.`,
+        "UPSTREAM_ERROR",
+        // Quoted, not appended bare: the upstream text is whatever the far
+        // end wrote and need not end in a period — "Not found" ran straight
+        // into the next sentence.
+        `The growth-plan endpoint answered 404 (\u201C${e.message}\u201D). This is not the ` +
+          `"no audit on record" refusal, so running an audit will not change it — ` +
+          `the API this server points at may not serve this route.`,
       );
     }
     return fromApiError(e, deps.config, deps.transport, deps.authVia);
