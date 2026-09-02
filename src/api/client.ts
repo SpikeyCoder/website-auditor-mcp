@@ -523,7 +523,9 @@ export class WaApiClient implements WaApiClientLike {
       model: typeof body.model === "string" ? body.model : "",
     };
     // ASSIGNED ONLY WHEN THE WIRE CARRIES ONE, which is the opposite of the
-    // `?? []` every other field here gets — and deliberately so. `[]` is a
+    // coerce-to-a-default treatment every sibling field above gets (each by
+    // its own idiom, but all of them landing on a value) — and deliberately
+    // so. `[]` is a
     // real answer from a current engine ("this plan took no card shape, use
     // the prose"); absent is an older engine that never tried. Defaulting
     // absent to `[]` would report the first where the second happened, and
@@ -671,11 +673,20 @@ export class WaApiClient implements WaApiClientLike {
         // rate_limit alone dropped the whole remedy there: the caller was
         // told "blocked" with no "until when".
         //
-        // BOTH plan names are read. The plan answers to /api/growth-plan and
-        // /api/gtm-plan off one mount and one 5/day counter, and the limit
-        // block is named for the path called — so this client's move to the
-        // new path would otherwise have silently reintroduced the very gap
+        // growth_plan_limit is what THIS client can actually receive: the
+        // limit block is named for the path called, and this client calls
+        // only /api/growth-plan. Adding it is not defensive — without it the
+        // move to the new path silently reintroduces the very gap
         // gtm_plan_limit was added to close, on the same route.
+        //
+        // The other two are the API's remaining quota-block names, kept for
+        // the same reason gtm_chat_limit has always been here: this mapper is
+        // shared by every endpoint, and it lists what the API can send rather
+        // than what today's call sites happen to reach. (Neither is reachable
+        // from this client now — nothing here POSTs /api/gtm-plan or
+        // /api/gtm-chat — and that is not an argument about already-installed
+        // builds, which run their own shipped copy of this file and are
+        // untouched by anything in it.)
         const quota = b.rate_limit ?? b.growth_plan_limit ?? b.gtm_plan_limit ?? b.gtm_chat_limit;
         const resetsAt = quotaResetsAt(quota);
         const text = resetsAt ? `${message} It resets at ${resetsAt}. Re-run after that.` : message;

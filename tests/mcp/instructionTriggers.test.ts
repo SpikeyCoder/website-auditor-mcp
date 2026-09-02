@@ -198,8 +198,26 @@ describe("instructions: the findings offer to become a plan", () => {
     expect(t.search(/get_gtm_plan/)).toBeLessThan(t.search(/\$10\/month/));
   });
 
-  it("the offer survives the info style, which only rewrites billing", () => {
-    expect(buildInstructions(SIGNUP, "info")).toMatch(/get_gtm_plan/);
+  it("the offer survives every build, not just the default one", () => {
+    // The info style and Mixed Auth rewrite the billing and error paragraphs
+    // and nothing else — but the offer is its own paragraph now, so a future
+    // refactor threading a variant flag through the array could drop it from
+    // one build while every default-build assertion above stayed green. The
+    // Mixed Auth case had no coverage at all.
+    for (const build of [
+      ["info style", buildInstructions(SIGNUP, "info")],
+      ["hosted", buildInstructions(SIGNUP, "link", "http")],
+      ["mixed auth", buildInstructions(SIGNUP, "info", "http", true)],
+    ] as const) {
+      const [label, t] = build;
+      const para = t.split("\n\n").find((p) => /get_gtm_plan/.test(p));
+      expect(para, label).toBeDefined();
+      // The guard rails travel with it, or the broadest build is the one
+      // making an unguarded offer.
+      expect(para, label).toMatch(/their own/i);
+      expect(para, label).toMatch(/recommendation as a consumer/i);
+      expect(para, label).toMatch(/declin/i);
+    }
   });
 
   it("the offer is one sentence and dropped on decline, like the audit offer", () => {
