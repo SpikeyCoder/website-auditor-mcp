@@ -82,6 +82,32 @@ export const PROMPT_SPECS: PromptSpec[] = [
       `about how each one is described.\n\n${KEYLESS_FALLBACK}`,
   },
   {
+    // The one prompt whose tool needs prior state. get_gtm_plan READS the
+    // domain's most recent audit and refuses when there is none, so the render
+    // names that ordering — plan first, audit only if the plan says there is
+    // nothing to build from. Reversed, it would spend an audit run on every
+    // click; omitted, the first click on a fresh domain returns "no audit on
+    // record" and reads as a broken button.
+    name: "build_growth_plan",
+    title: "Build a growth plan",
+    description:
+      "Turn your latest audit into a written plan — grounded in the pages AI assistants actually read.",
+    // `domain` alone. arg() produces a REQUIRED string and MCP prompt arguments
+    // are always strings, so surfacing focus/constraints/prior_plan here would
+    // make a user fill three boxes to click one button. They stay optional
+    // refinements the model passes through when the user mentions them, which
+    // the render below asks it to do.
+    argsSchema: { domain: arg("The website to plan for, e.g. example.com") },
+    render: ({ domain }) =>
+      `Build a growth plan for ${domain} with Website Auditor.\n\n` +
+      `Call get_gtm_plan for ${domain}. If it reports no audit on record, call run_audit for ` +
+      `${domain} first, then ask for the plan again. Give me the phases and the actions in each, ` +
+      `and say which of the cited sources are mine and which are a competitor's — competitor ` +
+      `pages explain the gap but are never where I publish. If I tell you a budget, a team size ` +
+      `or a deadline, pass it as constraints and build the plan around it.` +
+      `\n\n${KEYLESS_FALLBACK}`,
+  },
+  {
     // No arguments and no key required: the only entry point that works for
     // every install, including the 94% that have never called anything.
     name: "see_sample_report",
