@@ -23,6 +23,15 @@ status, seeded monitoring rows, wall-clock timings — is stated as a shape or a
 permitted set. Pinning a literal that later drifts reproduces the rejection with
 a different symptom.
 
+**And a shape is three questions, not one.** `src/tools/outputSchemas.ts` is the
+contract, and it distinguishes them: is the key **present**; may its value be
+**null**; may the key be **absent** entirely. `z.number()` demands a number,
+`z.number().nullable()` permits null, and `.optional()` permits no key at all —
+as the schema's own comment puts it, "`.nullable()` does not cover an ABSENT
+key." A case that demands a value where the contract permits null fails on
+correct behaviour, and §4 then sends you back through the entire protocol. When
+a row and the schema disagree, the schema is right and the row is the bug.
+
 Fixture identity throughout: the reviewer demo account, connected through the
 listing's OAuth flow, unless a case says keyless.
 
@@ -304,7 +313,10 @@ one you expected.
 - **Expected call:** `get_ai_visibility`, `domain: "website-auditor.io"`.
 - **Decides it:** a numeric score **and** a per-engine breakdown both appear.
 - **Shape:** `score` 0–100, `by_engine` with `chatgpt`, `perplexity`, `claude`,
-  `gemini`, and a top-competitor field.
+  `gemini`, and a `top_competitor` **key**, whose value is null when no
+  competitor was surfaced. A null here is ordinary and rises as the score does —
+  it is the most-cited competitor across engine answers, so a site that surfaces
+  well leaves fewer of them. Do not read an absent competitor as a failure.
 - **Watch for:** if `name_warning` is present, the model must relay that caveat
   rather than presenting the score as settled.
 
@@ -317,10 +329,15 @@ one you expected.
 
 - **Fixture:** connected demo account.
 - **Expected call:** `run_audit`.
-- **Decides it:** category scores, top issues, and a shareable report URL all
-  appear, and the call does not time out.
-- **Shape:** AI visibility / SEO / security / performance scores, `top_issues`,
-  `report_url`.
+- **Decides it:** all four category keys are present, `top_issues` and a
+  shareable `report_url` appear, and the call does not time out. Present, not
+  non-null — see Shape.
+- **Shape:** the four category keys — AI visibility, SEO, security,
+  performance — each a score **or `null`**, plus `top_issues` and `report_url`.
+  All four are `z.number().nullable()` in `runAuditOutput`, so a null is the
+  contract working, not a failure. **Record which came back null**: a category
+  null on every run is a different problem from one null once, and only the
+  record separates them.
 
 **Timing — measure it, do not estimate it.** The prior claim ("well inside the
 300s tool budget, typical 15–30s") was never a measurement. A live audit queries
@@ -380,7 +397,9 @@ Observed range to put in the listing: `________________`
 - **Shape:** `status` is `"active"` **or** `"trialing"` — both are correct, and
   the tool has distinct copy for each; a demo account inside its 7-day trial
   reports `trialing`. An earlier version of this case pinned `"active"` alone.
-  Plus a `current_period_end` timestamp and a human-readable `message`.
+  Plus a human-readable `message`, and a `current_period_end` that is a
+  timestamp **or `null`** — `checkUpgradeStatusOutput` declares it nullable,
+  and a tier with no billing period legitimately has none.
 - **Watch for:** `tier: "none"` here means the OAuth token did not resolve to
   the account — that is the rejection's failure mode returning, not a
   subscription problem.
@@ -395,8 +414,13 @@ Observed range to put in the listing: `________________`
 - **Fixture:** connected demo account with at least one tracked site.
 - **Expected call:** `get_monitoring_status`, no arguments.
 - **Decides it:** slot counts and a per-site list both appear.
-- **Shape:** numeric `limit`/`used`/`remaining`; a `sites` array whose entries
-  carry `domain`, `cadence`, `latest_score`, `last_audited_at`, `next_run_at`.
+- **Shape:** numeric `limit`/`used`/`remaining` — these three are plain
+  `z.number()` and a null there IS a failure — and a `sites` array whose entries
+  carry `domain`. Only `domain` is guaranteed per row: `latest_score` is
+  number-or-null, and `cadence`, `last_audited_at` and `next_run_at` are
+  nullable **and optional**, so a newly-enrolled site legitimately omits the key
+  entirely. `getMonitoringStatusOutput` says why — everything but `latest_score`
+  is copied off an unnormalized body.
   **Assert the shape, not the contents** — the weekly Cloud Scheduler job moves
   `next_run_at` and `latest_score` on its own, so any literal recorded here is
   wrong by the time it is read.
