@@ -10,9 +10,11 @@
  *
  * WHY THEY ARE PERMISSIVE. The MCP SDK validates a tool's `structuredContent`
  * against this schema on every SUCCESSFUL call and throws `McpError` when it
- * does not match (server/mcp.js → validateToolOutput). A schema that is
- * stricter than reality therefore does not report a problem — it MANUFACTURES
- * one, turning a working tool into a hard failure in production. The upstream
+ * does not match — TWICE, once on each side of the wire: the server before
+ * sending (server/mcp.js → validateToolOutput) and the client on receipt
+ * (client/index.js → callTool). A schema stricter than reality therefore does
+ * not report a problem — it MANUFACTURES one, turning a working tool into a
+ * hard failure in production. The upstream
  * types this mirrors say so explicitly ("only the fields the MCP reads are
  * typed; real rows carry more"), so:
  *
@@ -32,9 +34,20 @@
  *
  * Enums appear only where this package constructs the literal itself.
  *
- * Error results are NOT validated — the SDK returns early on `isError`, so the
- * AUTH_REQUIRED / PRO_REQUIRED payloads and the `mcp/www_authenticate`
- * challenge are unaffected by anything in this file.
+ * Error results are unaffected by anything in this file — but NOT for the
+ * reason this comment gave for most of its life, and the difference cost every
+ * gated tool its refusal copy. The old claim was that "the SDK returns early on
+ * isError". Only the SERVER does. The client's validation branch is gated on
+ * presence alone — `if (result.structuredContent)`, no isError test — so an
+ * error body carrying that field was measured against the success schema above
+ * and thrown away as an McpError before the caller saw it.
+ *
+ * What makes error results safe is therefore not a property of the SDK but a
+ * decision in src/mcp/server.ts → toCallResult: an error result carries NO
+ * `structuredContent` at all. The AUTH_REQUIRED / PRO_REQUIRED payload travels
+ * in `content[0].text` and the challenge in `_meta["mcp/www_authenticate"]`,
+ * neither of which any validator inspects. Do not "restore" structuredContent
+ * on the error path to make an error machine-readable — that is the bug.
  *
  * WHAT KEEPS THEM HONEST. tests/tools/outputSchemas.test.ts runs the success
  * payload of every tool fixture in the suite through the matching schema. A

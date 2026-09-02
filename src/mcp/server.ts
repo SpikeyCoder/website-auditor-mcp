@@ -118,10 +118,49 @@ export function toCallResult(result: ToolResult<unknown>): CallToolResult {
   // callers would then pin. Destructured out rather than deleted so the
   // remaining object is still typed.
   const { wwwAuthenticate, ...payload } = result.error;
+  // NO `structuredContent` on an error result, and its absence is load-bearing.
+  //
+  // A tool that declares an outputSchema promises that its `structuredContent`
+  // matches that schema. An AUTH_REQUIRED body matches nothing in it, and the
+  // two halves of the SDK disagree about whether that is allowed. The SERVER
+  // skips output validation when `isError` is set — which is what this code
+  // relied on. The CLIENT does not: in client/index.js, callTool validates
+  // whenever `structuredContent` is merely PRESENT,
+  //
+  //     // Only validate structured content if present (not when there's an error)
+  //     if (result.structuredContent) { ... }
+  //
+  // where the comment describes an isError check the code never makes. So every
+  // client built on this SDK that had called tools/list — which arms the
+  // validator, and which every real client does — got a thrown McpError instead
+  // of our error result, for all 15 tools that declare a schema.
+  //
+  // What that threw away was the AUTH_REQUIRED / PRO_REQUIRED body: the price,
+  // the trial terms, the signup link, the get_sample_audit pointer. A keyless
+  // user told nothing actionable is the exact funnel failure ./instructions.ts
+  // records twice, arriving a third time through the SDK. The payload the model
+  // needs is in content[0].text, which no validator inspects; the challenge is
+  // in _meta, which no validator inspects either. structuredContent was the one
+  // copy of it that had to satisfy a schema written for successes, and it was
+  // redundant with the text.
+  //
+  // And `isError: true` below is load-bearing for a SECOND reason, because the
+  // client does read that flag — one line ABOVE the validation branch:
+  //
+  //     if (!result.structuredContent && !result.isError) throw new McpError(
+  //       ... `Tool ${name} has an output schema but did not return structured content`)
+  //
+  // So dropping structuredContent is only safe BECAUSE the flag is set. The two
+  // move together or not at all: remove `isError` here and every error result
+  // throws again, just by the other guard and with a different message.
+  //
+  // Pinned by tests/tools/outputSchemas.test.ts, whose client calls listTools()
+  // before every call so the validator is armed the way a real client's is.
+  // That loop catches BOTH mistakes, because either one reaches it as a throw
+  // rather than as a result.
   return {
     isError: true,
     content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
-    structuredContent: payload as unknown as Record<string, unknown>,
     ...(wwwAuthenticate ? { _meta: { "mcp/www_authenticate": wwwAuthenticate } } : {}),
   };
 }

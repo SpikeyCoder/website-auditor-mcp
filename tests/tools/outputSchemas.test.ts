@@ -22,8 +22,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/mcp/server.js";
 import { SERVED_TOOLS } from "../../src/tools/registry.js";
 import { OUTPUT_SCHEMAS } from "../../src/tools/outputSchemas.js";
-import { makeDeps } from "../helpers.js";
+import { makeDeps, errorPayload } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
+import { PRICE } from "../../src/tools/upgrade.js";
 
 /**
  * Overrides for the endpoints whose defaults are empty or throw.
@@ -129,6 +130,16 @@ async function connect(deps = makeDeps({ tier: "pro", client: richClient })) {
   const client = new Client({ name: "output-schema-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  // ARMS THE CLIENT-SIDE VALIDATOR, and that is the point of this line.
+  //
+  // The SDK client caches an output validator per tool from the tools/list
+  // response, and runs it in callTool only if that cache was ever filled. A
+  // client that never lists is therefore validating nothing — which is what
+  // this suite used to be, and why it could assert that error results "are not
+  // validated" while every real client, all of which list before they call, was
+  // getting an McpError instead of the payload. Listing here makes the fake
+  // client behave like the real ones, on BOTH paths below.
+  await client.listTools();
   return client;
 }
 
@@ -240,17 +251,64 @@ describe("declared output schemas", () => {
     });
   }
 
-  it("does NOT validate error results — the auth challenge is unaffected", async () => {
-    // The SDK returns early on `isError` (server/mcp.js → validateToolOutput),
-    // which is what lets a Pro tool answer AUTH_REQUIRED with an error payload
-    // that looks nothing like its declared success shape. If that ever changed,
-    // declaring output schemas would break every gated tool for every
-    // unauthenticated caller — the exact population a marketplace reviewer is.
-    const client = await connect(makeDeps({ tier: "none" }));
-    const result = await client.callTool({ name: "get_ai_visibility", arguments: { domain: "example.com" } });
+  /**
+   * The half of validation that is NOT symmetric, and that this suite asserted
+   * backwards for as long as it existed.
+   *
+   * The SDK server skips output validation when `isError` is set (server/mcp.js
+   * → validateToolOutput). The SDK client does not: callTool validates whenever
+   * `structuredContent` is PRESENT, under a comment claiming it skips errors —
+   *
+   *     // Only validate structured content if present (not when there's an error)
+   *     if (result.structuredContent) { ... }
+   *
+   * — a check on `isError` the code never performs. So while the server was
+   * happily returning an AUTH_REQUIRED body under a schema describing a score
+   * report, every listing client turned it into a thrown McpError. Declaring
+   * output schemas had broken every gated tool for every unauthenticated
+   * caller: the exact population a marketplace reviewer is, and the exact
+   * funnel failure src/mcp/instructions.ts records twice.
+   *
+   * The fix is that error results carry no structuredContent at all
+   * (src/mcp/server.ts → toCallResult). These tests hold that line from the
+   * outside: they assert on what a real client RECEIVES, so the asymmetry
+   * cannot come back silently.
+   */
+  const KEYLESS_OK = new Set(["get_sample_audit", "check_upgrade_status"]);
 
-    expect(result.isError).toBe(true);
-    expect(JSON.stringify(result)).not.toContain("Output validation error");
-    expect((result.structuredContent as { code?: string })?.code).toBe("AUTH_REQUIRED");
+  for (const spec of SERVED_TOOLS) {
+    if (KEYLESS_OK.has(spec.name)) continue;
+    it(`${spec.name}: its keyless refusal REACHES a validator-armed client`, async () => {
+      const client = await connect(makeDeps({ tier: "none" }));
+
+      // Not `.rejects` — the whole bug was that this line threw. A refusal is a
+      // result, and it has to arrive as one.
+      const result = await client.callTool({ name: spec.name, arguments: ARGS[spec.name] ?? {} });
+
+      expect(result.isError, spec.name).toBe(true);
+      expect(result.structuredContent, `${spec.name} must not carry a schema-violating body`).toBeUndefined();
+
+      // The payload the model reads, intact, in the field no validator inspects.
+      const payload = errorPayload(result);
+      expect(payload.code, spec.name).toBe("AUTH_REQUIRED");
+      expect(payload.upgrade_url, spec.name).toContain("website-auditor.io");
+      // The three actionable things a keyless user is owed. Their absence is
+      // not a formatting regression — it IS the funnel failure.
+      expect(payload.message, `${spec.name} must name the free sample`).toContain("get_sample_audit");
+      expect(payload.message, `${spec.name} must state the price`).toContain(PRICE);
+      expect(payload.message, `${spec.name} must offer the trial`).toContain("free trial");
+    });
+  }
+
+  it("the two keyless-capable tools still answer normally to the same client", async () => {
+    // The guard against fixing the above by making everything an error: these
+    // two are a marketplace reviewer's only working calls without a key, and
+    // they validate on the client like any other success.
+    const client = await connect(makeDeps({ tier: "none" }));
+    for (const name of KEYLESS_OK) {
+      const result = await client.callTool({ name, arguments: ARGS[name] ?? {} });
+      expect(result.isError, name).toBeFalsy();
+      expect(result.structuredContent, name).toBeDefined();
+    }
   });
 });

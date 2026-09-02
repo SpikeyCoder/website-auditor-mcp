@@ -21,7 +21,7 @@ import {
 } from "../../src/http.js";
 import { loadConfig, type WaConfig } from "../../src/config.js";
 import type { ToolDeps } from "../../src/tools/context.js";
-import { makeDeps, testConfig, RecordingEventSink, UNEXPANDED_PLACEHOLDERS } from "../helpers.js";
+import { makeDeps, testConfig, RecordingEventSink, UNEXPANDED_PLACEHOLDERS, errorPayload } from "../helpers.js";
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -58,6 +58,13 @@ async function connectClient(url: string, headers?: Record<string, string>): Pro
     requestInit: headers ? { headers } : undefined,
   });
   await client.connect(transport);
+  // Arms the SDK client's per-tool output validator, exactly as every real
+  // client does before it calls anything. Without this the suite exercises a
+  // code path no production caller takes: callTool only validates when the
+  // tools/list cache was filled, so an unlisted client silently skips the check
+  // that was turning this server's error results into thrown McpErrors. See
+  // tests/tools/outputSchemas.test.ts for the full account.
+  await client.listTools();
   return client;
 }
 
@@ -1025,7 +1032,7 @@ describe("Mixed Auth over Streamable HTTP", () => {
     expect(res.isError).toBe(true);
     // Both halves, on the wire: without this the host never opens the login.
     expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
-    expect(JSON.stringify(res.structuredContent)).not.toContain("wwwAuthenticate");
+    expect(JSON.stringify(res.content)).not.toContain("wwwAuthenticate");
     await client.close();
   });
 });
@@ -1052,7 +1059,7 @@ describe("who gets the reconnect copy — the credential decides, not the config
     const { url } = await revokedKeyServer();
     const client = await connectClient(url, { Authorization: "Bearer opaque-token" });
     const res = await client.callTool({ name: "run_audit", arguments: { domain: "example.com" } });
-    expect((res.structuredContent as { code: string }).code).toBe("AUTH_REQUIRED");
+    expect(errorPayload(res).code).toBe("AUTH_REQUIRED");
     expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
     await client.close();
   });
@@ -1064,7 +1071,7 @@ describe("who gets the reconnect copy — the credential decides, not the config
     const { url } = await revokedKeyServer();
     const client = await connectClient(url, { Authorization: "Bearer wa_pasted_key" });
     const res = await client.callTool({ name: "run_audit", arguments: { domain: "example.com" } });
-    expect((res.structuredContent as { code: string }).code).toBe("REVOKED_KEY");
+    expect(errorPayload(res).code).toBe("REVOKED_KEY");
     expect(res._meta?.["mcp/www_authenticate"]).toBeUndefined();
     await client.close();
   });
@@ -1126,7 +1133,7 @@ describe("submitted test cases, as an anonymous reviewer sees them", () => {
     ] as const) {
       const res = await client.callTool({ name, arguments: args });
       expect(res.isError, name).toBe(true);
-      expect((res.structuredContent as { code: string }).code, name).toBe("AUTH_REQUIRED");
+      expect(errorPayload(res).code, name).toBe("AUTH_REQUIRED");
     }
     await client.close();
   });
@@ -1141,7 +1148,7 @@ describe("submitted test cases, as an anonymous reviewer sees them", () => {
     });
     const client = await connectClient(url);
     const res = await client.callTool({ name: "get_ai_visibility", arguments: { domain: "example.com" } });
-    const error = res.structuredContent as { code: string; message: string; upgrade_url: string };
+    const error = errorPayload(res);
     expect(error.code).toBe("AUTH_REQUIRED");
     expect(error.message).toContain("get_sample_audit");
     expect(error.message).toContain("$10/month");
