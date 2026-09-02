@@ -224,8 +224,9 @@ Then, and only then, rescan in the portal:
 | # | Check | Pass condition | ✅ |
 |---|---|---|---|
 | 0.7 | Scan Tools | 15 tools listed | ☐ |
-| 0.7b | Scan Prompts | 5 prompts listed, including `build_growth_plan` | ☐ |
+| 0.7b | Does ChatGPT render MCP prompts at all? | open the connector in ChatGPT and **record what you see** — 5 prompts, or none: `__________`. Either answer passes; this row settles a question rather than gating on it | ☐ |
 | 0.7c | Skills | 5 skills listed, including `build-growth-plan`, each Passed | ☐ |
+| 0.7d | A ChatGPT user can reach the growth plan | one of the portal's starter prompts leads to `get_gtm_plan` | ☐ |
 | 0.8 | outputSchema warning | gone from all 15 | ☐ |
 | 0.9 | OAuth metadata | no "OAuth metadata load failed" under the server URL | ☐ |
 | 0.10 | Enterprise domain warning | gone | ☐ |
@@ -233,17 +234,40 @@ Then, and only then, rescan in the portal:
 
 `curl -s -X POST https://mcp.website-auditor.io/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq '[.result.tools[] | select(.outputSchema == null) | .name]'` → expect `[]`.
 
-**0.7b and 0.7c are here because a green 0.7 says nothing about either.** The
-three surfaces reach the listing by three different routes. Tools and prompts
-both come from the scan of the deployed server — so a scan taken before the last
-deploy shows the old set of both, and the tool count can be right while the
-prompt count is stale, because tools changed in 1.0.21 and prompts in 1.0.22.
-Skills do not come from the scan at all: they are uploaded by hand, one folder
-each, and **no rescan can add one**. A skill that was never uploaded simply is
-not there, and nothing else on this page would say so.
+**0.7b, 0.7c and 0.7d are here because a green 0.7 says nothing about any of
+them.** Four things reach a user, by four unrelated routes:
+
+  TOOLS come from the portal's scan of the deployed server. 0.7 covers them.
+
+  SKILLS come from nowhere near the scan. They are uploaded by hand, one folder
+  each, and **no rescan can add one**. A skill that was never uploaded is simply
+  absent, and nothing else on this page would say so.
+
+  THE PORTAL'S STARTER PROMPTS are hand-written marketing copy — "Optionally add
+  up to 3 prompts that show what your plugin can do" — which ChatGPT renders as
+  `@Website Auditor …` cards. Capped at three, and unrelated to `prompts/list`
+  despite the shared word.
+
+  MCP PROMPTS come from the connector, and **may not be rendered at all**. Codex
+  does not render them — see docs/CODEX-PLUGIN.md, "Codex does not render MCP
+  prompts (openai/codex#8342)", which is the reason the skills exist. Whether
+  ChatGPT does is unestablished here, and the portal shipping its own capped
+  prompt field is weak evidence against. So 0.7b asks you to LOOK and write down
+  the answer rather than asserting one. Two earlier versions of this row asserted
+  one and were unpassable: the first counted five against the three-chip screen,
+  the second against a connector view that may list no prompts whatever.
+
+**Which makes 0.7d the row that decides something.** `build_growth_plan` shipped
+in 1.0.22 for one reason — `get_gtm_plan` was the only headline tool a human
+could not click. If 0.7b comes back "none", that prompt does not reach ChatGPT
+users at all, the skill covers only Cursor and Codex, and the portal's three
+starter chips become the sole growth-plan entry point on the surface being
+submitted to. 0.7d is what confirms one of them is spent on it.
 
 The expected counts are not literals to maintain. Five prompts is
-`jq -r '.prompts[].name' manifest.json | wc -l`, five skills is
+`jq -r '.prompts[].name' manifest.json | wc -l` — the same list 0.3 diffs
+against the live server, so 0.3 proves the server serves them and 0.7b proves
+the client received them. Five skills is
 `ls cursor-plugin/skills | wc -l`, and `tests/manifests.test.ts` and
 `tests/cursorPlugin.test.ts` pin both to `PROMPT_SPECS` — so adding a prompt
 moves all three together and turns the suite red until it does. Fifteen tools is
