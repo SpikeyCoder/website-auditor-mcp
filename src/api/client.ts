@@ -34,6 +34,7 @@ import type {
   SchemaResult,
   ReportLinks,
   GtmChatMessage,
+  GtmPlanPhase,
   GtmPlanResponse,
   GtmPlanSection,
 } from "./types.js";
@@ -129,8 +130,8 @@ export interface WaApiClientLike {
   /** Shareable report URL + embeddable badge snippet for a domain (Pro). */
   getReport(params: { domain: string }): Promise<ReportLinks>;
   /**
-   * Written GTM plan grounded in the domain's citation evidence (Pro).
-   * POST /api/gtm-plan with {domain, messages}; the proxy resolves the
+   * Written growth plan grounded in the domain's citation evidence (Pro).
+   * POST /api/growth-plan with {domain, messages}; the proxy resolves the
    * caller's latest run for the domain server-side.
    */
   getGtmPlan(params: { domain: string; messages: GtmChatMessage[] }): Promise<GtmPlanResponse>;
@@ -141,7 +142,7 @@ interface ClientDeps {
 }
 
 // getGtmPlan only — see the note at its call site.
-const GTM_PLAN_TIMEOUT_MS = 270_000;
+const GROWTH_PLAN_TIMEOUT_MS = 270_000;
 
 /**
  * The TODO here is done: api PR #42 makes businessName/businessCity optional
@@ -462,18 +463,36 @@ export class WaApiClient implements WaApiClientLike {
   }
 
   /**
-   * Written GTM plan for the caller's latest run of `domain`. Wired to
-   * `POST /api/gtm-plan` (website-auditor-api routes/chat.js). Strips the
-   * `success` envelope and coerces defensively like every method here.
+   * Written growth plan for the caller's latest run of `domain`. Wired to
+   * `POST /api/growth-plan` (website-auditor-api routes/chat.js, PR #84).
+   * Strips the `success` envelope and coerces defensively like every method
+   * here.
+   *
+   * WHY THE NEW NAME. The plan answers to two paths off ONE mount config —
+   * same engine path, same 5/day counter, same charge point — and
+   * `/api/growth-plan` is the one the proxy asks callers to build against.
+   * `/api/gtm-plan` is kept alive only for MCP builds already installed on
+   * somebody else's upgrade schedule, and it is retired once the request
+   * log shows no supported build still calling it. A shipping client that
+   * stays on the alias is the traffic keeping it mounted.
+   *
+   * The two names differ in exactly one byte of the envelope: the quota
+   * block is named for the path you called. That is why mapErrorResponse
+   * reads `growth_plan_limit` as well — moving the path without moving that
+   * read leaves every spent-allowance 429 on this route saying "blocked"
+   * with no "until when".
    */
   async getGtmPlan(params: { domain: string; messages: GtmChatMessage[] }): Promise<GtmPlanResponse> {
     // Normalized here too, like runAudit/trackSite: the proxy's bare-host
     // regex refuses the URL forms this client's own convention accepts.
     const host = normalizeDomain(params.domain);
-    const url = new URL(`${this.cfg.apiBaseUrl}/api/gtm-plan`);
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/growth-plan`);
     // The plan's own clock, ABOVE the whole serving chain (engine <= 240s,
-    // Node proxy <= 250s): each layer waits longer than the one inside it,
-    // so the inner verdict always arrives first. The shared 120s default
+    // Node proxy <= 260s as of api PR #84 — it was 250s, and the extra 10s
+    // buys the proxy a transfer window under a Supabase brownout): each
+    // layer waits longer than the one inside it, so the inner verdict always
+    // arrives first. That margin is now 10s, not 20s, so this number cannot
+    // come down without checking the proxy's. The shared 120s default
     // sat BELOW the chain — a 120-240s plan aborted here as TIMEOUT while
     // the proxy charged the slot and the engine billed a deliverable
     // nobody received. max() keeps a caller-raised global override.
@@ -481,23 +500,41 @@ export class WaApiClient implements WaApiClientLike {
       "POST",
       url,
       {
+        // EXACTLY ONE handle, and this is it. The proxy refuses a body
+        // carrying both run_id and domain, and an MCP caller holds no
+        // run_id: run_audit hands back report_url, which carries reports.id
+        // — a disjoint id space. `domain` resolves the caller's latest run
+        // from their own snapshot ledger, server-side.
         domain: host,
         messages: params.messages,
       },
       {
-        timeoutMs: Math.max(GTM_PLAN_TIMEOUT_MS, this.cfg.requestTimeoutMs),
+        timeoutMs: Math.max(GROWTH_PLAN_TIMEOUT_MS, this.cfg.requestTimeoutMs),
         // A plan is minutes-long BY DESIGN, so the elapsed-time heuristic
         // that reads a late 502 as an infrastructure timeout would relabel
         // every charged provider failure on this route.
         gatewayTimeoutFloor: false,
       },
     )) as Partial<GtmPlanResponse>;
-    return {
+    const plan: GtmPlanResponse = {
       plan_markdown: typeof body.plan_markdown === "string" ? body.plan_markdown : "",
       plan_sections: Array.isArray(body.plan_sections) ? (body.plan_sections as GtmPlanSection[]) : [],
       sources_used: Array.isArray(body.sources_used) ? body.sources_used.filter((s): s is string => typeof s === "string") : [],
       model: typeof body.model === "string" ? body.model : "",
     };
+    // ASSIGNED ONLY WHEN THE WIRE CARRIES ONE, which is the opposite of the
+    // coerce-to-a-default treatment every sibling field above gets (each by
+    // its own idiom, but all of them landing on a value) — and deliberately
+    // so. `[]` is a
+    // real answer from a current engine ("this plan took no card shape, use
+    // the prose"); absent is an older engine that never tried. Defaulting
+    // absent to `[]` would report the first where the second happened, and
+    // the phase cards are what the caller falls back FROM. Contents are
+    // relayed unedited: a field the plan did not write is null on the wire
+    // by design, and filling it in here would invent an effort estimate or a
+    // priority no model produced.
+    if (Array.isArray(body.plan_phases)) plan.plan_phases = body.plan_phases as GtmPlanPhase[];
+    return plan;
   }
 
   async compareCompetitors(_params: { domain: string; competitors: string[] }): Promise<never> {
@@ -591,6 +628,7 @@ export class WaApiClient implements WaApiClientLike {
       details?: unknown;
       rate_limit?: unknown;
       /** The GTM routes name their quota block after the route. */
+      growth_plan_limit?: unknown;
       gtm_plan_limit?: unknown;
       gtm_chat_limit?: unknown;
       /** Why a 401 happened, machine-readable (website-auditor-api PR #44). */
@@ -631,10 +669,25 @@ export class WaApiClient implements WaApiClientLike {
         // what a client actually shows the customer, and the API's own text
         // stops at "you can make N requests per day" — blocked, with no "until
         // when". Left in details alone it is a fact nobody reads out.
-        // The GTM routes name the block after the route (gtm_plan_limit),
-        // so reading rate_limit alone dropped the whole remedy there: the
-        // caller was told "blocked" with no "until when".
-        const quota = b.rate_limit ?? b.gtm_plan_limit ?? b.gtm_chat_limit;
+        // The GTM routes name the block after the route, so reading
+        // rate_limit alone dropped the whole remedy there: the caller was
+        // told "blocked" with no "until when".
+        //
+        // growth_plan_limit is what THIS client can actually receive: the
+        // limit block is named for the path called, and this client calls
+        // only /api/growth-plan. Adding it is not defensive — without it the
+        // move to the new path silently reintroduces the very gap
+        // gtm_plan_limit was added to close, on the same route.
+        //
+        // The other two are the API's remaining quota-block names, kept for
+        // the same reason gtm_chat_limit has always been here: this mapper is
+        // shared by every endpoint, and it lists what the API can send rather
+        // than what today's call sites happen to reach. (Neither is reachable
+        // from this client now — nothing here POSTs /api/gtm-plan or
+        // /api/gtm-chat — and that is not an argument about already-installed
+        // builds, which run their own shipped copy of this file and are
+        // untouched by anything in it.)
+        const quota = b.rate_limit ?? b.growth_plan_limit ?? b.gtm_plan_limit ?? b.gtm_chat_limit;
         const resetsAt = quotaResetsAt(quota);
         const text = resetsAt ? `${message} It resets at ${resetsAt}. Re-run after that.` : message;
         return new WaApiError("OVER_QUOTA", text, { status, details: quota });

@@ -7,7 +7,7 @@ import { WaApiError } from "../../src/api/errors.js";
 // One-shot BY DESIGN: MCP tools are stateless and the conversation loop
 // belongs to the HOST, so refinement is "call again with prior_plan", not a
 // transcript argument. The tool maps its args onto the proxy's messages[]
-// contract (POST /api/gtm-plan takes {domain, messages}); the plan itself is
+// contract (POST /api/growth-plan takes {domain, messages}); the plan itself is
 // composed engine-side from the audit's citation evidence — this tool must
 // never fabricate one.
 
@@ -221,6 +221,32 @@ describe("get_gtm_plan: the wire the proxy actually accepts", () => {
     expect(res.error.message).toMatch(/run_audit/);
     expect(res.error.message).not.toMatch(/GET \/api\/audit/);
   });
+
+  // A 404 is not one answer. The proxy's ownership refusal is the one the
+  // remap above exists for; a 404 from an endpoint that is not MOUNTED is a
+  // different event entirely, and sending that caller to run_audit is the
+  // worst possible advice — it spends one of their ten daily audits, changes
+  // nothing, and returns the identical message. The move to /api/growth-plan
+  // is exactly what makes this reachable: the path is newer than the API
+  // deployments this build can meet.
+  it.each([
+    ["an unmounted route", "Not found"],
+    ["a 404 with no JSON body at all", "Website Auditor API returned HTTP 404."],
+    ["an edge or proxy in front of the API", "The requested URL was not found on this server."],
+  ])("does not answer %s with run_audit", async (_label, upstream) => {
+    const fn = vi.fn(async () => {
+      throw new WaApiError("UPSTREAM_ERROR", upstream, { status: 404 });
+    });
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    // The remedy that cannot work must not be offered.
+    expect(res.error.message).not.toMatch(/run_audit/);
+    expect(res.error.code).toBe("UPSTREAM_ERROR");
+    // And the upstream text survives, because it is the only evidence an
+    // operator has about which 404 this was.
+    expect(res.error.message).toContain(upstream);
+  });
 });
 
 describe("get_gtm_plan: the evidence note claims only what the wire proves", () => {
@@ -238,5 +264,125 @@ describe("get_gtm_plan: the evidence note claims only what the wire proves", () 
     expect(res.data.evidence_note).toBeDefined();
     expect(res.data.evidence_note).not.toMatch(/recorded no citation evidence/i);
     expect(res.data.evidence_note).toMatch(/names no domains|does not name/i);
+  });
+});
+
+// ── the plan the screens draw (chaos_tester #489 via api PR #84) ─────
+// plan_phases is the SAME plan as plan_markdown, parsed into cards. It is
+// additive, it is optional, and its empty value is load-bearing: [] means
+// this engine parsed no cards and the caller should render the prose;
+// absent means an engine that predates cards. Collapsing the two reports a
+// failed card contract where none was attempted.
+
+const PHASES = [
+  {
+    phase: 30,
+    range: "Days 1–30",
+    name: "Foundation",
+    short: "30 Days",
+    headline: "Get listed where the assistants already look",
+    focus: null,
+    actions: [
+      {
+        title: "Claim the Yelp listing",
+        effort: "2 hours",
+        priority: "High",
+        why: null,
+        goal: null,
+        steps: ["Open the claim form", "Verify by phone"],
+      },
+      { title: "Add FAQ schema", effort: null, priority: null, why: null, goal: null, steps: [] },
+    ],
+  },
+  { phase: 60, range: "Days 31–60", name: "Authority", short: "60 Days", headline: null, focus: null, actions: [] },
+];
+
+describe("get_gtm_plan: the phase cards ride along, unedited", () => {
+  it("relays plan_phases verbatim, nulls included", async () => {
+    const fn = planClient({ ...PLAN, plan_phases: PHASES });
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.plan.phases).toEqual(PHASES);
+    // Nothing is defaulted: a field the plan did not write stays null, so the
+    // host never renders an effort or a priority no model produced.
+    expect(res.data.plan.phases![0]!.actions[1]!.effort).toBeNull();
+    expect(res.data.plan.phases![0]!.focus).toBeNull();
+  });
+
+  it("keeps [] and absent apart all the way out to the caller", async () => {
+    const empty = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient({ ...PLAN, plan_phases: [] }) } }),
+    );
+    expect(empty.ok).toBe(true);
+    if (!empty.ok) return;
+    expect(empty.data.plan.phases).toEqual([]);
+
+    const older = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient() } }),
+    );
+    expect(older.ok).toBe(true);
+    if (!older.ok) return;
+    expect(older.data.plan.phases).toBeUndefined();
+    expect("phases" in older.data.plan).toBe(false);
+  });
+
+  it("counts the cards in the summary, and says nothing when there are none", async () => {
+    // Counting what arrived is not composing a plan: the numbers come from
+    // the wire, and a plan with no cards simply does not mention them.
+    const withCards = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient({ ...PLAN, plan_phases: PHASES }) } }),
+    );
+    expect(withCards.ok).toBe(true);
+    if (!withCards.ok) return;
+    expect(withCards.data.summary).toMatch(/2 actions/);
+
+    const without = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient({ ...PLAN, plan_phases: [] }) } }),
+    );
+    expect(without.ok).toBe(true);
+    if (!without.ok) return;
+    expect(without.data.summary).not.toMatch(/action/i);
+  });
+
+  it("a malformed phase row cannot throw its way out as an upstream failure", async () => {
+    // plan_phases reaches the tool behind an unchecked `as GtmPlanPhase[]` —
+    // the client validates the ARRAY, never its elements, because relaying
+    // the cards unedited is the whole contract. So the count must survive a
+    // row it cannot read: dereferencing one threw a TypeError that reached
+    // the caller as UPSTREAM_ERROR "Cannot read properties of null (reading
+    // 'actions')" — a raw JS message dressed as an API failure, on a plan
+    // already charged against the 5/day allowance.
+    const rows = [
+      { phase: 30, range: "Days 1–30", name: "Foundation", short: "30 Days", headline: null, focus: null,
+        actions: [{ title: "Claim the listing", effort: null, priority: null, why: null, goal: null, steps: [] }] },
+      null,
+      "Days 31-60",
+    ];
+    const res = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient({ ...PLAN, plan_phases: rows as never }) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // Counted from the row it could read, and only that one.
+    expect(res.data.summary).toMatch(/1 action across 3 phases/);
+    // NOT dropped. Filtering the bad rows here would serve two thirds of a
+    // paid plan as though it were all of it — and `[null]` filtered down to
+    // `[]` would read as "this engine parsed no cards", which is a different
+    // claim and a false one. The shape is the declared schema's business.
+    expect(res.data.plan.phases).toEqual(rows);
+  });
+
+  it("never invents cards from the prose", async () => {
+    const fn = planClient();
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(JSON.stringify(res.data.plan.phases ?? null)).toBe("null");
   });
 });

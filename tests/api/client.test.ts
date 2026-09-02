@@ -788,3 +788,147 @@ describe("WaApiClient.getChanges — snapshots without a usable score", () => {
     });
   });
 });
+
+// ── the growth-plan contract (website-auditor-api PR #84) ────────────
+// The plan ships under a second name. /api/gtm-plan stays mounted for
+// already-installed builds, but /api/growth-plan is the one to build
+// against — and the two names differ in exactly one byte of the envelope:
+// the 429's quota block is named for the path you called. Moving the path
+// without moving that read would silently drop the "until when" from every
+// spent-allowance message on the route.
+
+describe("WaApiClient.getGtmPlan — the growth-plan contract", () => {
+  const TURN = [{ role: "user" as const, content: "make the plan" }];
+  const PLAN_BODY = {
+    success: true,
+    plan_markdown: "# Plan",
+    plan_sections: [{ title: "Days 1–30", body_lines: ["Claim listings"] }],
+    sources_used: ["forbes.com"],
+    model: "claude-sonnet-4-6",
+    growth_plan_limit: { limit: 5, remaining: 4, resets_at: "2026-09-03T00:00:00.000Z" },
+  };
+
+  it("POSTs to /api/growth-plan, the name the proxy asks callers to build against", async () => {
+    const fetchMock = makeFetch(200, PLAN_BODY);
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await client.getGtmPlan({ domain: "acme.com", messages: TURN });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.website-auditor.io/api/growth-plan");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ domain: "acme.com", messages: TURN });
+  });
+
+  it("sends the domain handle alone — exactly one of run_id|domain, and it never invents a run_id", async () => {
+    // The proxy refuses a body carrying both, and an MCP caller holds no
+    // run_id: run_audit hands back report_url, which carries reports.id —
+    // a disjoint id space. `domain` resolves the caller's latest run
+    // server-side, which is the whole reason the handle exists.
+    const fetchMock = makeFetch(200, PLAN_BODY);
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    await client.getGtmPlan({ domain: "acme.com", messages: TURN });
+    const sent = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body));
+    expect(sent).not.toHaveProperty("run_id");
+    expect(sent.domain).toBe("acme.com");
+  });
+
+  it("relays plan_phases when the engine parsed cards, nulls and all", async () => {
+    // parse_plan_actions builds each action with dict.fromkeys(_ACTION_FIELDS),
+    // so a field the plan did not write arrives as JSON null — PRESENT and
+    // empty, not omitted. Coercing those to "" would put a commitment on the
+    // customer's calendar that no model produced.
+    const phases = [
+      {
+        phase: 30,
+        range: "Days 1–30",
+        name: "Foundation",
+        short: "30 Days",
+        headline: "Get listed where the assistants already look",
+        focus: null,
+        actions: [
+          {
+            title: "Claim the Yelp listing",
+            effort: "2 hours",
+            priority: "High",
+            why: null,
+            goal: null,
+            steps: ["Open the claim form", "Verify by phone"],
+          },
+        ],
+      },
+    ];
+    const fetchMock = makeFetch(200, { ...PLAN_BODY, plan_phases: phases });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const plan = await client.getGtmPlan({ domain: "acme.com", messages: TURN });
+    expect(plan.plan_phases).toEqual(phases);
+  });
+
+  it("keeps [] and absent apart — they are different answers about the engine", async () => {
+    // [] means THIS engine parsed no cards and the caller should render the
+    // markdown; absent means an engine older than the one that added them.
+    // Defaulting absent to [] would report a plan that failed the card
+    // contract when no engine ever tried.
+    const client = (body: unknown) =>
+      new WaApiClient(baseCfg, { fetch: makeFetch(200, body) as unknown as typeof fetch });
+
+    const empty = await client({ ...PLAN_BODY, plan_phases: [] }).getGtmPlan({ domain: "acme.com", messages: TURN });
+    expect(empty.plan_phases).toEqual([]);
+
+    const older = await client(PLAN_BODY).getGtmPlan({ domain: "acme.com", messages: TURN });
+    expect(older.plan_phases).toBeUndefined();
+    expect("plan_phases" in older).toBe(false);
+  });
+
+  it("relays the rows verbatim, including ones it cannot make sense of", async () => {
+    // The ARRAY is checked; its ELEMENTS deliberately are not. Every sibling
+    // field here coerces, so filtering these is exactly the instinct that
+    // will one day be applied to them too — and it would be wrong twice
+    // over: `[null]` filtered down to `[]` reads as "this engine parsed no
+    // cards", a different claim and a false one, and dropping one bad row
+    // out of three serves two thirds of a paid plan as though it were all of
+    // it. A row of the wrong shape is refused later, by name, by the declared
+    // output schema (tests/tools/outputSchemas.test.ts). Nothing else pins
+    // this layer.
+    const rows = [null, "Days 31-60", { phase: 30, actions: [] }];
+    const fetchMock = makeFetch(200, { ...PLAN_BODY, plan_phases: rows });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const plan = await client.getGtmPlan({ domain: "acme.com", messages: TURN });
+    expect(plan.plan_phases).toEqual(rows);
+  });
+
+  it("a non-array plan_phases is dropped rather than passed through", async () => {
+    // Every other field here is coerced defensively; a malformed one must not
+    // reach the declared output schema, which would turn a served plan into
+    // an McpError.
+    const fetchMock = makeFetch(200, { ...PLAN_BODY, plan_phases: "Days 1-30" });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const plan = await client.getGtmPlan({ domain: "acme.com", messages: TURN });
+    expect(plan.plan_phases).toBeUndefined();
+  });
+
+  it("a growth-plan quota 429 carries its reset time, under the field THAT path sends", async () => {
+    // The limit block is named for the route called. Reading gtm_plan_limit
+    // alone after the path moved would leave a spent allowance reported as
+    // "blocked" with no "until when" — the exact remedy the 429 exists to give.
+    const fetchMock = makeFetch(429, {
+      success: false,
+      error: "Daily growth plan limit reached. You can make 5 of these requests per API key per day.",
+      growth_plan_limit: { limit: 5, remaining: 0, resets_at: "2026-09-03T00:00:00.000Z" },
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const err = await client.getGtmPlan({ domain: "acme.com", messages: TURN }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WaApiError);
+    expect((err as WaApiError).code).toBe("OVER_QUOTA");
+    expect((err as WaApiError).message).toContain("2026-09-03T00:00:00.000Z");
+  });
+
+  it("still reads gtm_plan_limit, because the old name is still mounted and still answers", async () => {
+    const fetchMock = makeFetch(429, {
+      success: false,
+      error: "Daily GTM plan limit reached.",
+      gtm_plan_limit: { limit: 5, remaining: 0, resets_at: "2026-09-03T00:00:00.000Z" },
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const err = await client.getGtmPlan({ domain: "acme.com", messages: TURN }).catch((e: unknown) => e);
+    expect((err as WaApiError).message).toContain("2026-09-03T00:00:00.000Z");
+  });
+});

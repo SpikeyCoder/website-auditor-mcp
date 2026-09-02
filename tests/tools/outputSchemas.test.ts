@@ -101,6 +101,45 @@ const richClient = {
     plan_sections: [{ title: "Week 1", body_lines: ["Claim listings"] }],
     sources_used: ["https://example.com/about"],
     model: "gpt-5",
+    // Nulls, not omissions — the engine builds each card with
+    // dict.fromkeys and fills a field only when the plan wrote it. A schema
+    // declaring these as plain strings would fail HERE rather than in front
+    // of a customer who has already been billed for the plan.
+    plan_phases: [
+      {
+        phase: 30,
+        range: "Days 1–30",
+        name: "Foundation",
+        short: "30 Days",
+        headline: "Get listed where the assistants look",
+        focus: null,
+        actions: [
+          {
+            title: "Claim the Yelp listing",
+            effort: "2 hours",
+            priority: "High",
+            why: null,
+            goal: null,
+            steps: ["Open the claim form"],
+          },
+          // The card the plan wrote as a bare heading: every optional field
+          // null, steps empty. This is the ordinary case, not an edge one —
+          // parse_plan_actions fills a field only when the plan wrote it —
+          // and without a row like this the schema's nullability is never
+          // actually exercised here.
+          { title: "Add FAQ schema", effort: null, priority: null, why: null, goal: null, steps: [] },
+        ],
+      },
+      {
+        phase: 60,
+        range: "Days 31–60",
+        name: "Authority",
+        short: "60 Days",
+        headline: null,
+        focus: null,
+        actions: [],
+      },
+    ],
   }),
   getSubscription: async () => ({ tier: "pro" as const, status: "active" }),
   runAudit: async () => ({ runId: "abc123def456", report: reachableReport(), raw: {} }),
@@ -185,6 +224,58 @@ describe("declared output schemas", () => {
       ).toBeNull();
     });
   }
+
+  /**
+   * The cards reach the wire, under a validator that is armed.
+   *
+   * This test was written with its own client because `connect` did not call
+   * `listTools`, so nothing in this file compiled the PUBLISHED JSON Schema —
+   * and the root of that schema carries `additionalProperties: false`, which
+   * neither the SDK server's Zod parse (strip mode) nor the direct
+   * `safeParse` above would have caught. Hanging `plan_phases` off the result
+   * ROOT rather than inside `plan` would have shipped green.
+   *
+   * `connect` arms the validator for every tool now, so that mechanism is no
+   * longer this test's job and the bespoke setup is gone. What is left is the
+   * part the loop does not assert: that the phase cards actually survive to
+   * the wire rather than merely failing to violate a schema.
+   */
+  it("get_gtm_plan's phase cards reach the caller intact", async () => {
+    const client = await connect();
+    const result = await client.callTool({ name: "get_gtm_plan", arguments: ARGS.get_gtm_plan });
+    expect(result.isError, JSON.stringify(result).slice(0, 300)).toBeFalsy();
+    const plan = (result.structuredContent as { plan: { phases: unknown[] } }).plan;
+    expect(plan.phases).toHaveLength(2);
+  });
+
+  /**
+   * The other half of "guard the count, do not filter the rows".
+   *
+   * getGtmPlan counts actions defensively (a row it cannot read contributes
+   * 0) but relays plan_phases exactly as it arrived — because filtering there
+   * would turn `[null]` into `[]`, which is the engine's word for "this plan
+   * took no card shape", and would serve two thirds of a paid plan as though
+   * it were the whole thing. That decision is only safe while a malformed row
+   * fails LOUDLY somewhere, and this is where: the declared schema refuses it
+   * and names the offending path. If anyone ever adds that filter, this test
+   * goes green-to-red by returning a success instead.
+   */
+  it("a phase row of the wrong shape is refused by name, not quietly served", async () => {
+    const malformed = {
+      getSubscription: async () => ({ tier: "pro" as const, status: "active" }),
+      getGtmPlan: async () => ({
+        plan_markdown: "# Plan", plan_sections: [], sources_used: [], model: "m",
+        plan_phases: [null, "Days 31-60"],
+      }),
+    };
+    const client = await connect(makeDeps({ tier: "pro", client: malformed as never }));
+    const result = await client.callTool({ name: "get_gtm_plan", arguments: ARGS.get_gtm_plan });
+    expect(result.isError).toBe(true);
+    const text = JSON.stringify(result);
+    expect(text).toContain("Output validation error");
+    // The path, so the reader knows it is the engine's rows and not their call.
+    expect(text).toMatch(/phases/);
+  });
 
   /**
    * The rows a real response can actually carry, as opposed to the ones I wrote.

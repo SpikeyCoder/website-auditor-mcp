@@ -5,13 +5,28 @@
  * tools are stateless and the conversation loop belongs to the HOST, so
  * refinement is "call again with `prior_plan`", never a transcript argument
  * (token-heavy and un-schema-able). The tool maps its args onto the proxy's
- * messages[] wire (POST /api/gtm-plan takes {domain, messages}); the plan is
- * composed ENGINE-side from the audit's citation evidence — this tool never
- * fabricates one, and an upstream failure is an error, not a template.
+ * messages[] wire (POST /api/growth-plan takes {domain, messages}); the plan
+ * is composed ENGINE-side from the audit's citation evidence — this tool
+ * never fabricates one, and an upstream failure is an error, not a template.
  *
  * Degradation is additive (the getAiVisibility trend_note style): a plan
  * grounded in no attributable citations still returns ok, with
  * `evidence_note` saying so — never an invented evidence list.
+ *
+ * THE PHASE CARDS (api PR #84, engine chaos_tester #489). The same plan
+ * arrives a second way, parsed into 30/60/90-day cards, and it is relayed
+ * UNEDITED. Nothing here defaults a null: the engine leaves a field null
+ * exactly when the plan did not write it, so filling one in would put an
+ * effort estimate or a priority on the customer's calendar that no model
+ * produced. `[]` and absent are relayed as they arrived — see api/types.ts.
+ *
+ * STILL THE DOMAIN HANDLE, and still only that one. The proxy takes exactly
+ * one of run_id or domain, and an MCP caller holds neither a run_id nor
+ * anything that converts to one: run_audit returns report_url, which carries
+ * reports.id — a disjoint id space. So `domain` stays the argument and the
+ * proxy resolves the caller's latest run for it server-side. A run_id
+ * argument would be additive if a caller ever came to hold one; what this
+ * tool must never do is invent one to fill it.
  */
 import type { GtmChatMessage, GtmPlanResult } from "../api/types.js";
 import { normalizeDomain } from "../api/domain.js";
@@ -35,6 +50,11 @@ const MAX_STEER_CHARS = 300;
 // the wire's cap it silently discarded plan the proxy would have accepted —
 // on the refinement path, where the tail is what the user is refining.
 const MAX_PRIOR_PLAN_CHARS = 8192;
+
+/** "1 section" / "2 sections". The summary is prose, and a host model reads it out. */
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
 
 function buildMessages(args: GetGtmPlanArgs, domain: string): GtmChatMessage[] {
   const steer =
@@ -90,18 +110,58 @@ export async function getGtmPlan(
       messages: buildMessages(args, domain),
     });
 
+    // Counted, not composed: every number below is a length of something the
+    // wire delivered. A phase whose actions the plan wrote as prose is
+    // legitimately empty, so the total is what decides whether the summary
+    // mentions cards at all — "0 actions" reads as a plan with nothing in it,
+    // which is exactly the claim the engine collapses plan_phases to `[]` to
+    // avoid making.
+    //
+    // `phase?.actions`, because the ELEMENTS are untrusted. The client checks
+    // that plan_phases is an array and then relays it behind an unchecked
+    // cast — deliberately, since editing the cards is the one thing it must
+    // not do — so a row that is null or not an object reaches here typed as
+    // though it were fine. Dereferencing one threw a TypeError that the
+    // catch below turned into UPSTREAM_ERROR "Cannot read properties of null
+    // (reading 'actions')": a raw JS message dressed as an API failure, on a
+    // plan already charged against the 5/day allowance.
+    //
+    // Guarded rather than filtered, and guarded HERE rather than upstream.
+    // Dropping unreadable rows in the client would turn `[null]` into `[]` —
+    // which is not "malformed", it is the engine's word for "this plan took
+    // no card shape" — and dropping one bad row out of three would serve two
+    // thirds of a paid plan as though it were the whole thing. The declared
+    // output schema is what refuses a row of the wrong shape, and it names
+    // the offending path when it does. This only has to not crash on the way.
+    const phases = plan.plan_phases;
+    const actionCount = (phases ?? []).reduce(
+      (n, phase) => n + (Array.isArray(phase?.actions) ? phase.actions.length : 0),
+      0,
+    );
+
     const result: GtmPlanResult = {
       domain,
-      plan: { markdown: plan.plan_markdown, sections: plan.plan_sections },
+      plan: {
+        markdown: plan.plan_markdown,
+        sections: plan.plan_sections,
+        // Spread so an absent key stays absent. `phases: undefined` would
+        // still be an own property, and `in` checks — the caller's only way
+        // to tell "this engine parsed no cards" from "an engine that predates
+        // them" — would answer true for both.
+        ...(phases ? { phases } : {}),
+      },
       sources_used: plan.sources_used,
       model: plan.model,
       summary:
-        `GTM plan for ${domain}: ${plan.plan_sections.length} sections` +
+        `GTM plan for ${domain}: ${count(plan.plan_sections.length, "section")}` +
         (plan.plan_sections.length
           ? ` (${plan.plan_sections.map((s) => s.title).join(", ")})`
           : "") +
+        (phases && actionCount
+          ? `, ${count(actionCount, "action")} across ${count(phases.length, "phase")}`
+          : "") +
         (plan.sources_used.length
-          ? `, grounded in ${plan.sources_used.length} cited source domains.`
+          ? `, grounded in ${count(plan.sources_used.length, "cited source domain")}.`
           : "."),
     };
     if (plan.sources_used.length === 0) {
@@ -121,11 +181,49 @@ export async function getGtmPlan(
     // The proxy answers 404 for "no audit on record for this domain" with a
     // REST remedy ("run one first via GET /api/audit") that an MCP caller
     // cannot follow — and it arrives as a bare upstream error. Name the tool
-    // that actually fixes it.
+    // that actually fixes it. Unchanged by the move to /api/growth-plan: the
+    // ownership lookup runs before the counter on both names, so a domain the
+    // caller never audited still costs nothing and still reads as a 404.
+    //
+    // ON THE MESSAGE, NOT ON THE STATUS ALONE. A 404 from this endpoint is
+    // not one event. The ownership refusal is the one this remap translates;
+    // a 404 because the endpoint is not MOUNTED is a different one, and the
+    // move to /api/growth-plan is what makes it reachable — that path is
+    // newer than the API deployments a shipped build can meet, and an
+    // unmatched route on the API answers 404 {"error":"Not found"} from its
+    // own notFoundHandler. Remapping that told the caller to run an audit
+    // they had already run: it spends one of their ten daily audits, changes
+    // nothing, and returns the identical message next time. Same for a 404
+    // from an edge in front of the API, or a misconfigured base URL.
+    //
+    // The phrase is the discriminator because it is the only signal on the
+    // wire, and it is a stable one: the proxy's ownership 404 is the ONLY
+    // 404 the plan route emits (its engine-404 branch answers 503), and it
+    // has read "No audit on record for that run." on both the deployed and
+    // the growth-plan versions. If that prose ever does drift, this stops
+    // firing and the caller sees the proxy's own sentence — a REST route
+    // they cannot use, which is unhelpful but no longer sends them to spend
+    // audits in a loop. That is the safe direction for the check to fail in.
+    const NOT_ON_RECORD = /no audit on record/i;
     if (e instanceof WaApiError && e.status === 404) {
+      if (NOT_ON_RECORD.test(e.message)) {
+        return err(
+          "INVALID_INPUT",
+          `No audit on record for ${domain}. Run run_audit for ${domain} first, then ask for the plan again.`,
+        );
+      }
+      // Not the ownership refusal, so the audit is not the problem and
+      // run_audit is not the remedy. Say only what is known — the upstream
+      // text is the only evidence of which 404 this was — and name the one
+      // thing the caller can rule out, so nobody burns an audit finding out.
       return err(
-        "INVALID_INPUT",
-        `No audit on record for ${domain}. Run run_audit for ${domain} first, then ask for the plan again.`,
+        "UPSTREAM_ERROR",
+        // Quoted, not appended bare: the upstream text is whatever the far
+        // end wrote and need not end in a period — "Not found" ran straight
+        // into the next sentence.
+        `The growth-plan endpoint answered 404 (\u201C${e.message}\u201D). This is not the ` +
+          `"no audit on record" refusal, so running an audit will not change it — ` +
+          `the API this server points at may not serve this route.`,
       );
     }
     return fromApiError(e, deps.config, deps.transport, deps.authVia);

@@ -117,21 +117,79 @@ describe("instructions: the citation evidence reaches the user", () => {
   });
 });
 
-describe("instructions: the evidence offers to become a plan", () => {
+describe("instructions: the findings offer to become a plan", () => {
   // 1.0.21's get_gtm_plan carries good trigger phrases in its DESCRIPTION,
   // but descriptions are read at tool-selection time — after the model has
   // decided what the conversation is about (the same funnel lesson this
-  // file's header records). The proactive offer therefore lives in the
-  // instructions, INSIDE the citation-evidence guidance: it fires only
-  // after sources were relayed to an already-keyed, already-engaged
-  // customer, which is what keeps it clear of the ad-injection guard rails.
+  // file's header records). So the proactive offer lives in the
+  // instructions.
+  //
+  // It first shipped INSIDE the citation-evidence paragraph, which made
+  // "sources were just relayed" its only trigger — one moment on a journey
+  // with several, and one most audits never reach, because an audit that
+  // recorded no citations never produces that paragraph's subject at all.
+  // The offer is its own block now, keyed to the OUTCOME rather than the
+  // artifact. What that placement used to guarantee for free — only an
+  // already-engaged, already-keyed customer could see it — is now stated in
+  // the copy, and these tests are what keep it stated.
 
-  it("offers get_gtm_plan inside the evidence paragraph, not as its own pitch", () => {
-    const para = text()
-      .split("\n\n")
-      .find((p) => /documents the assistants actually read/i.test(p));
+  /** The block that makes the offer: the first paragraph naming the tool. */
+  const offer = () => text().split("\n\n").find((p) => /get_gtm_plan/.test(p));
+
+  it("makes the offer in its own block, not buried in the evidence paragraph", () => {
+    const para = offer();
     expect(para).toBeDefined();
-    expect(para).toMatch(/get_gtm_plan/);
+    // The evidence paragraph is about `sources`; the offer is about what to
+    // do next. One paragraph doing both is what limited the trigger.
+    expect(para).not.toMatch(/documents the assistants actually read/i);
+  });
+
+  it("comes after the evidence guidance, never as an opening pitch", () => {
+    const paras = text().split("\n\n");
+    const evidence = paras.findIndex((p) => /documents the assistants actually read/i.test(p));
+    const plan = paras.findIndex((p) => /get_gtm_plan/.test(p));
+    expect(evidence).toBeGreaterThanOrEqual(0);
+    expect(plan).toBeGreaterThan(evidence);
+  });
+
+  it.each([
+    ["an audit just finished", /just finished|just completed/i],
+    ["the user is reading the results", /reading the results|reviewing the results/i],
+    ["asks what to do next", /what to do next/i],
+    ["asks how to improve AI visibility", /improve their AI visibility/i],
+    ["asks how to prioritise the findings", /fix first|prioritis|prioritiz/i],
+    ["wants actionable recommendations", /concrete things to do|actionable/i],
+  ])("fires on %s", (_label, pattern) => {
+    expect(offer()).toMatch(pattern);
+  });
+
+  it("sells the outcome, not the document", () => {
+    // A user who has just read a score does not know they want a plan. They
+    // know they want to be the business the assistant names.
+    const para = offer()!;
+    expect(para).toMatch(/recommended by/i);
+    expect(para).toMatch(/outcome, not the artifact|not the artifact/i);
+  });
+
+  it("carries every guard rail in its own copy, now that placement no longer implies them", () => {
+    const para = offer()!;
+    // Their own site — the offer can now fire before any evidence paragraph
+    // has established whose site is being discussed.
+    expect(para).toMatch(/their own/i);
+    // The consumer carve-out. "best caterer in Seattle" is the exact query
+    // this product measures, and a broader trigger is precisely what would
+    // start reaching it — so the exemption is restated where the trigger is.
+    // Alternations were the wrong shape here: /consumer/ alone still matched
+    // after the carve-out sentence was gutted, so the assertion pinned a word
+    // rather than the rule. One specific pattern each.
+    expect(para).toMatch(/recommendation as a consumer/i);
+    // No nudge into a conversation that has produced nothing about a site.
+    expect(para).toMatch(/without a real audit or AI-visibility context/i);
+    // Once. Pinned HERE as well as on the whole string, because the
+    // whole-string version is satisfied by the WHEN NOT TO paragraph, which
+    // is about the audit offer — a standalone plan offer that forgot to cap
+    // itself would leave that test green.
+    expect(para).toMatch(/(raise|offer|mention) it once|once per conversation/i);
   });
 
   it("keeps the plan offer ahead of the money", () => {
@@ -140,8 +198,26 @@ describe("instructions: the evidence offers to become a plan", () => {
     expect(t.search(/get_gtm_plan/)).toBeLessThan(t.search(/\$10\/month/));
   });
 
-  it("the offer survives the info style, which only rewrites billing", () => {
-    expect(buildInstructions(SIGNUP, "info")).toMatch(/get_gtm_plan/);
+  it("the offer survives every build, not just the default one", () => {
+    // The info style and Mixed Auth rewrite the billing and error paragraphs
+    // and nothing else — but the offer is its own paragraph now, so a future
+    // refactor threading a variant flag through the array could drop it from
+    // one build while every default-build assertion above stayed green. The
+    // Mixed Auth case had no coverage at all.
+    for (const build of [
+      ["info style", buildInstructions(SIGNUP, "info")],
+      ["hosted", buildInstructions(SIGNUP, "link", "http")],
+      ["mixed auth", buildInstructions(SIGNUP, "info", "http", true)],
+    ] as const) {
+      const [label, t] = build;
+      const para = t.split("\n\n").find((p) => /get_gtm_plan/.test(p));
+      expect(para, label).toBeDefined();
+      // The guard rails travel with it, or the broadest build is the one
+      // making an unguarded offer.
+      expect(para, label).toMatch(/their own/i);
+      expect(para, label).toMatch(/recommendation as a consumer/i);
+      expect(para, label).toMatch(/declin/i);
+    }
   });
 
   it("the offer is one sentence and dropped on decline, like the audit offer", () => {
