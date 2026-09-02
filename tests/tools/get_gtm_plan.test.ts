@@ -349,6 +349,35 @@ describe("get_gtm_plan: the phase cards ride along, unedited", () => {
     expect(without.data.summary).not.toMatch(/action/i);
   });
 
+  it("a malformed phase row cannot throw its way out as an upstream failure", async () => {
+    // plan_phases reaches the tool behind an unchecked `as GtmPlanPhase[]` —
+    // the client validates the ARRAY, never its elements, because relaying
+    // the cards unedited is the whole contract. So the count must survive a
+    // row it cannot read: dereferencing one threw a TypeError that reached
+    // the caller as UPSTREAM_ERROR "Cannot read properties of null (reading
+    // 'actions')" — a raw JS message dressed as an API failure, on a plan
+    // already charged against the 5/day allowance.
+    const rows = [
+      { phase: 30, range: "Days 1–30", name: "Foundation", short: "30 Days", headline: null, focus: null,
+        actions: [{ title: "Claim the listing", effort: null, priority: null, why: null, goal: null, steps: [] }] },
+      null,
+      "Days 31-60",
+    ];
+    const res = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient({ ...PLAN, plan_phases: rows as never }) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // Counted from the row it could read, and only that one.
+    expect(res.data.summary).toMatch(/1 action across 3 phases/);
+    // NOT dropped. Filtering the bad rows here would serve two thirds of a
+    // paid plan as though it were all of it — and `[null]` filtered down to
+    // `[]` would read as "this engine parsed no cards", which is a different
+    // claim and a false one. The shape is the declared schema's business.
+    expect(res.data.plan.phases).toEqual(rows);
+  });
+
   it("never invents cards from the prose", async () => {
     const fn = planClient();
     const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));

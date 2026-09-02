@@ -878,6 +878,23 @@ describe("WaApiClient.getGtmPlan — the growth-plan contract", () => {
     expect("plan_phases" in older).toBe(false);
   });
 
+  it("relays the rows verbatim, including ones it cannot make sense of", async () => {
+    // The ARRAY is checked; its ELEMENTS deliberately are not. Every sibling
+    // field here coerces, so filtering these is exactly the instinct that
+    // will one day be applied to them too — and it would be wrong twice
+    // over: `[null]` filtered down to `[]` reads as "this engine parsed no
+    // cards", a different claim and a false one, and dropping one bad row
+    // out of three serves two thirds of a paid plan as though it were all of
+    // it. A row of the wrong shape is refused later, by name, by the declared
+    // output schema (tests/tools/outputSchemas.test.ts). Nothing else pins
+    // this layer.
+    const rows = [null, "Days 31-60", { phase: 30, actions: [] }];
+    const fetchMock = makeFetch(200, { ...PLAN_BODY, plan_phases: rows });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const plan = await client.getGtmPlan({ domain: "acme.com", messages: TURN });
+    expect(plan.plan_phases).toEqual(rows);
+  });
+
   it("a non-array plan_phases is dropped rather than passed through", async () => {
     // Every other field here is coerced defensively; a malformed one must not
     // reach the declared output schema, which would turn a served plan into

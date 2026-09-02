@@ -260,6 +260,35 @@ describe("declared output schemas", () => {
   });
 
   /**
+   * The other half of "guard the count, do not filter the rows".
+   *
+   * getGtmPlan counts actions defensively (a row it cannot read contributes
+   * 0) but relays plan_phases exactly as it arrived — because filtering there
+   * would turn `[null]` into `[]`, which is the engine's word for "this plan
+   * took no card shape", and would serve two thirds of a paid plan as though
+   * it were the whole thing. That decision is only safe while a malformed row
+   * fails LOUDLY somewhere, and this is where: the declared schema refuses it
+   * and names the offending path. If anyone ever adds that filter, this test
+   * goes green-to-red by returning a success instead.
+   */
+  it("a phase row of the wrong shape is refused by name, not quietly served", async () => {
+    const malformed = {
+      getSubscription: async () => ({ tier: "pro" as const, status: "active" }),
+      getGtmPlan: async () => ({
+        plan_markdown: "# Plan", plan_sections: [], sources_used: [], model: "m",
+        plan_phases: [null, "Days 31-60"],
+      }),
+    };
+    const client = await connect(makeDeps({ tier: "pro", client: malformed as never }));
+    const result = await client.callTool({ name: "get_gtm_plan", arguments: ARGS.get_gtm_plan });
+    expect(result.isError).toBe(true);
+    const text = JSON.stringify(result);
+    expect(text).toContain("Output validation error");
+    // The path, so the reader knows it is the engine's rows and not their call.
+    expect(text).toMatch(/phases/);
+  });
+
+  /**
    * The rows a real response can actually carry, as opposed to the ones I wrote.
    *
    * This exists because the suite above could not have caught the bug it was

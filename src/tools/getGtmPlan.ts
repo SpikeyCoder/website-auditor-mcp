@@ -116,9 +116,26 @@ export async function getGtmPlan(
     // mentions cards at all — "0 actions" reads as a plan with nothing in it,
     // which is exactly the claim the engine collapses plan_phases to `[]` to
     // avoid making.
+    //
+    // `phase?.actions`, because the ELEMENTS are untrusted. The client checks
+    // that plan_phases is an array and then relays it behind an unchecked
+    // cast — deliberately, since editing the cards is the one thing it must
+    // not do — so a row that is null or not an object reaches here typed as
+    // though it were fine. Dereferencing one threw a TypeError that the
+    // catch below turned into UPSTREAM_ERROR "Cannot read properties of null
+    // (reading 'actions')": a raw JS message dressed as an API failure, on a
+    // plan already charged against the 5/day allowance.
+    //
+    // Guarded rather than filtered, and guarded HERE rather than upstream.
+    // Dropping unreadable rows in the client would turn `[null]` into `[]` —
+    // which is not "malformed", it is the engine's word for "this plan took
+    // no card shape" — and dropping one bad row out of three would serve two
+    // thirds of a paid plan as though it were the whole thing. The declared
+    // output schema is what refuses a row of the wrong shape, and it names
+    // the offending path when it does. This only has to not crash on the way.
     const phases = plan.plan_phases;
     const actionCount = (phases ?? []).reduce(
-      (n, phase) => n + (Array.isArray(phase.actions) ? phase.actions.length : 0),
+      (n, phase) => n + (Array.isArray(phase?.actions) ? phase.actions.length : 0),
       0,
     );
 
