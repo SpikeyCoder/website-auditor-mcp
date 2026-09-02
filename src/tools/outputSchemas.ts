@@ -292,6 +292,45 @@ export const getReportOutput: ZodRawShape = {
   badge_html: z.string(),
 };
 
+/**
+ * One action card. Every field is BOTH nullable and optional, for two
+ * different reasons that both point the same way.
+ *
+ * Nullable is the contract: the engine builds each card with
+ * `dict.fromkeys` and fills a field only when the plan actually wrote it, so
+ * a missing effort arrives as `null` — present and empty — rather than being
+ * omitted. Declaring `z.string()` here would turn the ordinary case into an
+ * McpError on a plan the caller was already billed for.
+ *
+ * Optional is the same unchecked-cast reasoning as `sections` below: the
+ * client relays this array behind an `as GtmPlanPhase[]`, so the schema must
+ * hold whatever the engine really sends, not what its parser promises.
+ */
+const gtmPlanAction = open({
+  title: z.string().optional(),
+  effort: z.string().nullable().optional().describe(
+    "The plan's own effort estimate, or null when it did not give one. Null means "
+    + "unknown — never render a substitute."),
+  priority: z.string().nullable().optional().describe(
+    'Typically "High" or "Medium"; null when the plan gave none or gave one outside '
+    + "the two the engine keeps. Upstream text, so not an enum here."),
+  why: z.string().nullable().optional(),
+  goal: z.string().nullable().optional(),
+  steps: z.array(z.string()).optional().describe("How to apply it, in order. May be empty."),
+});
+
+const gtmPlanPhase = open({
+  phase: z.number().optional().describe("30, 60 or 90 — the day the band closes."),
+  range: z.string().optional().describe('The band as the engine names it, e.g. "Days 1–30".'),
+  name: z.string().optional(),
+  short: z.string().optional(),
+  headline: z.string().nullable().optional(),
+  focus: z.string().nullable().optional(),
+  actions: z.array(gtmPlanAction).optional().describe(
+    "Empty for a phase the plan wrote as prose. That is a real plan with nothing "
+    + "cut into cards for this band, not a plan with nothing in it."),
+});
+
 export const getGtmPlanOutput: ZodRawShape = {
   domain: z.string(),
   plan: open({
@@ -300,6 +339,17 @@ export const getGtmPlanOutput: ZodRawShape = {
     // heading with no body is entirely possible — and requiring body_lines
     // would discard a plan the caller has already been billed for.
     sections: z.array(open({ title: z.string().optional(), body_lines: z.array(z.string()).optional() })),
+    // OPTIONAL because absent is a real answer, and a different one from `[]`.
+    // The description is the point: this is the same plan as `markdown`, cut
+    // into cards, and the model has to be told what each empty form means or
+    // it will read one as the other and tell the customer their paid plan
+    // contains no actions.
+    phases: z.array(gtmPlanPhase).optional().describe(
+      "The same plan as `markdown`, cut into 30/60/90-day cards — a rendering, never "
+      + "extra content. An empty array means this plan was not written in card form: "
+      + "render `markdown` instead, and do not report it as a plan without actions. "
+      + "The key being absent means the plan came from a build that predates the cards, "
+      + "which is also not a claim about the plan."),
   }),
   sources_used: z.array(z.string()),
   model: z.string(),

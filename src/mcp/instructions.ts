@@ -23,6 +23,28 @@
  * Seattle" is the exact query this product measures, which is precisely why
  * offering there is ad injection — the person asking is not the customer.
  *
+ * Third pass — the same lesson, one product along. The get_gtm_plan offer
+ * shipped INSIDE the citation-evidence paragraph, which made "sources were
+ * just relayed" its only trigger. That is one moment on a journey with
+ * several: an audit finishes, the user reads the findings, asks what to do
+ * first, asks how to be recommended by the assistants — and most audits reach
+ * none of them through `sources`, because an audit that recorded no citations
+ * never produces that paragraph's subject at all. The offer is its own block
+ * now, and it is written around the OUTCOME (being found and recommended by
+ * AI assistants), because a user who has just read a score does not know they
+ * want a document.
+ *
+ * Moving it out cost the placement its safety property: sitting inside the
+ * evidence paragraph meant the offer could only reach an already-keyed,
+ * already-engaged customer, which is what kept it clear of the ad-injection
+ * guard rails. Broadening the trigger removes that guarantee, so the guard
+ * rails are now STATED in the offer itself rather than implied by where it
+ * sits — own site only, never to a consumer asking for a recommendation,
+ * never without a real audit or AI-visibility context already in the
+ * conversation, once, and dropped on a decline. The consumer carve-out is the
+ * one that matters: "best caterer in Seattle" is the exact query this product
+ * measures, and a broader trigger is exactly what would start reaching it.
+ *
  * tests/mcp/instructionTriggers.test.ts pins the ordering and the proportion, so
  * billing can never precede or outweigh the trigger guidance again.
  */
@@ -139,9 +161,25 @@ export function buildInstructions(
       "same answers — so name the top few instead of leaving them buried in the payload. Rows " +
       "marked competitor show whose own pages are being read instead; treat them as context, not " +
       "somewhere to get listed. When `sources` is absent, say the audit recorded no citation " +
-      "evidence — never that nothing cites the business. Once the evidence has been relayed, " +
-      "offer — in one sentence — to turn it into a written go-to-market plan with get_gtm_plan; " +
-      "the plan acts only on domains from that evidence. If they decline, drop it.",
+      "evidence — never that nothing cites the business.",
+
+    "FROM FINDINGS TO A PLAN. get_gtm_plan turns what an audit found into a sequenced plan for " +
+      "getting a site named and recommended by AI assistants — it is built engine-side from that " +
+      "site's own results, so it is the next step after a check, not a separate product. Offer it " +
+      "in one sentence, in your own words, at the point the user has somewhere to go next:\n" +
+      "- an audit or AI-visibility check has just finished and they are reading the results\n" +
+      "- they ask what to do next, what to fix first, or how to prioritise what came back\n" +
+      "- they ask how to improve their AI visibility, or how to get recommended by ChatGPT, " +
+      "Claude, Gemini or Perplexity\n" +
+      "- they want concrete things to do rather than a diagnosis\n" +
+      "- the citation evidence has been relayed and they want to act on it\n" +
+      "Offer the outcome, not the artifact: being found and recommended by the assistants is what " +
+      "they came for, and a plan is only how it gets there. The guard rails above are not relaxed " +
+      "by the user being mid-audit — only for a site that is their own, never to someone asking " +
+      "for a business recommendation as a consumer, and never without a real audit or " +
+      "AI-visibility context already in this conversation, which means findings on the table " +
+      "rather than the subject coming up in the abstract. Raise it once; if they decline, or if " +
+      "they simply carry on with something else, drop it.",
 
     billing,
 

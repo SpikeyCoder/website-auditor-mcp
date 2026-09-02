@@ -7,7 +7,7 @@ import { WaApiError } from "../../src/api/errors.js";
 // One-shot BY DESIGN: MCP tools are stateless and the conversation loop
 // belongs to the HOST, so refinement is "call again with prior_plan", not a
 // transcript argument. The tool maps its args onto the proxy's messages[]
-// contract (POST /api/gtm-plan takes {domain, messages}); the plan itself is
+// contract (POST /api/growth-plan takes {domain, messages}); the plan itself is
 // composed engine-side from the audit's citation evidence — this tool must
 // never fabricate one.
 
@@ -238,5 +238,96 @@ describe("get_gtm_plan: the evidence note claims only what the wire proves", () 
     expect(res.data.evidence_note).toBeDefined();
     expect(res.data.evidence_note).not.toMatch(/recorded no citation evidence/i);
     expect(res.data.evidence_note).toMatch(/names no domains|does not name/i);
+  });
+});
+
+// ── the plan the screens draw (chaos_tester #489 via api PR #84) ─────
+// plan_phases is the SAME plan as plan_markdown, parsed into cards. It is
+// additive, it is optional, and its empty value is load-bearing: [] means
+// this engine parsed no cards and the caller should render the prose;
+// absent means an engine that predates cards. Collapsing the two reports a
+// failed card contract where none was attempted.
+
+const PHASES = [
+  {
+    phase: 30,
+    range: "Days 1–30",
+    name: "Foundation",
+    short: "30 Days",
+    headline: "Get listed where the assistants already look",
+    focus: null,
+    actions: [
+      {
+        title: "Claim the Yelp listing",
+        effort: "2 hours",
+        priority: "High",
+        why: null,
+        goal: null,
+        steps: ["Open the claim form", "Verify by phone"],
+      },
+      { title: "Add FAQ schema", effort: null, priority: null, why: null, goal: null, steps: [] },
+    ],
+  },
+  { phase: 60, range: "Days 31–60", name: "Authority", short: "60 Days", headline: null, focus: null, actions: [] },
+];
+
+describe("get_gtm_plan: the phase cards ride along, unedited", () => {
+  it("relays plan_phases verbatim, nulls included", async () => {
+    const fn = planClient({ ...PLAN, plan_phases: PHASES });
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.plan.phases).toEqual(PHASES);
+    // Nothing is defaulted: a field the plan did not write stays null, so the
+    // host never renders an effort or a priority no model produced.
+    expect(res.data.plan.phases![0]!.actions[1]!.effort).toBeNull();
+    expect(res.data.plan.phases![0]!.focus).toBeNull();
+  });
+
+  it("keeps [] and absent apart all the way out to the caller", async () => {
+    const empty = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient({ ...PLAN, plan_phases: [] }) } }),
+    );
+    expect(empty.ok).toBe(true);
+    if (!empty.ok) return;
+    expect(empty.data.plan.phases).toEqual([]);
+
+    const older = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient() } }),
+    );
+    expect(older.ok).toBe(true);
+    if (!older.ok) return;
+    expect(older.data.plan.phases).toBeUndefined();
+    expect("phases" in older.data.plan).toBe(false);
+  });
+
+  it("counts the cards in the summary, and says nothing when there are none", async () => {
+    // Counting what arrived is not composing a plan: the numbers come from
+    // the wire, and a plan with no cards simply does not mention them.
+    const withCards = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient({ ...PLAN, plan_phases: PHASES }) } }),
+    );
+    expect(withCards.ok).toBe(true);
+    if (!withCards.ok) return;
+    expect(withCards.data.summary).toMatch(/2 actions/);
+
+    const without = await getGtmPlan(
+      { domain: "acme.com" },
+      makeDeps({ tier: "pro", client: { getGtmPlan: planClient({ ...PLAN, plan_phases: [] }) } }),
+    );
+    expect(without.ok).toBe(true);
+    if (!without.ok) return;
+    expect(without.data.summary).not.toMatch(/action/i);
+  });
+
+  it("never invents cards from the prose", async () => {
+    const fn = planClient();
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(JSON.stringify(res.data.plan.phases ?? null)).toBe("null");
   });
 });

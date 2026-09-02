@@ -5,13 +5,28 @@
  * tools are stateless and the conversation loop belongs to the HOST, so
  * refinement is "call again with `prior_plan`", never a transcript argument
  * (token-heavy and un-schema-able). The tool maps its args onto the proxy's
- * messages[] wire (POST /api/gtm-plan takes {domain, messages}); the plan is
- * composed ENGINE-side from the audit's citation evidence — this tool never
- * fabricates one, and an upstream failure is an error, not a template.
+ * messages[] wire (POST /api/growth-plan takes {domain, messages}); the plan
+ * is composed ENGINE-side from the audit's citation evidence — this tool
+ * never fabricates one, and an upstream failure is an error, not a template.
  *
  * Degradation is additive (the getAiVisibility trend_note style): a plan
  * grounded in no attributable citations still returns ok, with
  * `evidence_note` saying so — never an invented evidence list.
+ *
+ * THE PHASE CARDS (api PR #84, engine chaos_tester #489). The same plan
+ * arrives a second way, parsed into 30/60/90-day cards, and it is relayed
+ * UNEDITED. Nothing here defaults a null: the engine leaves a field null
+ * exactly when the plan did not write it, so filling one in would put an
+ * effort estimate or a priority on the customer's calendar that no model
+ * produced. `[]` and absent are relayed as they arrived — see api/types.ts.
+ *
+ * STILL THE DOMAIN HANDLE, and still only that one. The proxy takes exactly
+ * one of run_id or domain, and an MCP caller holds neither a run_id nor
+ * anything that converts to one: run_audit returns report_url, which carries
+ * reports.id — a disjoint id space. So `domain` stays the argument and the
+ * proxy resolves the caller's latest run for it server-side. A run_id
+ * argument would be additive if a caller ever came to hold one; what this
+ * tool must never do is invent one to fill it.
  */
 import type { GtmChatMessage, GtmPlanResult } from "../api/types.js";
 import { normalizeDomain } from "../api/domain.js";
@@ -35,6 +50,11 @@ const MAX_STEER_CHARS = 300;
 // the wire's cap it silently discarded plan the proxy would have accepted —
 // on the refinement path, where the tail is what the user is refining.
 const MAX_PRIOR_PLAN_CHARS = 8192;
+
+/** "1 section" / "2 sections". The summary is prose, and a host model reads it out. */
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
 
 function buildMessages(args: GetGtmPlanArgs, domain: string): GtmChatMessage[] {
   const steer =
@@ -90,18 +110,41 @@ export async function getGtmPlan(
       messages: buildMessages(args, domain),
     });
 
+    // Counted, not composed: every number below is a length of something the
+    // wire delivered. A phase whose actions the plan wrote as prose is
+    // legitimately empty, so the total is what decides whether the summary
+    // mentions cards at all — "0 actions" reads as a plan with nothing in it,
+    // which is exactly the claim the engine collapses plan_phases to `[]` to
+    // avoid making.
+    const phases = plan.plan_phases;
+    const actionCount = (phases ?? []).reduce(
+      (n, phase) => n + (Array.isArray(phase.actions) ? phase.actions.length : 0),
+      0,
+    );
+
     const result: GtmPlanResult = {
       domain,
-      plan: { markdown: plan.plan_markdown, sections: plan.plan_sections },
+      plan: {
+        markdown: plan.plan_markdown,
+        sections: plan.plan_sections,
+        // Spread so an absent key stays absent. `phases: undefined` would
+        // still be an own property, and `in` checks — the caller's only way
+        // to tell "this engine parsed no cards" from "an engine that predates
+        // them" — would answer true for both.
+        ...(phases ? { phases } : {}),
+      },
       sources_used: plan.sources_used,
       model: plan.model,
       summary:
-        `GTM plan for ${domain}: ${plan.plan_sections.length} sections` +
+        `GTM plan for ${domain}: ${count(plan.plan_sections.length, "section")}` +
         (plan.plan_sections.length
           ? ` (${plan.plan_sections.map((s) => s.title).join(", ")})`
           : "") +
+        (phases && actionCount
+          ? `, ${count(actionCount, "action")} across ${count(phases.length, "phase")}`
+          : "") +
         (plan.sources_used.length
-          ? `, grounded in ${plan.sources_used.length} cited source domains.`
+          ? `, grounded in ${count(plan.sources_used.length, "cited source domain")}.`
           : "."),
     };
     if (plan.sources_used.length === 0) {
@@ -121,7 +164,9 @@ export async function getGtmPlan(
     // The proxy answers 404 for "no audit on record for this domain" with a
     // REST remedy ("run one first via GET /api/audit") that an MCP caller
     // cannot follow — and it arrives as a bare upstream error. Name the tool
-    // that actually fixes it.
+    // that actually fixes it. Unchanged by the move to /api/growth-plan: the
+    // ownership lookup runs before the counter on both names, so a domain the
+    // caller never audited still costs nothing and still reads as a 404.
     if (e instanceof WaApiError && e.status === 404) {
       return err(
         "INVALID_INPUT",

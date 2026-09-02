@@ -101,6 +101,45 @@ const richClient = {
     plan_sections: [{ title: "Week 1", body_lines: ["Claim listings"] }],
     sources_used: ["https://example.com/about"],
     model: "gpt-5",
+    // Nulls, not omissions — the engine builds each card with
+    // dict.fromkeys and fills a field only when the plan wrote it. A schema
+    // declaring these as plain strings would fail HERE rather than in front
+    // of a customer who has already been billed for the plan.
+    plan_phases: [
+      {
+        phase: 30,
+        range: "Days 1–30",
+        name: "Foundation",
+        short: "30 Days",
+        headline: "Get listed where the assistants look",
+        focus: null,
+        actions: [
+          {
+            title: "Claim the Yelp listing",
+            effort: "2 hours",
+            priority: "High",
+            why: null,
+            goal: null,
+            steps: ["Open the claim form"],
+          },
+          // The card the plan wrote as a bare heading: every optional field
+          // null, steps empty. This is the ordinary case, not an edge one —
+          // parse_plan_actions fills a field only when the plan wrote it —
+          // and without a row like this the schema's nullability is never
+          // actually exercised here.
+          { title: "Add FAQ schema", effort: null, priority: null, why: null, goal: null, steps: [] },
+        ],
+      },
+      {
+        phase: 60,
+        range: "Days 31–60",
+        name: "Authority",
+        short: "60 Days",
+        headline: null,
+        focus: null,
+        actions: [],
+      },
+    ],
   }),
   getSubscription: async () => ({ tier: "pro" as const, status: "active" }),
   runAudit: async () => ({ runId: "abc123def456", report: reachableReport(), raw: {} }),
@@ -185,6 +224,40 @@ describe("declared output schemas", () => {
       ).toBeNull();
     });
   }
+
+  /**
+   * The PUBLISHED schema, not the Zod object — the only check a real client runs.
+   *
+   * The loop above validates two ways and neither is what a client does. The
+   * SDK server parses with Zod; the direct `z.object(...).safeParse` here uses
+   * Zod's default object mode, which STRIPS an undeclared key instead of
+   * failing on it. A real client compiles the JSON Schema this server
+   * PUBLISHES and runs Ajv against it — and that schema's root carries
+   * `additionalProperties: false`, so a root key nobody declared passes both
+   * checks above and is rejected on every client in the field.
+   *
+   * That is not hypothetical for this tool: `plan_phases` was new output, and
+   * hanging it off the result root rather than inside `plan` (declared, and
+   * `.passthrough()`) would have shipped green. The client only compiles its
+   * validators after `listTools`, which the helper above deliberately does not
+   * call — so this connects its own client and calls it.
+   */
+  it("get_gtm_plan's phase cards pass the schema a client actually compiles", async () => {
+    const server = createServer(makeDeps({ tier: "pro", client: richClient }));
+    const client = new Client({ name: "published-schema-test", version: "0.0.0" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    // Caches the tool metadata, which is what arms the client-side validator.
+    await client.listTools();
+
+    // Throws McpError("Structured content does not match the tool's output
+    // schema") if the payload violates the published schema — nulls inside a
+    // card, an undeclared root key, anything.
+    const result = await client.callTool({ name: "get_gtm_plan", arguments: ARGS.get_gtm_plan });
+    expect(result.isError, JSON.stringify(result).slice(0, 300)).toBeFalsy();
+    const plan = (result.structuredContent as { plan: { phases: unknown[] } }).plan;
+    expect(plan.phases).toHaveLength(2);
+  });
 
   /**
    * The rows a real response can actually carry, as opposed to the ones I wrote.

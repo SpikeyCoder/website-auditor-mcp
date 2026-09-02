@@ -428,7 +428,7 @@ export interface ReportLinks {
   badge_html: string;
 }
 
-// ── GTM plan (POST /api/gtm-plan) ──────────────────────────────────────
+// ── Growth plan (POST /api/growth-plan) ────────────────────────────────
 
 /** One chat message on the proxy's transcript wire. */
 export interface GtmChatMessage {
@@ -441,18 +441,62 @@ export interface GtmPlanSection {
   body_lines: string[];
 }
 
-/** What POST /api/gtm-plan answers, envelope stripped. */
+/**
+ * One action card inside a phase.
+ *
+ * Every key is always PRESENT on the wire and `null` when the plan did not
+ * write it — the engine builds the card with `dict.fromkeys(_ACTION_FIELDS)`
+ * (chaos_tester gtm_chat.py, parse_plan_actions) precisely so nothing is
+ * inferred: a missing effort is null and the chip is not drawn, and a
+ * priority outside the two values the design has styles for is dropped
+ * rather than passed through. Nullable, therefore, rather than optional —
+ * and never defaulted here, which would put a commitment on the customer's
+ * calendar that no model produced.
+ */
+export interface GtmPlanAction {
+  title: string;
+  effort: string | null;
+  priority: string | null;
+  why: string | null;
+  goal: string | null;
+  steps: string[];
+}
+
+/** One 30-day band of the plan. The three bands are fixed engine-side. */
+export interface GtmPlanPhase {
+  phase: number;
+  range: string;
+  name: string;
+  short: string;
+  headline: string | null;
+  focus: string | null;
+  actions: GtmPlanAction[];
+}
+
+/**
+ * What POST /api/growth-plan answers, envelope stripped.
+ *
+ * `plan_phases` is OPTIONAL and that is the contract, not laziness. The
+ * engine answers `[]` for a plan that did not follow the card contract
+ * rather than refusing a deliverable it already billed for, and the proxy
+ * forwards the key by PRESENCE (`k in engineBody`). So the two empty
+ * answers mean different things and must stay distinguishable here:
+ * `[]` — this engine parsed no cards, render the prose; absent — an engine
+ * older than the one that added them.
+ */
 export interface GtmPlanResponse {
   plan_markdown: string;
   plan_sections: GtmPlanSection[];
   sources_used: string[];
   model: string;
+  plan_phases?: GtmPlanPhase[];
 }
 
 /** What the get_gtm_plan tool returns to the host model. */
 export interface GtmPlanResult {
   domain: string;
-  plan: { markdown: string; sections: GtmPlanSection[] };
+  /** `phases` is absent, never `[]`, when the wire did not carry the key. */
+  plan: { markdown: string; sections: GtmPlanSection[]; phases?: GtmPlanPhase[] };
   sources_used: string[];
   model: string;
   /** Additive, never an error: set when the plan had no citation evidence. */
