@@ -44,19 +44,75 @@ export function detectUnreachable(report: AuditReport): boolean {
   return !anyLoaded;
 }
 
-function engineScore(av: AiVisibilityBlock, key: EngineKey): number {
-  return av.platform_scores?.[key]?.score ?? 0;
+/** A finite number, or undefined.
+ *
+ * The upstream types overstate what is present: `AiPlatformScore` declares
+ * `total` as required and does not declare `asked` at all — it arrives through
+ * the index signature — so neither can be trusted to be a number at runtime.
+ */
+/** "A", "A and B", "A, B and C" — for engine names in prose. */
+function listOf(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+function numeric(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
 /**
- * Whether the site appeared on an engine at all. Upstream aggregates the
- * per-query `client_appears` flags into `appearances` (count of appearing
- * queries), so `appearances > 0` is the faithful per-engine appearance signal;
- * when that count is absent we fall back to the raw per-result `client_appears`.
+ * TWO DIFFERENT ZEROES.
+ *
+ * A customer reported `claude: 0` from this tool beside a report page reading
+ * "Claude didn't return an answer — this score covers 3 platforms", and was
+ * right: an API failure was being published as a measured score of zero.
+ *
+ * Upstream already ships the discriminator. `total` is what the provider
+ * ANSWERED — the score's own denominator (chaos_tester
+ * modules/ai_visibility.py:6104) — and `asked` is what it was SENT. Answered 0
+ * with asked > 0 is a hole in the measurement, not a score. No row at all is an
+ * engine this run never asked, which is a different fact again: naming it would
+ * make a deliberately narrow run accuse itself of an outage.
+ *
+ * This is the same reasoning report_view.py's platform loop carries under the
+ * same heading; the page has been correct about it for months and only this
+ * surface was not.
+ *
+ * Run b546b7ccd0c5 (newparadigm.org, the reported case): Claude total 0 /
+ * asked 8 -> unanswered; the other three answered 8 each -> scored, value 0.
  */
-function engineAppears(av: AiVisibilityBlock, key: EngineKey): boolean {
+export type EngineState = "scored" | "unanswered" | "not_asked";
+
+function engineReading(
+  av: AiVisibilityBlock,
+  key: EngineKey,
+): { value: number | null; state: EngineState } {
   const ps = av.platform_scores?.[key];
-  if (!ps) return false;
+  if (!ps) return { value: null, state: "not_asked" };
+  // "queries" is the same defensive fallback report_view.py keeps for payloads
+  // written before "total" was the denominator.
+  const answered = numeric(ps.total) ?? numeric(ps.queries) ?? 0;
+  const asked = numeric(ps.asked) ?? answered;
+  const score = numeric(ps.score);
+  if (answered > 0 && score !== undefined) return { value: score, state: "scored" };
+  return { value: null, state: asked > 0 ? "unanswered" : "not_asked" };
+}
+
+/**
+ * Whether the site appeared on an engine at all, or null when the engine was
+ * not measured. Upstream aggregates the per-query `client_appears` flags into
+ * `appearances`, so `appearances > 0` is the faithful signal; when that count
+ * is absent we fall back to the raw per-result `client_appears`.
+ *
+ * NULL, not false, for an unmeasured engine. `false` is the assertion "this
+ * engine did not name the business", and compare_competitors turns exactly
+ * that into a reported gap — so a silent Claude on the primary site fabricated
+ * a "claude" gap against every competitor Claude *did* answer about.
+ */
+function engineAppears(av: AiVisibilityBlock, key: EngineKey): boolean | null {
+  const ps = av.platform_scores?.[key];
+  if (!ps) return null;
+  if (engineReading(av, key).state !== "scored") return null;
   if (typeof ps.appearances === "number") return ps.appearances > 0;
   return (ps.results ?? []).some((r) => r.client_appears === true);
 }
@@ -165,11 +221,27 @@ function citedSources(av: AiVisibilityBlock): { sources?: AiVisibilitySource[] |
 export function toAiVisibility(report: AuditReport): AiVisibility {
   const av = report.ai_visibility ?? {};
   const score = av.overall_score ?? 0;
+  const readings = {
+    chatgpt: engineReading(av, "ChatGPT"),
+    perplexity: engineReading(av, "Perplexity"),
+    claude: engineReading(av, "Claude"),
+    gemini: engineReading(av, "Gemini"),
+  };
   const by_engine = {
-    chatgpt: engineScore(av, "ChatGPT"),
-    perplexity: engineScore(av, "Perplexity"),
-    claude: engineScore(av, "Claude"),
-    gemini: engineScore(av, "Gemini"),
+    chatgpt: readings.chatgpt.value,
+    perplexity: readings.perplexity.value,
+    claude: readings.claude.value,
+    gemini: readings.gemini.value,
+  };
+  // A SIBLING MAP, not a nullable number alone. The consumer is a language
+  // model, and a null it rounds to zero is no better than the bug — it reads a
+  // named state word far more reliably. Same shape as the existing
+  // by_engine / appears_by_engine pair.
+  const engine_status = {
+    chatgpt: readings.chatgpt.state,
+    perplexity: readings.perplexity.state,
+    claude: readings.claude.state,
+    gemini: readings.gemini.state,
   };
   const appears_by_engine = {
     chatgpt: engineAppears(av, "ChatGPT"),
@@ -184,19 +256,47 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   // Folded into the sentence, not just carried as a field: the caller is a
   // model, and it reads `summary`. Same reasoning as simulatedNote above.
   const nameNote = provenance.warning ? ` NOTE: ${provenance.warning}` : "";
+  // COVERAGE, in the sentence the model actually reads. The second branch below
+  // used to claim "across ChatGPT, Perplexity, Claude and Gemini"
+  // unconditionally, so a three-engine score was published as a four-engine
+  // one. This is the MCP's analogue of report_view._coverage_note.
+  //
+  // The verb is "did not return an answer" and never "didn't answer in time":
+  // `unobserved_reasons` is a whole-run tally, so a per-engine cause cannot be
+  // attributed, and calling an empty 200 a timeout is a small lie the reader
+  // has no way to check. report_view.py refuses the same attribution on the
+  // same grounds.
+  const ENGINE_LABELS: Record<string, string> = {
+    chatgpt: "ChatGPT", perplexity: "Perplexity", claude: "Claude", gemini: "Gemini",
+  };
+  const unanswered = Object.entries(engine_status)
+    .filter(([, state]) => state === "unanswered")
+    .map(([key]) => ENGINE_LABELS[key] ?? key);
+  const scoredCount = Object.values(engine_status).filter((st) => st === "scored").length;
+  const coverage_note = unanswered.length
+    ? `${listOf(unanswered)} did not return an answer — this score covers `
+      + `${scoredCount} ${scoredCount === 1 ? "engine" : "engines"}.`
+    : undefined;
+  const coverageNote = coverage_note ? ` NOTE: ${coverage_note}` : "";
+  const scoredNames = Object.entries(engine_status)
+    .filter(([, state]) => state === "scored")
+    .map(([key]) => ENGINE_LABELS[key] ?? key);
+  const across = scoredNames.length ? listOf(scoredNames) : "no engines";
   const summary =
     competitor && competitor.length > 0
-      ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}${nameNote}`
-      : `${name} scores ${score}/100 for AI visibility across ChatGPT, Perplexity, Claude and Gemini.${simulatedNote}${nameNote}`;
+      ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}${nameNote}${coverageNote}`
+      : `${name} scores ${score}/100 for AI visibility across ${across}.${simulatedNote}${nameNote}${coverageNote}`;
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
   return {
     score,
     by_engine,
+    engine_status,
     appears_by_engine,
     top_competitor: competitor,
     summary,
+    ...(coverage_note ? { coverage_note } : {}),
     trend: null,
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
     ...(provenance.verified !== undefined ? { name_verified: provenance.verified } : {}),
@@ -333,8 +433,14 @@ export function computeChanges(
 ): Changes {
   const engine_changes: EngineChange[] = [];
   for (const engine of Object.keys(current.by_engine)) {
-    const to = current.by_engine[engine] ?? 0;
-    const from = previous.by_engine[engine] ?? 0;
+    const to = current.by_engine[engine];
+    const from = previous.by_engine[engine];
+    // SKIPPED, not zeroed. `?? 0` turned an engine that was never measured on
+    // one side into a real score of zero, so a Claude outage in this week's
+    // snapshot published {from: 55, to: 0, delta: -55} — a 55-point crash that
+    // did not happen. Same rule computeTrend already applies by intersecting
+    // the engines present on both sides.
+    if (typeof to !== "number" || typeof from !== "number") continue;
     if (to !== from) engine_changes.push({ engine, from, to, delta: to - from });
   }
   return {

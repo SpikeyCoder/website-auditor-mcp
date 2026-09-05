@@ -68,6 +68,113 @@ describe("toAiVisibility", () => {
   });
 });
 
+/**
+ * TWO DIFFERENT ZEROES.
+ *
+ * Reported by a customer: "get_ai_visibility reports claude:0 as if tested, but
+ * the report page says 'Claude didn't return an answer - this score covers 3
+ * platforms'. An API error is being recorded as a 0 score, not untested."
+ *
+ * Upstream ships the discriminator and always has: `total` is what the provider
+ * ANSWERED (the score's denominator) and `asked` is what it was SENT. The
+ * report page has read it correctly for months; this surface did not.
+ *
+ * Run b546b7ccd0c5 (newparadigm.org) is the reported shape, reproduced below:
+ * Claude asked 8 / answered 0, the other three answered 8 each and scored 0.
+ */
+describe("toAiVisibility: an engine that did not answer", () => {
+  function silentClaude() {
+    const r = reachableReport();
+    const claude = r.ai_visibility.platform_scores!.Claude as Record<string, unknown>;
+    claude.total = 0;        // answered nothing
+    claude.asked = 8;        // but was asked
+    claude.appearances = 0;
+    claude.score = 0;        // upstream stores 0 for both cases — the bug's root
+    return r;
+  }
+
+  it("reports no score rather than a zero", () => {
+    const av = toAiVisibility(silentClaude());
+    expect(av.by_engine.claude).toBeNull();
+    expect(av.engine_status.claude).toBe("unanswered");
+  });
+
+  it("still reports a real zero as a zero", () => {
+    // The other three answered 8 queries and never named the business. That IS
+    // a measurement, and suppressing it would trade one wrong answer for another.
+    const av = toAiVisibility(silentClaude());
+    expect(av.engine_status.chatgpt).toBe("scored");
+    expect(typeof av.by_engine.chatgpt).toBe("number");
+  });
+
+  it("does not assert the engine failed to name the business", () => {
+    // `false` is that assertion, and compare_competitors turns it into a
+    // reported gap — so a silent Claude fabricated a "claude" gap against every
+    // competitor Claude did answer about.
+    expect(toAiVisibility(silentClaude()).appears_by_engine.claude).toBeNull();
+  });
+
+  it("names the engine in the summary the model actually reads", () => {
+    const av = toAiVisibility(silentClaude());
+    expect(av.coverage_note).toContain("Claude");
+    expect(av.coverage_note).toContain("did not return an answer");
+    expect(av.summary).toContain("Claude");
+  });
+
+  it("never claims a timeout it cannot attribute", () => {
+    // unobserved_reasons is a whole-run tally, so a per-engine cause cannot be
+    // established; calling an empty 200 a timeout is a lie the reader cannot check.
+    const av = toAiVisibility(silentClaude());
+    expect(av.coverage_note).not.toContain("in time");
+    expect(av.coverage_note).not.toContain("timeout");
+  });
+
+  it("counts the engines the score actually covers", () => {
+    expect(toAiVisibility(silentClaude()).coverage_note).toContain("3 engines");
+  });
+
+  it("says nothing when every engine answered", () => {
+    const av = toAiVisibility(reachableReport());
+    expect(av.coverage_note).toBeUndefined();
+    expect(av.summary).not.toContain("did not return an answer");
+    expect(Object.values(av.engine_status)).toEqual(
+      ["scored", "scored", "scored", "scored"]);
+  });
+
+  it("distinguishes an engine never asked from one that stayed silent", () => {
+    // A deliberately narrow run must not accuse itself of an outage, so an
+    // absent engine is `not_asked` and is NOT named in the prose.
+    const r = reachableReport();
+    delete r.ai_visibility.platform_scores!.Claude;
+    const av = toAiVisibility(r);
+    expect(av.engine_status.claude).toBe("not_asked");
+    expect(av.by_engine.claude).toBeNull();
+    expect(av.coverage_note).toBeUndefined();
+  });
+});
+
+describe("computeChanges: an unmeasured engine is not a crash", () => {
+  it("skips an engine that has no score on one side", () => {
+    // `?? 0` published {from: 55, to: 0, delta: -55} for a Claude outage — a
+    // 55-point drop that did not happen, in a weekly monitoring snapshot.
+    const changes = computeChanges(
+      { score: 60, by_engine: { claude: null as unknown as number, chatgpt: 60 } },
+      { score: 60, by_engine: { claude: 55, chatgpt: 60 } },
+    );
+    expect(changes.engine_changes).toEqual([]);
+  });
+
+  it("still reports a real movement", () => {
+    const changes = computeChanges(
+      { score: 60, by_engine: { chatgpt: 60 } },
+      { score: 50, by_engine: { chatgpt: 50 } },
+    );
+    expect(changes.engine_changes).toEqual([
+      { engine: "chatgpt", from: 50, to: 60, delta: 10 },
+    ]);
+  });
+});
+
 describe("topCompetitor", () => {
   it("returns null when there are no competitors", () => {
     const r = reachableReport();
