@@ -7,6 +7,8 @@ import {
   computeChanges,
   computeTrend,
 } from "../../src/api/mappers.js";
+import { isGap } from "../../src/tools/compareCompetitors.js";
+import { mapEngines } from "../../src/tools/getMonitoringStatus.js";
 import { reachableReport, unreachableReport, partialOutageReport } from "../fixtures/reports.js";
 
 describe("detectUnreachable", () => {
@@ -150,6 +152,68 @@ describe("toAiVisibility: an engine that did not answer", () => {
     expect(av.engine_status.claude).toBe("not_asked");
     expect(av.by_engine.claude).toBeNull();
     expect(av.coverage_note).toBeUndefined();
+  });
+});
+
+describe("compareCompetitors: an unmeasured engine is not a gap", () => {
+  // THE TEST THAT WOULD HAVE CAUGHT IT. The first version of this change
+  // asserted only that appears_by_engine.claude became null, and claimed that
+  // fixed the fabricated gap. It did not: the gap loop reads
+  // `!primaryAv.appears_by_engine[engine]`, and `!null` is `true` exactly as
+  // `!false` was. Asserting at the field and never at the consumer is what let
+  // that ship.
+  it("reports a gap when the primary genuinely did not appear", () => {
+    expect(isGap(false, true)).toBe(true);
+  });
+
+  it("reports NO gap when the primary engine was never measured", () => {
+    expect(isGap(null, true)).toBe(false);
+  });
+
+  it("reports no gap when the competitor is also unmeasured", () => {
+    expect(isGap(false, null)).toBe(false);
+  });
+
+  it("reports no gap when both sides appeared", () => {
+    expect(isGap(true, true)).toBe(false);
+  });
+});
+
+describe("toAiVisibility: a run where no engine answered", () => {
+  it("does not pair a score with an admission that nothing was measured", () => {
+    const r = reachableReport();
+    for (const key of ["ChatGPT", "Perplexity", "Claude", "Gemini"]) {
+      const ps = r.ai_visibility.platform_scores![key] as Record<string, unknown>;
+      ps.total = 0; ps.asked = 8; ps.score = 0; ps.appearances = 0;
+      ps.results = [];
+    }
+    const av = toAiVisibility(r);
+    expect(av.summary).not.toContain("/100");
+    expect(av.summary).not.toContain("no engines");
+    expect(av.summary).toContain("no AI-visibility score");
+  });
+});
+
+describe("mapEngines: the monitoring path must not re-coerce", () => {
+  // The one path that routed around computeChanges' new guard. It used to
+  // `num()` each score to zero BEFORE computeChanges saw it, so by then both
+  // sides were numbers and the skip never fired — a Claude outage in a
+  // scheduled snapshot still published a 55-point crash that did not happen.
+  //
+  // Exported and driven directly rather than re-implemented here: a test that
+  // copies the code it is checking passes when the code is reverted, which is
+  // exactly how the first version of this change shipped a false claim.
+  it("preserves a null rather than reporting it as zero", () => {
+    expect(mapEngines({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 }))
+      .toEqual({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 });
+  });
+
+  it("feeds computeChanges values it will actually skip", () => {
+    const current = mapEngines({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 });
+    const previous = mapEngines({ chatgpt: 60, perplexity: 50, claude: 55, gemini: 40 });
+    const changes = computeChanges({ score: 60, by_engine: current },
+                                   { score: 60, by_engine: previous });
+    expect(changes.engine_changes).toEqual([]);
   });
 });
 

@@ -44,18 +44,24 @@ export function detectUnreachable(report: AuditReport): boolean {
   return !anyLoaded;
 }
 
-/** A finite number, or undefined.
- *
- * The upstream types overstate what is present: `AiPlatformScore` declares
- * `total` as required and does not declare `asked` at all — it arrives through
- * the index signature — so neither can be trusted to be a number at runtime.
- */
+/** Lowercase payload key -> the display name upstream uses. One map, because
+ *  a second spelling of this is how a raw key like "grok" reaches prose. */
+const ENGINE_LABELS: Record<string, string> = {
+  chatgpt: "ChatGPT", perplexity: "Perplexity", claude: "Claude", gemini: "Gemini",
+};
+
 /** "A", "A and B", "A, B and C" — for engine names in prose. */
 function listOf(names: string[]): string {
   if (names.length <= 1) return names[0] ?? "";
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
+/** A finite number, or undefined.
+ *
+ * The upstream types overstate what is present: `AiPlatformScore` declares
+ * `total` as required and does not declare `asked` at all — it arrives through
+ * the index signature — so neither can be trusted to be a number at runtime.
+ */
 function numeric(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
@@ -94,7 +100,16 @@ function engineReading(
   const answered = numeric(ps.total) ?? numeric(ps.queries) ?? 0;
   const asked = numeric(ps.asked) ?? answered;
   const score = numeric(ps.score);
-  if (answered > 0 && score !== undefined) return { value: score, state: "scored" };
+  if (answered > 0) {
+    // The provider ANSWERED, so it is not silent whatever else is missing.
+    // Blaming it for our own absent field would be this bug inverted — the
+    // score is appearances over answered, so derive it rather than misattribute.
+    const appearances = numeric(ps.appearances);
+    const value = score ?? (appearances === undefined
+      ? null
+      : Math.round((appearances / answered) * 100));
+    if (value !== null) return { value, state: "scored" };
+  }
   return { value: null, state: asked > 0 ? "unanswered" : "not_asked" };
 }
 
@@ -109,10 +124,17 @@ function engineReading(
  * that into a reported gap — so a silent Claude on the primary site fabricated
  * a "claude" gap against every competitor Claude *did* answer about.
  */
-function engineAppears(av: AiVisibilityBlock, key: EngineKey): boolean | null {
+function engineAppears(
+  av: AiVisibilityBlock,
+  key: EngineKey,
+  state: EngineState,
+): boolean | null {
   const ps = av.platform_scores?.[key];
   if (!ps) return null;
-  if (engineReading(av, key).state !== "scored") return null;
+  // The state is PASSED IN, not re-derived. Two independent derivations of one
+  // fact can disagree, and the disagreement here would be a row reported as
+  // `scored` in engine_status and `null` in appears_by_engine.
+  if (state !== "scored") return null;
   if (typeof ps.appearances === "number") return ps.appearances > 0;
   return (ps.results ?? []).some((r) => r.client_appears === true);
 }
@@ -244,10 +266,10 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     gemini: readings.gemini.state,
   };
   const appears_by_engine = {
-    chatgpt: engineAppears(av, "ChatGPT"),
-    perplexity: engineAppears(av, "Perplexity"),
-    claude: engineAppears(av, "Claude"),
-    gemini: engineAppears(av, "Gemini"),
+    chatgpt: engineAppears(av, "ChatGPT", readings.chatgpt.state),
+    perplexity: engineAppears(av, "Perplexity", readings.perplexity.state),
+    claude: engineAppears(av, "Claude", readings.claude.state),
+    gemini: engineAppears(av, "Gemini", readings.gemini.state),
   };
   const competitor = topCompetitor(av);
   const name = av.business_info?.business_name ?? report.base_url;
@@ -266,9 +288,6 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   // attributed, and calling an empty 200 a timeout is a small lie the reader
   // has no way to check. report_view.py refuses the same attribution on the
   // same grounds.
-  const ENGINE_LABELS: Record<string, string> = {
-    chatgpt: "ChatGPT", perplexity: "Perplexity", claude: "Claude", gemini: "Gemini",
-  };
   const unanswered = Object.entries(engine_status)
     .filter(([, state]) => state === "unanswered")
     .map(([key]) => ENGINE_LABELS[key] ?? key);
@@ -281,11 +300,16 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   const scoredNames = Object.entries(engine_status)
     .filter(([, state]) => state === "scored")
     .map(([key]) => ENGINE_LABELS[key] ?? key);
-  const across = scoredNames.length ? listOf(scoredNames) : "no engines";
-  const summary =
-    competitor && competitor.length > 0
+  // NO SCORE SENTENCE when nothing was scored. "scores 0/100 across no engines"
+  // pairs a verdict with its own refutation, and 0/100 over zero observations
+  // is the fabricated number this whole change exists to stop. The upstream
+  // page refuses to render this case at all.
+  const summary = scoredNames.length === 0
+    ? `${name}: no AI-visibility score — no engine returned an answer for this `
+      + `run, so there is nothing to report.${simulatedNote}${nameNote}`
+    : competitor && competitor.length > 0
       ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}${nameNote}${coverageNote}`
-      : `${name} scores ${score}/100 for AI visibility across ${across}.${simulatedNote}${nameNote}${coverageNote}`;
+      : `${name} scores ${score}/100 for AI visibility across ${listOf(scoredNames)}.${simulatedNote}${nameNote}${coverageNote}`;
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
@@ -428,8 +452,8 @@ export function computeTrend(
 }
 
 export function computeChanges(
-  current: { score: number; by_engine: Record<string, number> },
-  previous: { score: number; by_engine: Record<string, number> },
+  current: { score: number; by_engine: Record<string, number | null> },
+  previous: { score: number; by_engine: Record<string, number | null> },
 ): Changes {
   const engine_changes: EngineChange[] = [];
   for (const engine of Object.keys(current.by_engine)) {

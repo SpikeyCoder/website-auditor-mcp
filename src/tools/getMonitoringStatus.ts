@@ -90,12 +90,19 @@ export async function getMonitoringStatus(
   }
 }
 
-/** Coerce nullable per-engine scores to numbers for the delta computation. */
-function mapEngines(by: { chatgpt: number | null; perplexity: number | null; claude: number | null; gemini: number | null }): Record<string, number> {
+/** Per-engine scores for the delta computation, NULLS PRESERVED.
+ *
+ * This used to `num()` them to zero, which is the same "untested is a zero"
+ * mistake one layer along: a Claude outage in a scheduled snapshot became
+ * {from: 55, to: 0, delta: -55} — a 55-point crash that did not happen,
+ * published to a paying customer. computeChanges now skips an engine missing
+ * on either side, and coercing here would route straight around that guard.
+ */
+export function mapEngines(by: { chatgpt: number | null; perplexity: number | null; claude: number | null; gemini: number | null }): Record<string, number | null> {
   return {
-    chatgpt: num(by.chatgpt),
-    perplexity: num(by.perplexity),
-    claude: num(by.claude),
-    gemini: num(by.gemini),
+    chatgpt: by.chatgpt,
+    perplexity: by.perplexity,
+    claude: by.claude,
+    gemini: by.gemini,
   };
 }
