@@ -57,6 +57,23 @@ type AuditOutcome =
   | { kind: "quota_error" } // attempted, API returned 429
   | { kind: "error"; error: unknown };
 
+/**
+ * Is this engine a gap: the competitor was named here and the primary was not?
+ *
+ * EXPORTED so tests drive this and not a copy of it. The first version of the
+ * untested-vs-zero change asserted only that `appears_by_engine.claude` became
+ * null and claimed that fixed the fabricated gap. It did not — the guard read
+ * `!primaryAv.appears_by_engine[engine]`, and `!null` is `true` exactly as
+ * `!false` was — and the test that was supposed to cover it re-implemented the
+ * predicate inline, so reverting the real code still passed.
+ *
+ * BOTH sides must be explicit. A gap is a claim about two measurements, and an
+ * engine that never answered for either site cannot support half of it.
+ */
+export function isGap(primary: boolean | null, competitor: boolean | null): boolean {
+  return competitor === true && primary === false;
+}
+
 export async function compareCompetitors(
   args: CompareCompetitorsArgs,
   deps: ToolDeps,
@@ -171,7 +188,7 @@ export async function compareCompetitors(
   const gaps: CompetitorGap[] = [];
   for (const a of audited) {
     for (const engine of ENGINES) {
-      if (a.av.appears_by_engine[engine] && !primaryAv.appears_by_engine[engine]) {
+      if (isGap(primaryAv.appears_by_engine[engine], a.av.appears_by_engine[engine])) {
         gaps.push({ engine, competitor: a.host });
       }
     }

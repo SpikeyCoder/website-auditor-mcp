@@ -46,10 +46,17 @@ export interface AiPlatformResult {
   [key: string]: unknown;
 }
 
+export type EngineState = "scored" | "unanswered" | "not_asked";
+
 export interface AiPlatformScore {
   score: number;
   appearances: number;
+  /** Queries the provider ANSWERED — the score's denominator, not what was
+   *  sent. 0 with `asked` > 0 means the engine was asked and stayed silent. */
   total: number;
+  /** Queries SENT to this engine. Arrives through the index signature on older
+   *  payloads, so treat it as optional however the shape reads. */
+  asked?: number;
   results: AiPlatformResult[];
   [key: string]: unknown;
 }
@@ -142,10 +149,13 @@ export interface AuditReport {
 
 /** Per-engine boolean map (does the site appear on this engine at all). */
 export interface EnginePresence {
-  chatgpt: boolean;
-  perplexity: boolean;
-  claude: boolean;
-  gemini: boolean;
+  /** NULL when the engine was not scored. `false` asserts the engine did not
+   *  name the business, which an unmeasured engine cannot support — and
+   *  compare_competitors turns that assertion into a reported gap. */
+  chatgpt: boolean | null;
+  perplexity: boolean | null;
+  claude: boolean | null;
+  gemini: boolean | null;
 }
 
 /** One stored AI-visibility measurement, as the history endpoint returns it. */
@@ -184,7 +194,18 @@ export interface AiVisibilityTrend {
 
 export interface AiVisibility {
   score: number;
-  by_engine: { chatgpt: number; perplexity: number; claude: number; gemini: number };
+  /** Per-engine score, or NULL when the engine was not scored. A null is not a
+   *  zero: zero means the engine answered and never named the business.
+   *  `engine_status` says which of the two non-scored reasons applies. */
+  by_engine: {
+    chatgpt: number | null; perplexity: number | null;
+    claude: number | null; gemini: number | null;
+  };
+  /** Why each engine's score is what it is. */
+  engine_status: {
+    chatgpt: EngineState; perplexity: EngineState;
+    claude: EngineState; gemini: EngineState;
+  };
   /**
    * Whether the site appeared at all on each engine (derived from the per-query
    * `client_appears` signal). Distinct from `by_engine` scores: an engine can
@@ -197,6 +218,9 @@ export interface AiVisibility {
   trend: AiVisibilityTrend | null;
   /** Present exactly when `trend` is null: the human-readable reason. */
   trend_note?: string;
+  /** Present exactly when an engine was asked and did not answer. Also folded
+   *  into `summary`, because a field the model never reads changes nothing. */
+  coverage_note?: string;
   /**
    * Set ONLY when the business name could not be verified. The score is
    * computed from queries built around that name, so an unverified name means

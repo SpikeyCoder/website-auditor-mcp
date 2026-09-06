@@ -62,21 +62,42 @@ const open = <T extends ZodRawShape>(shape: T) => z.object(shape).passthrough();
 
 // ─── shared fragments ──────────────────────────────────────────────────────
 
+// NULLABLE, and it had to widen in the same commit as the mapper: the SDK
+// validates `structuredContent` against this on BOTH sides of the wire
+// (server/mcp.js throws McpError on a mismatch), so a null arriving against
+// `z.number()` would turn a successful, quota-spending audit into an error
+// naming neither the domain nor the engine.
 const engineScores = open({
-  chatgpt: z.number(),
-  perplexity: z.number(),
-  claude: z.number(),
-  gemini: z.number(),
-}).describe("Per-engine AI-visibility score, 0–100.");
+  chatgpt: z.number().nullable(),
+  perplexity: z.number().nullable(),
+  claude: z.number().nullable(),
+  gemini: z.number().nullable(),
+}).describe(
+  "Per-engine AI-visibility score, 0–100. NULL means the engine was not "
+  + "scored — see engine_status for which of the two reasons. A null is NOT a "
+  + "zero: zero means the engine answered and never named the business.");
+
+const engineStatus = open({
+  chatgpt: z.enum(["scored", "unanswered", "not_asked"]),
+  perplexity: z.enum(["scored", "unanswered", "not_asked"]),
+  claude: z.enum(["scored", "unanswered", "not_asked"]),
+  gemini: z.enum(["scored", "unanswered", "not_asked"]),
+}).describe(
+  "Why each engine's score is what it is. 'scored' — the engine answered and "
+  + "the number is a measurement. 'unanswered' — it was asked and returned "
+  + "nothing, so there is no score; do not report it as 0. 'not_asked' — it "
+  + "was not part of this run at all.");
 
 const enginePresence = open({
-  chatgpt: z.boolean(),
-  perplexity: z.boolean(),
-  claude: z.boolean(),
-  gemini: z.boolean(),
+  chatgpt: z.boolean().nullable(),
+  perplexity: z.boolean().nullable(),
+  claude: z.boolean().nullable(),
+  gemini: z.boolean().nullable(),
 }).describe(
   "Whether the site appeared at all on each engine. Distinct from the scores: "
-  + "an engine can have appearances yet a low score, or the reverse.");
+  + "an engine can have appearances yet a low score, or the reverse. NULL when "
+  + "the engine was not scored — false would assert it did not name the "
+  + "business, which is a claim an unmeasured engine cannot support.");
 
 const engineChange = open({
   engine: z.string(),
@@ -139,11 +160,15 @@ const changes = open({
 export const getAiVisibilityOutput: ZodRawShape = {
   score: z.number().describe("Overall AI-visibility score, 0–100."),
   by_engine: engineScores,
+  engine_status: engineStatus,
   appears_by_engine: enginePresence,
   top_competitor: z.string().nullable().describe("The competitor appearing in place of the site, if any."),
   summary: z.string(),
   trend: aiVisibilityTrend.nullable().describe("Pro only; null when unavailable — trend_note says why."),
   trend_note: z.string().optional().describe("Present exactly when trend is null: the reason."),
+  coverage_note: z.string().optional().describe(
+    "Present exactly when an engine was asked and did not answer. Relay it: "
+    + "the score covers fewer engines than the four this tool can query."),
   name_warning: z.string().optional().describe(
     "Set ONLY when the business name behind the score could not be verified. The score is "
     + "computed from queries built around that name, so relay this caveat rather than "
