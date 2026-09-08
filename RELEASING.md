@@ -55,7 +55,24 @@ rather than assuming. The manual steps are kept for when something goes wrong.
 
 ## Steps
 
-1. Bump the version. SIX strings must agree — package.json, package-lock.json
+> **The hosted server is NOT in this list, and `npm run release` does not touch
+> it.** `src/http.ts` runs on Cloud Run as `website-auditor-mcp`, mapped to
+> mcp.website-auditor.io, and it is deployed by hand:
+>
+> ```
+> gcloud run deploy website-auditor-mcp --source . --region us-central1
+> ```
+>
+> Measured 2026-09-07, after PR #76 merged to main: `curl
+> https://mcp.website-auditor.io/health` returned `{"ok":true,"version":"1.0.22"}`
+> and its `tools/list` carried no `engine_status` — i.e. the live build predated
+> the fix while reporting a version string main had moved past. Publishing to
+> npm leaves every HTTP, OAuth and Codex-plugin client on the old build.
+>
+> A version number cannot tell a stale revision from a current one (see
+> docs/SUBMISSION-TESTS.md). Check the endpoint, not the number.
+
+1. Bump the version. SEVEN strings must agree — package.json, package-lock.json
    (x2), manifest.json, server.json (x2) and `src/version.ts`.
    `tests/manifests.test.ts` fails if any lags, after a bump once left the
    manifests behind at 1.0.7.

@@ -66,11 +66,11 @@ git fetch origin --quiet
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || die "local main differs from origin/main. Push or pull first."
 ok "in sync with origin/main"
 
-# Six strings have to agree; tests/manifests.test.ts is the authority. A bump
+# Seven strings have to agree; tests/manifests.test.ts is the authority. A bump
 # once left the manifests behind at 1.0.7 while the code said otherwise.
 npx vitest run tests/manifests.test.ts >/dev/null 2>&1 \
   || die "version strings disagree across package.json / package-lock / manifest.json / server.json / src/version.ts. Run: npx vitest run tests/manifests.test.ts"
-ok "all six version strings agree on ${VERSION}"
+ok "all seven version strings agree on ${VERSION}"
 
 # Auth for BOTH channels, checked before either publish.
 npm whoami >/dev/null 2>&1 || die "not logged in to npm. Run: npm login"
