@@ -37,6 +37,9 @@ import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } fr
 export interface CompareCompetitorsArgs {
   domain: string;
   competitors: string[];
+  /** Optional market scope, applied to the primary domain AND every
+   *  competitor: the comparison asks about one market, not one business. */
+  business_location?: string;
 }
 
 const ENGINES = ["chatgpt", "perplexity", "claude", "gemini"] as const;
@@ -124,7 +127,8 @@ export async function compareCompetitors(
   // NB: we do NOT short-circuit on a known-zero budget here — auditDomain
   // consults the cache first, so a fully-cached re-run still succeeds with zero
   // quota spend. Only an uncached primary with no budget yields OVER_QUOTA.
-  const primaryOutcome = await auditDomain(deps, primaryHost, quota);
+  const primaryOutcome = await auditDomain(
+    deps, primaryHost, quota, args.business_location);
   switch (primaryOutcome.kind) {
     case "skip_quota":
     case "quota_error":
@@ -145,7 +149,8 @@ export async function compareCompetitors(
   // So a cached competitor is still served for free rather than dropped.
   const audited: Array<{ host: string; av: AiVisibility }> = [];
   for (const host of competitorHosts) {
-    const outcome = await auditDomain(deps, host, quota);
+    const outcome = await auditDomain(
+      deps, host, quota, args.business_location);
     switch (outcome.kind) {
       case "scored":
         audited.push({ host, av: outcome.av });
@@ -222,8 +227,18 @@ export async function compareCompetitors(
  * Obtain an audit for a domain, honoring the cache and the known quota budget.
  * Mutates `quota` (auditsUsed, cachedReused, and the learned remaining/limit/reset).
  */
-async function auditDomain(deps: ToolDeps, host: string, quota: QuotaState): Promise<AuditOutcome> {
-  const cached = deps.cache.get(host);
+async function auditDomain(
+  deps: ToolDeps,
+  host: string,
+  quota: QuotaState,
+  businessCity?: string,
+): Promise<AuditOutcome> {
+  // KEYED WITH THE LOCATION, not by host alone. The same domain scored
+  // against "Chiang Mai, Thailand" and against nothing are two different
+  // measurements — different questions, different competitors — and a
+  // host-only key would serve whichever landed first for 24 hours.
+  const cacheKey = businessCity ? `${host}\u001f${businessCity}` : host;
+  const cached = deps.cache.get(cacheKey);
   if (cached) {
     quota.cachedReused += 1;
     return { kind: "scored", av: cached, fromCache: true };
@@ -235,7 +250,7 @@ async function auditDomain(deps: ToolDeps, host: string, quota: QuotaState): Pro
   }
 
   try {
-    const res = await deps.client.runAudit({ domain: host });
+    const res = await deps.client.runAudit({ domain: host, businessCity });
     quota.auditsUsed += 1;
     if (res.rateLimit) {
       if (res.rateLimit.remaining !== null) quota.remaining = res.rateLimit.remaining;
@@ -244,7 +259,7 @@ async function auditDomain(deps: ToolDeps, host: string, quota: QuotaState): Pro
     }
     if (detectUnreachable(res.report)) return { kind: "unreachable" };
     const av = toAiVisibility(res.report);
-    deps.cache.set(host, av);
+    deps.cache.set(cacheKey, av);
     return { kind: "scored", av, fromCache: false };
   } catch (e) {
     if (e instanceof WaApiError && e.code === "OVER_QUOTA") {

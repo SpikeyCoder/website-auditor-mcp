@@ -323,3 +323,78 @@ describe("compare_competitors [Pro] — appearance-based gaps", () => {
     expect(res.data.gaps).toHaveLength(2);
   });
 });
+
+describe("compare_competitors — the market scope is the question's, not each domain's", () => {
+  const ok = (domain: string): AuditResponse =>
+    ({ runId: `run-${domain}`, report: reportFor(domain), raw: {} });
+
+  it("applies one business_location to the primary AND every competitor", async () => {
+    // Deliberate: a comparison asks about one market — "who does ChatGPT
+    // recommend for a trauma retreat in Chiang Mai" — so the place belongs to
+    // the question. Scoring competitors globally while scoring the caller
+    // locally would compare two different questions and call it a ranking.
+    const runAudit = vi.fn(async ({ domain }: { domain: string }) => ok(domain));
+    const res = await compareCompetitors(
+      {
+        domain: "example.com",
+        competitors: ["rival.com", "other.com"],
+        business_location: "Chiang Mai, Thailand",
+      },
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    expect(res.ok).toBe(true);
+    expect(runAudit).toHaveBeenCalledTimes(3);
+    for (const call of runAudit.mock.calls) {
+      expect(call[0].businessCity).toBe("Chiang Mai, Thailand");
+    }
+  });
+
+  it("sends no city when none was given, so detection is unchanged", async () => {
+    const runAudit = vi.fn(async ({ domain }: { domain: string }) => ok(domain));
+    await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"] },
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    expect(runAudit).toHaveBeenCalledTimes(2);
+    for (const call of runAudit.mock.calls) {
+      expect(call[0].businessCity).toBeUndefined();
+    }
+  });
+
+  it("does NOT forward a business_name — that would score rivals as the caller", async () => {
+    const runAudit = vi.fn(async ({ domain }: { domain: string }) => ok(domain));
+    await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"],
+        business_location: "Hilo, HI" } as never,
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    for (const call of runAudit.mock.calls) {
+      expect(call[0].businessName).toBeUndefined();
+    }
+  });
+
+  it("caches per location, so two scopes are two measurements", async () => {
+    // The cache is keyed by host alone until you add a location to the
+    // question. A domain scored against Chiang Mai and against nothing are
+    // different measurements with different competitors, and a host-only key
+    // would serve whichever landed first for the next 24 hours.
+    const cache = new InMemoryAuditCache({ ttlMs: 60_000 });
+    const runAudit = vi.fn(async ({ domain }: { domain: string }) => ok(domain));
+    const deps = makeDeps({ tier: "pro", client: { runAudit }, cache });
+
+    await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"] }, deps);
+    const afterGlobal = runAudit.mock.calls.length;
+
+    await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"],
+        business_location: "Chiang Mai, Thailand" }, deps);
+    expect(runAudit.mock.calls.length).toBe(afterGlobal * 2);
+
+    // ...and the SAME scope still reuses, so the quota saving survives.
+    await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"],
+        business_location: "Chiang Mai, Thailand" }, deps);
+    expect(runAudit.mock.calls.length).toBe(afterGlobal * 2);
+  });
+});

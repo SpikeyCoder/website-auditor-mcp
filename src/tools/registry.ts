@@ -106,6 +106,18 @@ export const P0_TOOLS: ToolSpec[] = [
     inputSchema: {
       domain: domainArg,
       competitors: z.array(z.string()).describe("Competitor domains to compare against."),
+      // ONE LOCATION FOR THE WHOLE COMPARISON, and no business_name.
+      //
+      // A comparison is a question about one market — "who does ChatGPT
+      // recommend for a trauma retreat in Chiang Mai" — so the place belongs
+      // to the question, not to each domain in it, and it is applied to every
+      // audit the tool fans out. A name does not work that way: it identifies
+      // ONE business, and forwarding the caller's to their competitors would
+      // score every one of them as the caller.
+      //
+      // Optional, like everywhere else it appears. Omitted, each audit detects
+      // its own location exactly as it does today.
+      business_location: businessLocationArg,
     },
   },
 ];
