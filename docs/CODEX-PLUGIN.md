@@ -98,7 +98,7 @@ prompts change, change the skills in the same PR; nothing enforces this.
 **Versioning:** the plugin has its own version (`.codex-plugin/plugin.json`).
 The bundled server is unpinned (`npx -y`), so npm releases reach plugin users
 without a plugin update. Bump the plugin version only when the plugin itself
-(manifest, skills) changes. It is NOT one of the six strings the release
+(manifest, skills) changes. It is NOT one of the seven strings the release
 process keeps in agreement, and `tests/manifests.test.ts` does not check it.
 
 ## Phase 2 — the hosted server

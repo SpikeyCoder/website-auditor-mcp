@@ -8,7 +8,9 @@
  * `import { SERVER_VERSION } from "../mcp/server.js"` keeps working.
  *
  * MUST stay in lockstep with package.json, package-lock.json, manifest.json
- * and server.json — tests/manifests.test.ts pins all six together, after a
+ * and server.json — tests/manifests.test.ts pins all SEVEN together (the
+ * six it asserts, plus package.json's own version they are compared to),
+ * after a
  * bump once left the manifests behind at 1.0.7 while the code said otherwise.
  */
 export const SERVER_VERSION = "1.0.23";
