@@ -362,15 +362,44 @@ describe("compare_competitors — the market scope is the question's, not each d
   });
 
   it("does NOT forward a business_name — that would score rivals as the caller", async () => {
+    // SUPPLIED, or this asserts nothing. The first version of this test never
+    // put a business_name in the args, so it passed against an implementation
+    // that forwarded one — the mutation that added `businessName: "Acme"` to
+    // the runAudit call was caught by the source change, not by this test.
     const runAudit = vi.fn(async ({ domain }: { domain: string }) => ok(domain));
     await compareCompetitors(
       { domain: "example.com", competitors: ["rival.com"],
-        business_location: "Hilo, HI" } as never,
+        business_location: "Hilo, HI",
+        business_name: "Acme Roofing" } as never,
       makeDeps({ tier: "pro", client: { runAudit } }),
     );
+    expect(runAudit).toHaveBeenCalledTimes(2);
     for (const call of runAudit.mock.calls) {
       expect(call[0].businessName).toBeUndefined();
     }
+  });
+
+  it("names the market it used, so a scoped comparison is not mistaken for a global one", async () => {
+    const runAudit = vi.fn(async ({ domain }: { domain: string }) => ok(domain));
+    const scoped = await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"],
+        business_location: "  Chiang Mai, Thailand  " },
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    expect(scoped.ok).toBe(true);
+    if (!scoped.ok) return;
+    // Trimmed once at the entry, so the value named here is the value sent
+    // AND the value in the cache key — they disagreed before, and the second
+    // spelling re-spent the hard 10/day quota to learn what the first knew.
+    expect(scoped.data.market).toBe("Chiang Mai, Thailand");
+
+    const global = await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com"] },
+      makeDeps({ tier: "pro", client: { runAudit: vi.fn(async ({ domain }: { domain: string }) => ok(domain)) } }),
+    );
+    expect(global.ok).toBe(true);
+    if (!global.ok) return;
+    expect(global.data.market).toBeNull();
   });
 
   it("caches per location, so two scopes are two measurements", async () => {

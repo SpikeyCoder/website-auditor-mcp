@@ -227,6 +227,8 @@ export const compareCompetitorsOutput: ZodRawShape = {
     detail: z.string().optional(),
   })),
   summary: z.string(),
+  market: z.string().nullable()
+    .describe("The market every audit in this comparison was scored in, or null when each domain's own location was detected."),
 };
 
 export const trackSiteOutput: ZodRawShape = {

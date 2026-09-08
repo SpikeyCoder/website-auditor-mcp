@@ -127,8 +127,14 @@ export async function compareCompetitors(
   // NB: we do NOT short-circuit on a known-zero budget here — auditDomain
   // consults the cache first, so a fully-cached re-run still succeeds with zero
   // quota spend. Only an uncached primary with no budget yields OVER_QUOTA.
+  // TRIMMED ONCE, HERE. The cache key was built from the raw value while
+  // client.runAudit trims before sending, so " Chiang Mai" and "Chiang Mai"
+  // produced two cache entries for one upstream answer — and the second one
+  // re-spent the hard 10/day quota to learn what the first already knew.
+  const market = typeof args.business_location === 'string'
+    ? args.business_location.trim() : '';
   const primaryOutcome = await auditDomain(
-    deps, primaryHost, quota, args.business_location);
+    deps, primaryHost, quota, market || undefined);
   switch (primaryOutcome.kind) {
     case "skip_quota":
     case "quota_error":
@@ -149,8 +155,7 @@ export async function compareCompetitors(
   // So a cached competitor is still served for free rather than dropped.
   const audited: Array<{ host: string; av: AiVisibility }> = [];
   for (const host of competitorHosts) {
-    const outcome = await auditDomain(
-      deps, host, quota, args.business_location);
+    const outcome = await auditDomain(deps, host, quota, market || undefined);
     switch (outcome.kind) {
       case "scored":
         audited.push({ host, av: outcome.av });
@@ -220,7 +225,11 @@ export async function compareCompetitors(
     cachedReused: quota.cachedReused,
   });
 
-  return ok({ ranking, gaps, quota: compareQuota, skipped, summary });
+  // NAMED IN THE RESULT, because a scoped comparison and an unscoped one are
+  // different measurements and were indistinguishable to every reader —
+  // including whatever later diffs two of them. null rather than '' so "no
+  // market" is one state rather than two.
+  return ok({ ranking, gaps, quota: compareQuota, skipped, summary, market: market || null });
 }
 
 /**

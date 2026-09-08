@@ -14,10 +14,19 @@
 import type { AiVisibility } from "../api/types.js";
 
 export interface AuditCache {
-  /** The cached AI-visibility for a domain, or undefined if absent/expired. */
-  get(domain: string): AiVisibility | undefined;
-  /** Store the AI-visibility for a domain, stamping it at "now". */
-  set(domain: string, av: AiVisibility): void;
+  /**
+   * The cached AI-visibility for a KEY, or undefined if absent/expired.
+   *
+   * A key, not a domain, since compare_competitors began scoping audits by
+   * market: the same host measured in Chiang Mai and measured globally are
+   * two different answers, so the caller mints `host` or `host\u001fmarket`
+   * and this stores whatever it is handed. The interface said "domain" while
+   * a composite was already being passed, which left the next consumer to
+   * reinvent the encoding — or, worse, to pass a bare host and collide.
+   */
+  get(key: string): AiVisibility | undefined;
+  /** Store the AI-visibility for a key, stamping it at "now". */
+  set(key: string, av: AiVisibility): void;
 }
 
 interface CacheEntry {
@@ -41,18 +50,18 @@ export class InMemoryAuditCache implements AuditCache {
     this.now = cfg.now ?? Date.now;
   }
 
-  get(domain: string): AiVisibility | undefined {
-    const entry = this.store.get(domain);
+  get(key: string): AiVisibility | undefined {
+    const entry = this.store.get(key);
     if (!entry) return undefined;
     if (this.now() - entry.storedAt > this.ttlMs) {
-      this.store.delete(domain);
+      this.store.delete(key);
       return undefined;
     }
     return entry.av;
   }
 
-  set(domain: string, av: AiVisibility): void {
-    this.store.set(domain, { av, storedAt: this.now() });
+  set(key: string, av: AiVisibility): void {
+    this.store.set(key, { av, storedAt: this.now() });
   }
 }
 

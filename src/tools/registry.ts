@@ -51,6 +51,21 @@ const businessNameArg = z.string().optional().describe(
   + "audit detects the name from the site and flags it when unverified — a "
   + "guessed name is scored as if confirmed, so supply one only when it is "
   + "actually known.");
+//: The same field, described for a tool that audits SEVERAL domains.
+//:
+//: businessLocationArg's text says "the city the business trades in" and
+//: "leave it out and the audit detects it" — both written for a
+//: single-business tool. On a comparison the location is the QUESTION's, and
+//: it is applied to every domain in it; a model reading the single-business
+//: wording has no way to learn that.
+const compareLocationArg = z.string().optional().describe(
+  "Optional. The market to compare within, e.g. \"Chiang Mai, Thailand\". "
+  + "Applied to the site AND every competitor, because a comparison asks "
+  + "about one market — scoring one locally and the others globally would "
+  + "rank answers to two different questions. Leave it out and each audit "
+  + "detects its own location, which is right for national or global "
+  + "businesses and wrong for local ones.");
+
 const businessLocationArg = z.string().optional().describe(
   "Optional. The city the business trades in, e.g. \"Hilo, HI\". Leave it out "
   + "and the audit detects it; when nothing is detectable the questions widen "
@@ -117,7 +132,7 @@ export const P0_TOOLS: ToolSpec[] = [
       //
       // Optional, like everywhere else it appears. Omitted, each audit detects
       // its own location exactly as it does today.
-      business_location: businessLocationArg,
+      business_location: compareLocationArg,
     },
   },
 ];
