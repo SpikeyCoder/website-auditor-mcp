@@ -53,7 +53,9 @@ so you always get output rather than an error.
 ### Naming the business (optional)
 
 `get_ai_visibility` and `run_audit` both accept two optional arguments that
-decide *what question* the AI-visibility check actually asks:
+decide *what question* the AI-visibility check actually asks.
+`compare_competitors` accepts `business_location` only — see below for why it
+takes no name:
 
 | Argument | Omitted | Supplied |
 |---|---|---|
@@ -69,6 +71,14 @@ its own uncertainty.
 The same applies to location, in the other direction. Omitting it is correct
 for a national or global business and wrong for a local one, since a local
 business measured without a place is measured against the wrong queries.
+
+**On `compare_competitors`:** it takes `business_location` and applies it to
+your site *and every competitor*, because a comparison asks about one market —
+scoring you locally while scoring your rivals globally would rank the answers
+to two different questions. It deliberately takes no `business_name`: a name
+identifies one business, and forwarding yours to your competitors would score
+every one of them as you. The result names the market it used, so a scoped
+comparison is never mistaken for a global one.
 
 ```text
 "Check AI visibility for hawaiibackroad.com,

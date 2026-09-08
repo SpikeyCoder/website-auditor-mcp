@@ -406,6 +406,16 @@ export interface Comparison {
   skipped: SkippedDomain[];
   /** Human/agent-readable summary of what was compared vs. skipped and why. */
   summary: string;
+  /**
+   * The market every audit in this comparison was scored in, or null when
+   * none was given and each domain's own location was detected.
+   *
+   * Present so a reader can tell a scoped comparison from an unscoped one.
+   * They are different measurements — different questions, different
+   * competitors — and diffing them as if they were the same is how a score
+   * appears to move when nothing changed.
+   */
+  market: string | null;
 }
 
 // ─── Phase-1 read tools (benchmark / recommendations / schema / report) ────

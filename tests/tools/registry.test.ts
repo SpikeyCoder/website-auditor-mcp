@@ -95,6 +95,24 @@ describe("tool registry", () => {
     expect(gate.get_monitoring_status).toBe("pro");
   });
 
+  it("compare_competitors takes an OPTIONAL business_location, and no name", () => {
+    const cmp = P0_TOOLS.find((t) => t.name === "compare_competitors")!;
+    const schema = z.object(cmp.inputSchema);
+    const base = { domain: "example.com", competitors: ["rival.com"] };
+
+    // Optional: the tool is unchanged for callers who do not scope it.
+    expect(schema.safeParse(base).success).toBe(true);
+    expect(schema.safeParse({ ...base, business_location: "Chiang Mai, Thailand" })
+      .success).toBe(true);
+
+    // The place belongs to the question, so it is offered here as it is on
+    // get_ai_visibility and run_audit. A NAME identifies one business, and
+    // forwarding the caller's to their rivals would score each of them as the
+    // caller — so this tool deliberately does not take one.
+    expect(Object.keys(cmp.inputSchema).sort())
+      .toEqual(["business_location", "competitors", "domain"]);
+  });
+
   it("track_site is weekly-only in v1 (rejects 'daily', defaults to 'weekly')", () => {
     const track = P1_TOOLS.find((t) => t.name === "track_site")!;
     const schema = z.object(track.inputSchema);
