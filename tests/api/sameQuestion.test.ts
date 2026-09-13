@@ -11,7 +11,9 @@ import {
   newestComparablePair,
   movement,
   day,
-  breaksTheSeries,
+  seriesOf,
+  measuredTheBusiness,
+  laterNote,
 } from "../../src/api/mappers.js";
 import type { SnapshotQuestion } from "../../src/api/types.js";
 
@@ -203,10 +205,54 @@ describe("what a refusal can still say", () => {
     expect(day("2026")).toBe("an unknown date");
   });
 
-  it("re-baselines on a weekly re-audit, or where there is no weekly series, and not on an audit beside one", () => {
-    expect(breaksTheSeries({ source: "scheduled" }, [{ source: "scheduled" }])).toBe(true);
-    expect(breaksTheSeries({ source: "extension" }, [{ source: "scheduled" }, { source: null }])).toBe(false);
-    expect(breaksTheSeries({ source: null }, [{ source: null }, { source: "extension" }])).toBe(true);
-    expect(breaksTheSeries({}, [])).toBe(true);
+  it("finds the newest like-for-like pair among several that asked the same question", () => {
+    const pair = newestComparablePair([snapshot("week-1", asked), snapshot("week-2", asked), snapshot("week-3", asked)]);
+    expect([pair?.from.id, pair?.to.id]).toEqual(["week-2", "week-3"]);
+  });
+});
+
+describe("the series: the weekly re-audits, and whatever asked their question", () => {
+  const asked = question();
+  const elsewhere = question({ key: "q-global", business_location: "", queries: ["best locksmith"] });
+  const row = (id: string, source: string | null, q: SnapshotQuestion | null) => ({ id, source, question: q });
+  const ids = (rows: Array<{ id: string }>) => rows.map((r) => r.id);
+
+  it("is every snapshot until one is a weekly re-audit", () => {
+    expect(ids(seriesOf([row("by-hand", null, asked), row("scan", "extension", elsewhere)]))).toEqual(["by-hand", "scan"]);
+  });
+
+  it("then keeps the weekly re-audits and what asked the newest one's question, whoever wrote it", () => {
+    expect(ids(seriesOf([
+      row("by-hand-asked", null, asked),
+      row("week-1", "scheduled", elsewhere),
+      row("by-hand-elsewhere", null, elsewhere),
+      row("week-2", "scheduled", asked),
+      row("scan-asked", "extension", asked),
+      row("by-hand-elsewhere-later", null, elsewhere),
+    ]))).toEqual(["by-hand-asked", "week-1", "week-2", "scan-asked"]);
+  });
+
+  it("keeps only the weekly re-audits when the newest of them recorded nothing", () => {
+    expect(ids(seriesOf([row("week-1", "scheduled", asked), row("week-2", "scheduled", null), row("by-hand", null, asked)])))
+      .toEqual(["week-1", "week-2"]);
+  });
+
+  it("does not count a weekly re-audit that measured nothing of the business", () => {
+    expect(measuredTheBusiness({ source: "scheduled_unmeasured" })).toBe(false);
+    expect(measuredTheBusiness({ source: "scheduled" })).toBe(true);
+    expect(measuredTheBusiness({ source: null })).toBe(true);
+    expect(measuredTheBusiness({})).toBe(true);
+  });
+
+  it("names what it leaves out after the latest, and says nothing when nothing is left out", () => {
+    const latest = { captured_at: "2026-09-08T09:00:00Z", question: asked };
+    expect(laterNote([], latest)).toBe("");
+    expect(laterNote([
+      { captured_at: "2026-09-09T09:00:00Z", question: null },
+      { captured_at: "2026-09-10T09:00:00Z", question: elsewhere },
+    ], latest)).toBe(
+      " Left out as not part of the weekly series: 1 snapshot that asked a different question and 1 snapshot that "
+      + "does not record what it asked, newer than 2026-09-08. The newest of them that records its question, on "
+      + '2026-09-10, asked about no market rather than "Austin, TX".');
   });
 });

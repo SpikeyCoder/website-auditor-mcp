@@ -597,6 +597,10 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     () => { throw new Error("expected get_changes to refuse"); },
     (e: unknown) => e as WaApiError,
   );
+  const weekly = (captured_at: string, score: number, question: unknown = ASKED) =>
+    ({ ...row(captured_at, score, question), source: "scheduled" });
+  const byHand = (captured_at: string, score: number, question: unknown = ASKED) =>
+    ({ ...row(captured_at, score, question), source: null });
 
   it("passes over a snapshot that asked another question, names both dates, and says what it passed over", async () => {
     const changes = await clientFor([
@@ -622,7 +626,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(error.code).toBe("NOT_YET_AVAILABLE");
     expect(error.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-09-08T09:00:00Z" });
     expect(error.message).toBe(
-      'AI visibility for example.com re-baselined on 2026-09-08: the latest snapshot asked about the market '
+      "AI visibility for example.com re-baselined on 2026-09-08: that day's snapshot asked about the market "
       + '"Honolulu, HI" rather than none, compared with the snapshot on 2026-09-01, and no earlier snapshot '
       + "asked the same question, so there is no like-for-like change for it yet.");
   });
@@ -693,28 +697,27 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       + "1 snapshot that asked a different question and 1 snapshot that does not record what it asked.");
   });
 
-  it("an audit by hand that asked something new is not a re-baseline, and the weekly change before it still shows", async () => {
-    const weekly = (captured_at: string, score: number, question: unknown = ASKED) =>
-      ({ ...row(captured_at, score, question), source: "scheduled" });
+  it("leaves out an audit that asked what the weekly re-audits do not, says so, and still shows the weekly change", async () => {
     const series = [weekly("2026-09-01T09:00:00Z", 40), weekly("2026-09-08T09:00:00Z", 30)];
-    const previous_change = {
-      from_captured_at: "2026-09-01T09:00:00Z", to_captured_at: "2026-09-08T09:00:00Z", score_delta: -10,
-    };
-
-    const byHand = await failure(clientFor([
-      ...series, { ...row("2026-09-10T12:00:00Z", 20, ELSEWHERE), source: "extension" },
-    ]).getChanges({ domain: "example.com" }));
-    expect(byHand.details).toEqual({ reason: "question_changed", previous_change });
-    expect(byHand.message).toBe(
-      "The latest AI-visibility snapshot for example.com, on 2026-09-10, is not a weekly re-audit. It asked about "
-      + 'the market "Honolulu, HI" rather than none, compared with the snapshot on 2026-09-08, and no earlier '
-      + "snapshot asked the same question, so there is no like-for-like change for it; the weekly re-audits did "
-      + "not re-baseline. The most recent like-for-like change before it was down 10, from 2026-09-01 to 2026-09-08.");
+    for (const source of [null, "extension"]) {
+      const changes = await clientFor([...series, { ...row("2026-09-10T12:00:00Z", 20, ELSEWHERE), source }])
+        .getChanges({ domain: "example.com" });
+      expect(changes.score_delta).toBe(-10);
+      expect(changes.to_captured_at).toBe("2026-09-08T09:00:00Z");
+      expect(changes.note).toBe(
+        "Left out as not part of the weekly series: 1 snapshot that asked a different question, newer than "
+        + "2026-09-08. The newest of them that records its question, on 2026-09-10, asked about the market "
+        + '"Honolulu, HI" rather than none.');
+    }
 
     // The weekly re-audit itself asking something new does start the series again.
     const moved = await failure(clientFor([...series, weekly("2026-09-15T09:00:00Z", 20, ELSEWHERE)])
       .getChanges({ domain: "example.com" }));
-    expect(moved.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-09-15T09:00:00Z", previous_change });
+    expect(moved.details).toEqual({
+      reason: "question_changed",
+      rebaselined_at: "2026-09-15T09:00:00Z",
+      previous_change: { from_captured_at: "2026-09-01T09:00:00Z", to_captured_at: "2026-09-08T09:00:00Z", score_delta: -10 },
+    });
     expect(moved.message).toMatch(/^AI visibility for example\.com re-baselined on 2026-09-15: /);
   });
 
@@ -753,6 +756,119 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     const error = await failure(clientFor([row("2026-09-05T09:00:00Z", 70, ELSEWHERE), row("2026-09-08T09:00:00Z", 50)])
       .getChanges({ domain: "example.com", since: "last-week" }));
     expect(error.message).toContain("since last-week");
+  });
+
+  // ── the series, as /api/monitoring-status reads it ────────────────────────
+
+  it("takes a newer audit that asked the weekly question as the latest", async () => {
+    const changes = await clientFor([
+      weekly("2026-08-30T09:00:00Z", 60), weekly("2026-09-06T09:00:00Z", 30), byHand("2026-09-10T12:00:00Z", 80),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(50);
+    expect(changes.from_captured_at).toBe("2026-09-06T09:00:00Z");
+  });
+
+  it("has nothing to compare when the only weekly re-audit is the oldest snapshot and the rest asked something else", async () => {
+    const error = await failure(clientFor([weekly("2026-09-01T09:00:00Z", 40), byHand("2026-09-05T12:00:00Z", 60, ELSEWHERE)])
+      .getChanges({ domain: "example.com" }));
+    expect(error.code).toBe("NOT_YET_AVAILABLE");
+    expect(error.message).toBe(
+      "Not enough AI-visibility history for example.com yet: its only weekly re-audit so far, on 2026-09-01, has "
+      + "nothing before it to compare with. Left out as not part of the weekly series: 1 snapshot that asked a "
+      + "different question, newer than 2026-09-01. The newest of them that records its question, on 2026-09-05, "
+      + 'asked about the market "Honolulu, HI" rather than none.');
+  });
+
+  it("compares with the snapshot that asked the question most recently, whoever wrote it, as monitoring does", async () => {
+    const changes = await clientFor([
+      weekly("2026-09-07T09:00:00Z", 40),
+      byHand("2026-09-10T12:00:00Z", 70),
+      weekly("2026-09-14T09:00:00Z", 50, { ...ASKED, key: "q-ltd", business_name: "Example Co Ltd" }),
+      weekly("2026-09-21T09:00:00Z", 45),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(-25);
+    expect(changes.from_captured_at).toBe("2026-09-10T12:00:00Z");
+    expect(changes.skipped_snapshots).toBe(1);
+
+    // An audit that asked what a later weekly re-audit asks is its base, not a re-baseline.
+    const moved = await clientFor([
+      byHand("2026-09-01T12:00:00Z", 30, ELSEWHERE),
+      weekly("2026-09-02T09:00:00Z", 40),
+      weekly("2026-09-09T09:00:00Z", 50, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" });
+    expect(moved.score_delta).toBe(20);
+    expect(moved.from_captured_at).toBe("2026-09-01T12:00:00Z");
+
+    // A snapshot beside the series, between two that asked the same question, is passed over and counted.
+    const between = await clientFor([
+      weekly("2026-09-01T09:00:00Z", 40), byHand("2026-09-04T12:00:00Z", 90, ELSEWHERE), weekly("2026-09-08T09:00:00Z", 30),
+    ]).getChanges({ domain: "example.com" });
+    expect(between.skipped_snapshots).toBe(1);
+    expect(between.note).toBe(
+      "Compared with 2026-09-01, the most recent snapshot that asked the same question; passed over in between: "
+      + "1 snapshot that asked a different question.");
+  });
+
+  it("explains a weekly re-baseline against the weekly re-audits, not an audit beside them", async () => {
+    const error = await failure(clientFor([
+      weekly("2026-09-07T09:00:00Z", 40),
+      byHand("2026-09-10T12:00:00Z", 60, ELSEWHERE),
+      weekly("2026-09-14T09:00:00Z", 50, { ...ASKED, key: "q-category", queries: ["best example store"] }),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-09-14T09:00:00Z" });
+    expect(error.message).toContain("compared with the snapshot on 2026-09-07");
+    expect(error.message).not.toContain("Honolulu");
+  });
+
+  it("gives the weekly re-audits' last like-for-like change before a re-baseline, not a newer pair beside them", async () => {
+    const error = await failure(clientFor([
+      weekly("2026-09-01T09:00:00Z", 40),
+      weekly("2026-09-08T09:00:00Z", 30),
+      byHand("2026-09-10T12:00:00Z", 60, ELSEWHERE),
+      byHand("2026-09-12T12:00:00Z", 70, ELSEWHERE),
+      weekly("2026-09-15T09:00:00Z", 20, { ...ASKED, key: "q-category", queries: ["best example store"] }),
+    ]).getChanges({ domain: "example.com" }));
+    expect((error.details as { previous_change?: unknown }).previous_change).toEqual({
+      from_captured_at: "2026-09-01T09:00:00Z", to_captured_at: "2026-09-08T09:00:00Z", score_delta: -10,
+    });
+  });
+
+  it("re-baselines on the weekly re-audit that did, and names the newer audit it leaves out", async () => {
+    const error = await failure(clientFor([
+      weekly("2026-09-01T09:00:00Z", 40, null),
+      weekly("2026-09-08T09:00:00Z", 50),
+      byHand("2026-09-10T12:00:00Z", 60, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-09-08T09:00:00Z" });
+    expect(error.message).toBe(
+      "AI visibility for example.com re-baselined on 2026-09-08: the snapshots before it do not record what they "
+      + "asked, so there is no like-for-like change for it yet. Left out as not part of the weekly series: 1 "
+      + "snapshot that asked a different question, newer than 2026-09-08. The newest of them that records its "
+      + 'question, on 2026-09-10, asked about the market "Honolulu, HI" rather than none.');
+  });
+
+  it("skips a weekly re-audit that measured nothing of the business, whatever its score", async () => {
+    const changes = await clientFor([
+      weekly("2026-09-07T09:00:00Z", 40),
+      weekly("2026-09-14T09:00:00Z", 30),
+      { ...row("2026-09-21T09:00:00Z", 25), source: "scheduled_unmeasured" },
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(-10);
+    expect(changes).not.toHaveProperty("note");
+  });
+
+  it("still gives the change before a latest snapshot that records nothing", async () => {
+    const error = await failure(clientFor([
+      weekly("2026-09-01T09:00:00Z", 40), weekly("2026-09-08T09:00:00Z", 30), weekly("2026-09-15T09:00:00Z", 20, null),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error.details).toEqual({
+      reason: "question_not_recorded",
+      previous_change: { from_captured_at: "2026-09-01T09:00:00Z", to_captured_at: "2026-09-08T09:00:00Z", score_delta: -10 },
+    });
+    expect(error.message).toBe(
+      "The latest AI-visibility snapshot for example.com, on 2026-09-15, does not record what it asked the "
+      + "assistants, so it can't be compared like for like. The most recent like-for-like change before it was "
+      + "down 10, from 2026-09-01 to 2026-09-08.");
   });
 });
 

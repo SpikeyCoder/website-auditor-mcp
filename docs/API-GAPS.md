@@ -64,12 +64,15 @@ snapshots asked the same one) were added in 2026-09 (website-auditor-api
 migration 034); rows stored before then carry `question: null`.
 **MCP wiring (live):** `client.getChanges()` reads it and collapses to a delta
 via `computeChanges`, only between measured snapshots whose `question.key`s
-match (`sameQuestion` in `src/api/mappers.ts`). It throws `NOT_YET_AVAILABLE`
-below two measured snapshots; when the latest records no question
+match (`sameQuestion` in `src/api/mappers.ts`), over the domain's series as
+`/api/monitoring-status` reads it (`seriesOf`: the weekly re-audits and whatever
+asked their question), skipping simulated snapshots and weekly re-audits that
+measured nothing of the business. It throws `NOT_YET_AVAILABLE` below two
+measured snapshots; when the series' latest records no question
 (`details.reason: "question_not_recorded"`); and when no earlier snapshot asked
-the latest one's question (`"question_changed"`, with `rebaselined_at` when the
-latest re-baselines its series, and the most recent like-for-like change before
-it as `previous_change`). `client.getAiVisibilityHistory()` (1.0.4) returns the
+its question (`"question_changed"`, with `rebaselined_at` unless `since`
+narrowed the window). Both carry the most recent like-for-like change before it
+as `previous_change` when there is one. `client.getAiVisibilityHistory()` (1.0.4) returns the
 raw series, which `get_ai_visibility` folds into 7/30-day `trend` windows for
 Pro callers under the same rule (`computeTrend`).
 

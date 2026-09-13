@@ -135,7 +135,7 @@ describe("get_ai_visibility trend", () => {
     expect(res.data.trend!.change_7d).toBeNull();
     expect(res.data.trend!.change_30d).toBeNull();
     expect(res.data.trend!.question_note).toMatch(
-      /^Re-baselined on \d{4}-\d{2}-\d{2}: the latest snapshot asked about the business name "Example Roasters" rather than "Example"/);
+      /^Re-baselined on \d{4}-\d{2}-\d{2}: that day's snapshot asked about the business name "Example Roasters" rather than "Example"/);
   });
 
   it("history endpoint failure never fails the tool -> trend null + soft note", async () => {

@@ -370,7 +370,7 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
       from_score: 40, to_score: 60, score_delta: 20, snapshots: 4, from_captured_at: at(25), skipped_snapshots: 1,
     }));
     expect(trend.question_note).toBe(
-      "Only snapshots that asked the same question as the latest are compared; left out of the last 30 days: "
+      "Only snapshots that asked the same question as the latest are compared. Not compared, from the last 30 days: "
       + "1 snapshot that asked a different question. The most recent that asked a different one, on "
       + `${at(20).slice(0, 10)}, asked about the market "Honolulu, HI" rather than none.`);
   });
@@ -380,7 +380,7 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     expect(trend.change_7d).toBeNull();
     expect(trend.change_30d).toBeNull();
     expect(trend.question_note).toBe(
-      `Re-baselined on ${at(1).slice(0, 10)}: the latest snapshot asked about the market "Honolulu, HI" `
+      `Re-baselined on ${at(1).slice(0, 10)}: that day's snapshot asked about the market "Honolulu, HI" `
       + `rather than none, compared with the snapshot on ${at(6).slice(0, 10)}, and no earlier snapshot asked `
       + "the same question, so there is no trend for it.");
   });
@@ -419,7 +419,7 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
   it("names a snapshot that recorded nothing as that, not as a different question", () => {
     const trend = computeTrend([snap(20, 40), snap(10, 50, false, null), snap(1, 60)], NOW)!;
     expect(trend.question_note).toBe(
-      "Only snapshots that asked the same question as the latest are compared; left out of the last 30 days: "
+      "Only snapshots that asked the same question as the latest are compared. Not compared, from the last 30 days: "
       + "1 snapshot that does not record what it asked.");
   });
 
@@ -428,20 +428,43 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     expect(trend.question_note).toContain(`rather than none, compared with the snapshot on ${at(20).slice(0, 10)},`);
   });
 
-  it("does not call an audit by hand beside the weekly series a re-baseline", () => {
+  it("reads the weekly series: an audit beside it that asked something else is left out, and said so", () => {
     const weekly = (daysAgo: number, score: number, question: typeof ASKED = ASKED) =>
       ({ ...snap(daysAgo, score, false, question), source: "scheduled" });
     const byHand = computeTrend(
       [weekly(20, 40), weekly(6, 50), { ...snap(1, 90, false, ELSEWHERE), source: "extension" }], NOW)!;
-    expect(byHand.change_30d).toBeNull();
+    expect(byHand.latest_captured_at).toBe(at(6));
+    expect(byHand.change_30d).toEqual(expect.objectContaining({ from_score: 40, to_score: 50, score_delta: 10, snapshots: 2 }));
     expect(byHand.question_note).toBe(
-      `The latest snapshot, on ${at(1).slice(0, 10)}, is not a weekly re-audit. It asked about the market `
-      + `"Honolulu, HI" rather than none, compared with the snapshot on ${at(6).slice(0, 10)}, and no earlier `
-      + "snapshot asked the same question, so there is no trend through it; the weekly re-audits did not "
-      + "re-baseline.");
+      "Left out as not part of the weekly series: 1 snapshot that asked a different question, newer than "
+      + `${at(6).slice(0, 10)}. The newest of them that records its question, on ${at(1).slice(0, 10)}, asked `
+      + 'about the market "Honolulu, HI" rather than none.');
+
+    // One that asked the weekly question is the newer measurement of it.
+    const sameAsked = computeTrend([weekly(20, 40), weekly(6, 50), snap(1, 80)], NOW)!;
+    expect(sameAsked.latest_captured_at).toBe(at(1));
+    expect(sameAsked.change_7d).toEqual(expect.objectContaining({ from_score: 50, to_score: 80 }));
+
+    // A weekly re-audit that measured nothing of the business is no part of it.
+    const unmeasured = computeTrend(
+      [weekly(20, 40), weekly(6, 50), { ...snap(1, 25), source: "scheduled_unmeasured" }], NOW)!;
+    expect(unmeasured.latest_captured_at).toBe(at(6));
+    expect(unmeasured).not.toHaveProperty("question_note");
 
     const moved = computeTrend([weekly(20, 40), weekly(6, 50), weekly(1, 90, ELSEWHERE)], NOW)!;
     expect(moved.question_note).toMatch(/^Re-baselined on /);
+  });
+
+  it("explains a weekly re-baseline against the weekly re-audits, not an audit beside them", () => {
+    const weekly = (daysAgo: number, score: number, question: typeof ASKED = ASKED) =>
+      ({ ...snap(daysAgo, score, false, question), source: "scheduled" });
+    const trend = computeTrend([
+      weekly(20, 40),
+      { ...snap(10, 60, false, ELSEWHERE), source: null },
+      weekly(1, 50, { ...ASKED, key: "q-category", queries: ["best widget store"] }),
+    ], NOW)!;
+    expect(trend.question_note).toContain(`compared with the snapshot on ${at(20).slice(0, 10)}`);
+    expect(trend.question_note).not.toContain("Honolulu");
   });
 });
 

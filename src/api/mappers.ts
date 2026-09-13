@@ -578,72 +578,113 @@ export function day(iso: unknown): string {
 }
 
 /**
- * Whether a snapshot with no like-for-like predecessor re-baselines its series:
- * when it is a weekly re-audit, or when there are no weekly re-audits to be a
- * series. An audit run by hand beside a weekly series only asked something the
- * series does not, and calling that a re-baseline hid the series' own last
- * change behind a break that never happened to it.
+ * Whether a snapshot measured the business: not a weekly re-audit the scheduler
+ * marked as measuring nothing of it ("scheduled_unmeasured"). That mark covers a
+ * name invented from the hostname, whose score the API keeps when it has one, so
+ * a score alone does not make a row a measurement.
  */
-export function breaksTheSeries(
-  latest: { source?: string | null },
-  earlier: Array<{ source?: string | null }>,
-): boolean {
-  return latest.source === "scheduled" || !earlier.some((s) => s.source === "scheduled");
+export function measuredTheBusiness(s: { source?: string | null }): boolean {
+  return s.source !== "scheduled_unmeasured";
+}
+
+/**
+ * THE DOMAIN'S SERIES, as /api/monitoring-status reads it: every snapshot given
+ * (oldest first) until one is a weekly re-audit ("scheduled"), and from then on
+ * the weekly re-audits together with every other snapshot that asked what the
+ * newest of them asked.
+ *
+ * The weekly re-audits, because they are what monitors a tracked domain: an
+ * audit run by hand in another market, or an extension scan, asks a question of
+ * its own, and read as the latest it announced a re-baseline that never
+ * happened to the weekly re-audits, or had to be talked around. With what asked
+ * their question, because such an audit is a newer measurement of the same
+ * thing.
+ *
+ * Every snapshot that asked the series' latest question is in the series. So the
+ * like-for-like base found among all earlier snapshots is the one in the series,
+ * this client and the API pick the same one, and "no earlier snapshot asked the
+ * same question" is true of every snapshot, not only of the series.
+ */
+export function seriesOf<T extends { source?: string | null; question?: SnapshotQuestion | null }>(rows: T[]): T[] {
+  const weekly = rows.filter((s) => s.source === "scheduled");
+  if (!weekly.length) return rows;
+  const newest = weekly[weekly.length - 1]!;
+  return rows.filter((s) => s.source === "scheduled" || sameQuestion(s, newest));
+}
+
+/**
+ * What to say about snapshots newer than the series' latest, which the series
+ * leaves out: they asked something the weekly re-audits do not ask, or recorded
+ * nothing. Empty when there are none; otherwise a sentence with a leading space.
+ */
+export function laterNote<T extends { captured_at: string; question?: SnapshotQuestion | null }>(
+  later: T[],
+  latest: T,
+): string {
+  if (!later.length) return "";
+  const newest = newestRecorded(later);
+  const what = newest?.question && latest.question?.key
+    ? ` The newest of them that records its question, on ${day(newest.captured_at)}, asked about `
+      + `${questionDifference(newest.question, latest.question)}.`
+    : "";
+  return ` Left out as not part of the weekly series: ${notComparedPhrase(notCompared(later, latest))}, `
+    + `newer than ${day(latest.captured_at)}.${what}`;
 }
 
 /**
  * Why the trend compared less than its windows span, or nothing at all, when
- * what the snapshots asked is the reason. Undefined when every snapshot in play
- * asked the latest's question.
+ * what the snapshots asked is the reason, and what newer snapshots were left out.
+ * `earlier` is the series before `latest`; `before` every snapshot before it;
+ * `later` every snapshot after it. Undefined when there is nothing to say.
  */
-function trendQuestionNote(snapshots: AiVisibilitySnapshot[], now: Date): string | undefined {
-  const latest = snapshots[snapshots.length - 1]!;
-  const earlier = snapshots.slice(0, -1);
+function trendQuestionNote(
+  latest: AiVisibilitySnapshot,
+  earlier: AiVisibilitySnapshot[],
+  before: AiVisibilitySnapshot[],
+  later: AiVisibilitySnapshot[],
+  now: Date,
+): string | undefined {
+  const after = laterNote(later, latest);
+  let note: string;
   if (!latest.question?.key) {
-    return "The latest snapshot does not record what it asked the assistants, so no trend is computed through it.";
+    note = "The latest snapshot does not record what it asked the assistants, so no trend is computed through it.";
+  } else if (!newestSameQuestion(before, latest).base) {
+    // Explained against the newest snapshot in the series that recorded its
+    // question: an audit beside the series asked something else, and the one
+    // just before may have recorded nothing. Only when none did, any that did.
+    const prior = newestRecorded(earlier) ?? newestRecorded(before);
+    note = prior?.question
+      ? `Re-baselined on ${day(latest.captured_at)}: that day's snapshot asked about `
+        + `${questionDifference(latest.question, prior.question)}, compared with the snapshot on `
+        + `${day(prior.captured_at)}, and no earlier snapshot asked the same question, so there is no trend for it.`
+      : `Re-baselined on ${day(latest.captured_at)}: the snapshots before it do not record what they asked, so `
+        + "there is no trend for it.";
+  } else {
+    const cutoff = now.getTime() - 30 * DAY_MS;
+    const inWindow = before.filter((s) => Date.parse(s.captured_at) >= cutoff);
+    const left = notCompared(inWindow, latest);
+    if (left.different + left.unrecorded === 0) return after ? after.trim() : undefined;
+    let lastDifferent: AiVisibilitySnapshot | undefined;
+    for (const s of inWindow) if (s.question?.key && !sameQuestion(s, latest)) lastDifferent = s;
+    const how = lastDifferent?.question
+      ? ` The most recent that asked a different one, on ${day(lastDifferent.captured_at)}, asked about `
+        + `${questionDifference(lastDifferent.question, latest.question)}.`
+      : "";
+    note = "Only snapshots that asked the same question as the latest are compared. Not compared, from the last "
+      + `30 days: ${notComparedPhrase(left)}.${how}`;
   }
-  if (!newestSameQuestion(earlier, latest).base) {
-    // Explained against the newest snapshot that RECORDED its question, dated:
-    // the one just before may have recorded nothing, or be a one-off audit.
-    const prior = newestRecorded(earlier);
-    const diff = prior?.question
-      ? `${questionDifference(latest.question, prior.question)}, compared with the snapshot on ${day(prior.captured_at)}`
-      : null;
-    if (breaksTheSeries(latest, earlier)) {
-      return diff
-        ? `Re-baselined on ${day(latest.captured_at)}: the latest snapshot asked about ${diff}, and no earlier `
-          + "snapshot asked the same question, so there is no trend for it."
-        : `Re-baselined on ${day(latest.captured_at)}: the snapshots before it do not record what they asked, `
-          + "so there is no trend for it.";
-    }
-    return `The latest snapshot, on ${day(latest.captured_at)}, is not a weekly re-audit. `
-      + (diff
-        ? `It asked about ${diff}, and no earlier snapshot asked the same question`
-        : "The snapshots before it do not record what they asked")
-      + ", so there is no trend through it; the weekly re-audits did not re-baseline.";
-  }
-  const cutoff = now.getTime() - 30 * DAY_MS;
-  const inWindow = earlier.filter((s) => Date.parse(s.captured_at) >= cutoff);
-  const left = notCompared(inWindow, latest);
-  if (left.different + left.unrecorded === 0) return undefined;
-  let lastDifferent: AiVisibilitySnapshot | undefined;
-  for (const s of inWindow) if (s.question?.key && !sameQuestion(s, latest)) lastDifferent = s;
-  const how = lastDifferent?.question
-    ? ` The most recent that asked a different one, on ${day(lastDifferent.captured_at)}, asked about `
-      + `${questionDifference(lastDifferent.question, latest.question)}.`
-    : "";
-  return "Only snapshots that asked the same question as the latest are compared; left out of the last 30 "
-    + `days: ${notComparedPhrase(left)}.${how}`;
+  return note + after;
 }
 
 /**
- * Fold a raw snapshot series (oldest first) into 7- and 30-day trend windows.
- * A window compares the newest snapshot against the OLDEST snapshot inside the
- * window that asked the same question (see sameQuestion), and is null when it
- * holds none — snapshot cadence is irregular (one per audit + one per weekly
- * scheduled run), so windows describe "movement within the last N days", not
- * fixed daily points. Returns null when the series has fewer than two usable
- * snapshots at all.
+ * Fold a raw snapshot series (oldest first) into 7- and 30-day trend windows,
+ * over the domain's series (seriesOf) and leaving out weekly re-audits that
+ * measured nothing of the business. A window compares the series' latest
+ * snapshot against the OLDEST snapshot inside the window that asked the same
+ * question (see sameQuestion), and is null when it holds none — snapshot cadence
+ * is irregular (one per audit + one per weekly scheduled run), so windows
+ * describe "movement within the last N days", not fixed daily points. Returns
+ * null when there are fewer than two usable snapshots at all.
  *
  * `now` is injectable for deterministic tests; callers default it.
  */
@@ -651,13 +692,20 @@ export function computeTrend(
   snapshots: AiVisibilitySnapshot[],
   now: Date = new Date(),
 ): AiVisibilityTrend | null {
-  if (snapshots.length < 2) return null;
+  const rows = snapshots.filter(measuredTheBusiness);
+  if (rows.length < 2) return null;
 
-  const latest = snapshots[snapshots.length - 1]!;
+  // The series' latest: the newest snapshot, unless newer ones asked something
+  // the weekly re-audits do not ask. Those are left out of every window, and
+  // the note says so.
+  const series = seriesOf(rows);
+  const latest = series[series.length - 1]!;
+  const at = rows.indexOf(latest);
+  const upToLatest = rows.slice(0, at + 1);
 
   const windowOf = (days: number): TrendWindow | null => {
     const cutoff = now.getTime() - days * DAY_MS;
-    const inWindow = snapshots.filter((s) => Date.parse(s.captured_at) >= cutoff);
+    const inWindow = upToLatest.filter((s) => Date.parse(s.captured_at) >= cutoff);
     if (inWindow.length < 2) return null;
     const { base: oldest, skipped } = oldestSameQuestion(inWindow.slice(0, -1), latest);
     if (!oldest) return null;
@@ -684,13 +732,13 @@ export function computeTrend(
     };
   };
 
-  const question_note = trendQuestionNote(snapshots, now);
+  const question_note = trendQuestionNote(latest, series.slice(0, -1), rows.slice(0, at), rows.slice(at + 1), now);
   return {
     change_7d: windowOf(7),
     change_30d: windowOf(30),
-    snapshots_analyzed: snapshots.length,
+    snapshots_analyzed: upToLatest.length,
     latest_captured_at: latest.captured_at,
-    includes_simulated: snapshots.some((s) => s.is_simulated),
+    includes_simulated: upToLatest.some((s) => s.is_simulated),
     ...(question_note ? { question_note } : {}),
   };
 }

@@ -186,7 +186,8 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
       previous: snapshot(20, "2026-09-01T09:00:00Z", null),
     }));
     expect(unrecorded.change).toBeNull();
-    expect(unrecorded.note).toMatch(/do not record what each audit asked/);
+    expect(unrecorded.note).toBe(
+      "The latest snapshot does not record what it asked the assistants, so no like-for-like change can be shown.");
   });
 
   it("reads not_recorded and baseline as what they are", async () => {
@@ -195,7 +196,7 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
     }));
     expect(notRecorded.change).toBeNull();
     expect(notRecorded.summary).toBe("example.com: AI visibility 70/100 (no like-for-like change yet).");
-    expect(notRecorded.note).toMatch(/do not record what each audit asked/);
+    expect(notRecorded.note).toMatch(/^The latest snapshot does not record what it asked/);
 
     const baseline = await run(site({ comparison: { status: "baseline" }, snapshots_count: 1 }));
     expect(baseline.summary).toBe("example.com: AI visibility 70/100 (baseline; no change yet).");
@@ -234,7 +235,16 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
     const [malformed, healthy] = res.data.sites;
     expect(malformed!.change).toBeNull();
     expect(malformed!.summary).toBe("example.com: AI visibility 70/100 (no like-for-like change yet).");
-    expect(malformed!.note).toMatch(/do not record what each audit asked/);
+    expect(malformed!.note).toMatch(/^The latest snapshot does not record what it asked/);
     expect(healthy!.summary).toBe("healthy.com: AI visibility 70/100 (up 20 since 2026-09-01).");
+  });
+
+  it("says it is the previous snapshot that recorded nothing, when it is", async () => {
+    // An API from before the rule hands over the snapshot just before, whatever it recorded.
+    const out = await run(site({ previous: snapshot(20, "2026-09-01T09:00:00Z", null) }));
+    expect(out.change).toBeNull();
+    expect(out.note).toBe(
+      "The previous snapshot, on 2026-09-01, does not record what it asked the assistants, so no like-for-like "
+      + "change can be shown.");
   });
 });

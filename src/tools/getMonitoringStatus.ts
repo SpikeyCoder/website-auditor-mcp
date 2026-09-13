@@ -115,7 +115,15 @@ function assess(
   }
 
   if (previous || comparison?.status === "not_recorded" || comparison?.status === "rebaselined") {
-    return { change: null, label: "no like-for-like change yet", note: NOT_RECORDED };
+    // Say which side recorded nothing: the latest snapshot, or, from an API
+    // before the rule, the previous one beside a latest that did record.
+    const note = !latestQuestion?.key
+      ? "The latest snapshot does not record what it asked the assistants, so no like-for-like change can be shown."
+      : previous && !previousQuestion?.key
+        ? `The previous snapshot, on ${day(previous.captured_at)}, does not record what it asked the assistants, `
+          + "so no like-for-like change can be shown."
+        : NOT_RECORDED;
+    return { change: null, label: "no like-for-like change yet", note };
   }
   return { change: null, label: "baseline; no change yet" };
 }
