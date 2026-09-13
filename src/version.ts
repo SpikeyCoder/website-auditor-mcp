@@ -13,7 +13,7 @@
  * after a
  * bump once left the manifests behind at 1.0.7 while the code said otherwise.
  */
-export const SERVER_VERSION = "1.0.23";
+export const SERVER_VERSION = "1.0.24";
 
 /** Header announcing which MCP build issued a request. */
 export const VERSION_HEADER = "X-WA-MCP-Version";
