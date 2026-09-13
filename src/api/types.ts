@@ -158,6 +158,25 @@ export interface EnginePresence {
   gemini: boolean | null;
 }
 
+/**
+ * What one snapshot asked the assistants (website-auditor-api migration 034):
+ * the business name looked for in their answers, and the queries put to them,
+ * which carry the market and the business category in their text. `key` is the
+ * API's identity for that question. Two snapshots may be subtracted only when
+ * both keys are equal and not null; every other field only explains a change.
+ */
+export interface SnapshotQuestion {
+  /** Null when too little was recorded to compare. */
+  key: string | null;
+  business_name: string | null;
+  /** How the engine found the name: "detected" | "detected_forwarded" | "user_supplied" | "domain_fallback". */
+  name_source: string | null;
+  /** The market the queries named; "" when they named none. */
+  business_location: string | null;
+  market_scope: string | null;
+  queries: string[] | null;
+}
+
 /** One stored AI-visibility measurement, as the history endpoint returns it. */
 export interface AiVisibilitySnapshot {
   captured_at: string;
@@ -165,9 +184,16 @@ export interface AiVisibilitySnapshot {
   by_engine: Record<string, number>;
   /** True when the snapshot was produced without live AI queries. */
   is_simulated: boolean;
+  /** The surface that wrote it: "scheduled", "scheduled_unmeasured", "extension", or null (an audit). */
+  source?: string | null;
+  /** What it asked. Null or absent when the snapshot recorded nothing about it: it compares with nothing. */
+  question?: SnapshotQuestion | null;
 }
 
-/** Score movement across one lookback window (newest vs oldest in range). */
+/**
+ * Score movement across one lookback window: the newest snapshot against the
+ * oldest in range that asked the same question.
+ */
 export interface TrendWindow {
   window_days: number;
   from_score: number;
@@ -176,12 +202,18 @@ export interface TrendWindow {
   engine_changes: EngineChange[];
   /** Snapshots that fell inside this window. */
   snapshots: number;
+  /** When the snapshot this window compares against was captured. */
+  from_captured_at?: string;
+  /** Snapshots inside the window that asked a different question, and so were not compared. */
+  skipped_snapshots?: number;
 }
 
 /**
  * Historical movement behind the current score (Pro — reads the same
  * ai_visibility_snapshots history that powers get_changes). A window is null
- * when fewer than two snapshots fall inside it.
+ * when it holds no earlier snapshot that asked the same question as the latest:
+ * too few snapshots, or a change of question, and `question_note` says when it
+ * was the second.
  */
 export interface AiVisibilityTrend {
   change_7d: TrendWindow | null;
@@ -190,6 +222,12 @@ export interface AiVisibilityTrend {
   latest_captured_at: string;
   /** True if any analyzed snapshot was simulated (estimated) data. */
   includes_simulated: boolean;
+  /**
+   * Present when a change of question shaped the trend: a re-baseline, or
+   * snapshots left out. In words, because a window that is null for a change of
+   * question otherwise reads exactly like one that is null for want of history.
+   */
+  question_note?: string;
 }
 
 export interface AiVisibility {
@@ -280,6 +318,14 @@ export interface Changes {
   competitor_changes: unknown[];
   new_issues: unknown[];
   resolved_issues: unknown[];
+  /** When the earlier of the two snapshots compared was captured. */
+  from_captured_at?: string;
+  /** When the later one was. */
+  to_captured_at?: string;
+  /** Snapshots that asked a different question and were passed over. */
+  skipped_snapshots?: number;
+  /** Present when snapshots were passed over: what, in words. */
+  note?: string;
 }
 
 // ─── Scheduled monitoring (track_site / tracked domains) ───────────────────
@@ -328,6 +374,22 @@ export interface MonitoringSnapshot {
   by_engine: { chatgpt: number | null; perplexity: number | null; claude: number | null; gemini: number | null };
   captured_at: string;
   is_simulated: boolean | null;
+  source?: string | null;
+  question?: SnapshotQuestion | null;
+}
+
+/**
+ * Why monitoring-status returned the `previous` it did. `status` is the API's
+ * value, read as a string like every upstream enum here: "baseline" (no earlier
+ * scored snapshot), "compared", "rebaselined" (earlier snapshots exist and none
+ * asked what `latest` asked) or "not_recorded" (`latest` does not record it).
+ */
+export interface MonitoringComparison {
+  status: string;
+  /** "compared": snapshots between the two that asked something else. */
+  skipped_snapshots?: number;
+  /** "rebaselined": the snapshot just before `latest`, which asked something else. */
+  prior?: { captured_at: string; question: SnapshotQuestion | null };
 }
 
 /** Per-domain monitoring status: tracking metadata + latest/previous snapshots. */
@@ -339,7 +401,10 @@ export interface MonitoringSite {
   next_run_at: string | null;
   snapshots_count: number;
   latest: MonitoringSnapshot | null;
+  /** The most recent earlier snapshot that asked what `latest` asked, or null. */
   previous: MonitoringSnapshot | null;
+  /** Absent from an API that predates it. */
+  comparison?: MonitoringComparison | null;
 }
 
 /** The user's whole monitoring picture, with cap accounting. */

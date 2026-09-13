@@ -40,12 +40,14 @@ import type {
 } from "./types.js";
 import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
-import { computeChanges } from "./mappers.js";
-import { normalizeDomain, deriveBusinessName } from "./domain.js";
+import {
+  computeChanges, newestSameQuestion, oldestSameQuestion, questionDifference, toQuestion,
+} from "./mappers.js";
+import { normalizeDomain } from "./domain.js";
 
 export interface AuditParams {
   domain: string;
-  /** Optional override; defaults to a name derived from the domain. */
+  /** Optional. Omitted, the engine identifies the business; supplied, the engine takes it as the answer. */
   businessName?: string;
   /** Optional location hint; the upstream audit auto-detects when omitted. */
   businessCity?: string;
@@ -149,8 +151,9 @@ const GROWTH_PLAN_TIMEOUT_MS = 270_000;
  * and normalises a blank to absent, so the workaround is gone.
  *
  * WHAT IT USED TO DO, AND WHY IT HAD TO GO. The old upstream check was a naive
- * `if (!businessCity)`, so this client sent `" "` to satisfy it and
- * `deriveBusinessName(host)` for the name. Both were actively harmful:
+ * `if (!businessCity)`, so this client sent `" "` to satisfy it and a name
+ * derived from the host (`deriveBusinessName`, since deleted) for the name.
+ * Both were actively harmful:
  *
  *   * A supplied business_name OVERRIDES detection upstream and is stamped
  *     `user_supplied` — the most trusted provenance there is — so a hostname
@@ -264,49 +267,38 @@ export class WaApiClient implements WaApiClientLike {
   }
 
   /**
-   * Read the domain's AI-visibility history and compute deltas. The snapshots
-   * are exactly what the server-side scheduler writes (and what a manual audit
-   * writes) into ai_visibility_snapshots, so get_changes reflects the scheduled
-   * weekly re-audits — the "value when nobody's watching" loop.
+   * Read the domain's AI-visibility history and report its latest like-for-like
+   * change. The snapshots are exactly what the server-side scheduler writes (and
+   * what a manual audit or an extension scan writes) into
+   * ai_visibility_snapshots, so get_changes reflects the scheduled weekly
+   * re-audits — the "value when nobody's watching" loop.
    *
-   * Needs at least two snapshots to compute a delta; with fewer it throws
-   * NOT_YET_AVAILABLE with a clear message rather than fabricating a change.
-   * When `since` is an ISO cursor, the delta spans that window (first vs last in
-   * range); otherwise it's the most recent move (previous vs latest).
+   * ONLY BETWEEN SNAPSHOTS THAT ASKED THE SAME QUESTION (sameQuestion in
+   * mappers.ts). Without a `since` cursor the latest snapshot is compared with
+   * the most recent earlier one that asked what it asked, passing over any that
+   * asked something else; with one, with the earliest such snapshot in the
+   * window. The result names both dates and says what was passed over.
+   *
+   * It throws NOT_YET_AVAILABLE with a clear message rather than fabricating a
+   * change when there is nothing like for like to compare: fewer than two
+   * snapshots, a latest snapshot that does not record what it asked, or a change
+   * of question that no earlier snapshot shares, which it reports as a
+   * re-baseline with the date and what changed.
    */
   async getChanges(params: GetChangesParams): Promise<Changes> {
-    const url = new URL(`${this.cfg.apiBaseUrl}/api/ai-visibility-history`);
-    url.searchParams.set("domain", params.domain);
-    const windowed = Boolean(params.since && params.since !== "last_check");
-    if (windowed) url.searchParams.set("since", params.since as string);
-
-    const body = (await this.requestJson("GET", url)) as {
-      snapshots?: Array<{ score: number; by_engine: Record<string, number> }>;
-      insufficient_history?: boolean;
-    };
-
-    // Same filter its sibling getAiVisibilityHistory applies to this very
-    // endpoint, and for the reason stated there: a row with no usable score
-    // poisons the delta. Here it did worse than invent a zero — subtracting an
-    // absent score yields NaN, which JSON.stringify writes as `null` in the
-    // text content and which fails the declared output schema outright, so a
-    // successful call came back as an error naming neither.
-    const snaps = (body.snapshots ?? []).filter((s) => typeof s?.score === "number");
+    const since = params.since && params.since !== "last_check" ? params.since : undefined;
+    // The trend's read and filter, reused: a row with no usable score poisons a
+    // delta. Subtracting an absent score yields NaN, which JSON.stringify writes
+    // as `null` in the text content and which fails the declared output schema
+    // outright, so a successful call came back as an error naming neither.
+    const snaps = await this.getAiVisibilityHistory({ domain: params.domain, since });
     if (snaps.length < 2) {
       throw new WaApiError(
         "NOT_YET_AVAILABLE",
         `Not enough AI-visibility history for ${params.domain} yet — at least two snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).`,
       );
     }
-
-    const current = snaps[snaps.length - 1]!;
-    // Windowed: compare against the first snapshot in range; otherwise the
-    // immediately-previous one.
-    const previous = windowed ? snaps[0]! : snaps[snaps.length - 2]!;
-    return computeChanges(
-      { score: current.score, by_engine: current.by_engine },
-      { score: previous.score, by_engine: previous.by_engine },
-    );
+    return changesInHistory(params.domain, snaps, since);
   }
 
   async getAiVisibilityHistory(params: { domain: string; since?: string }): Promise<AiVisibilitySnapshot[]> {
@@ -320,6 +312,8 @@ export class WaApiClient implements WaApiClientLike {
         score?: number | null;
         by_engine?: Record<string, number | null>;
         is_simulated?: boolean | null;
+        source?: unknown;
+        question?: unknown;
       }>;
     };
 
@@ -334,6 +328,10 @@ export class WaApiClient implements WaApiClientLike {
           Object.entries(s.by_engine ?? {}).filter(([, v]) => typeof v === "number"),
         ) as Record<string, number>,
         is_simulated: s.is_simulated === true,
+        source: typeof s.source === "string" ? s.source : null,
+        // Absent from an API that predates it, and then null: no key, so the
+        // snapshot compares with nothing rather than with everything.
+        question: toQuestion(s.question),
       }));
   }
 
@@ -730,6 +728,66 @@ function quotaResetsAt(rateLimit: unknown): string | null {
   if (typeof r.resets_at === "string") return r.resets_at;
   if (typeof r.reset === "string") return r.reset;
   return null;
+}
+
+const day = (iso: string): string => iso.slice(0, 10);
+const snapshotsWord = (n: number): string => `${n} ${n === 1 ? "snapshot" : "snapshots"}`;
+
+/**
+ * The like-for-like change get_changes reports, or why there is none — see
+ * WaApiClient.getChanges. `snaps` is the usable series, oldest first, at least
+ * two long; `since` is set exactly when the caller asked for a window.
+ */
+function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: string | undefined): Changes {
+  const current = snaps[snaps.length - 1]!;
+  const earlier = snaps.slice(0, -1);
+
+  if (!current.question?.key) {
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      `The latest AI-visibility snapshot for ${domain} does not record what it asked the assistants, so it can't be compared like for like. Snapshots stored from now on record it, and the next one starts a series that can be compared.`,
+      { details: { reason: "question_not_recorded" } },
+    );
+  }
+
+  const { base, skipped } = since ? oldestSameQuestion(earlier, current) : newestSameQuestion(earlier, current);
+  if (!base) {
+    const prior = earlier[earlier.length - 1]!;
+    const why = prior.question?.key
+      ? `the latest snapshot asked about ${questionDifference(current.question, prior.question)}`
+      : "the snapshots before it do not record what they asked";
+    // A window can hold no match while an older snapshot outside it does, so
+    // only the unwindowed read may call this a re-baseline.
+    if (since) {
+      throw new WaApiError(
+        "NOT_YET_AVAILABLE",
+        `No AI-visibility snapshot for ${domain} since ${day(since)} asked the question the latest one asked (${why}), so there is no like-for-like change in that window.`,
+        { details: { reason: "question_changed", since } },
+      );
+    }
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      `AI visibility for ${domain} re-baselined on ${day(current.captured_at)}: ${why}, and no earlier snapshot asked the same question, so there is no like-for-like change to report yet. The next audit that asks it will show one.`,
+      { details: { reason: "question_changed", rebaselined_at: current.captured_at } },
+    );
+  }
+
+  const result: Changes = {
+    ...computeChanges(
+      { score: current.score, by_engine: current.by_engine },
+      { score: base.score, by_engine: base.by_engine },
+    ),
+    from_captured_at: base.captured_at,
+    to_captured_at: current.captured_at,
+    skipped_snapshots: skipped,
+  };
+  if (skipped > 0) {
+    const verb = skipped === 1 ? "was" : "were";
+    result.note = since
+      ? `Compared with ${day(base.captured_at)}, the earliest snapshot in the window that asked the same question as the latest; ${snapshotsWord(skipped)} in the window asked a different question and ${verb} not compared.`
+      : `Compared with ${day(base.captured_at)}, the most recent snapshot that asked the same question; ${snapshotsWord(skipped)} in between asked a different question and ${verb} not compared.`;
+  }
+  return result;
 }
 
 /** Coerce a value to a finite number, defaulting to 0 (used for numeric fields). */

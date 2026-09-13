@@ -113,14 +113,22 @@ const trendWindow = open({
   score_delta: z.number(),
   engine_changes: z.array(engineChange),
   snapshots: z.number().describe("Snapshots that fell inside this window."),
+  from_captured_at: z.string().optional().describe("When the snapshot this window compares against was captured."),
+  skipped_snapshots: z.number().optional().describe(
+    "Snapshots in the window that asked a different question (another business name, market or queries), "
+    + "so were not compared."),
 });
 
 const aiVisibilityTrend = open({
-  change_7d: trendWindow.nullable().describe("Null when fewer than two snapshots fall in the window."),
+  change_7d: trendWindow.nullable().describe(
+    "Null when the window holds no earlier snapshot that asked the same question as the latest."),
   change_30d: trendWindow.nullable(),
   snapshots_analyzed: z.number(),
   latest_captured_at: z.string(),
   includes_simulated: z.boolean().describe("True if any analyzed snapshot was estimated rather than measured."),
+  question_note: z.string().optional().describe(
+    "Present when a change of question shaped the trend: a re-baseline, or snapshots left out. Relay it — a "
+    + "difference between scores that answered different questions is not a change in visibility."),
 });
 
 const aiVisibilitySource = open({
@@ -147,12 +155,24 @@ const auditIssue = open({
   recommendation: z.string().optional(),
 });
 
+// Emitted beside a delta by get_changes and get_monitoring_status. Spread into
+// both shapes rather than nested, because get_changes returns them at its root.
+const comparedFields = {
+  from_captured_at: z.string().optional().describe("When the earlier snapshot compared was captured."),
+  to_captured_at: z.string().optional().describe("When the later one was."),
+  skipped_snapshots: z.number().optional().describe(
+    "Snapshots that asked a different question (another business name, market or queries) and were passed "
+    + "over."),
+  note: z.string().optional().describe("Present when snapshots were passed over: what, in words. Relay it."),
+};
+
 const changes = open({
   score_delta: z.number(),
   engine_changes: z.array(engineChange),
   competitor_changes: z.array(z.unknown()),
   new_issues: z.array(z.unknown()),
   resolved_issues: z.array(z.unknown()),
+  ...comparedFields,
 });
 
 // ─── per-tool output schemas ───────────────────────────────────────────────
@@ -196,11 +216,15 @@ export const runAuditOutput: ZodRawShape = {
 };
 
 export const getChangesOutput: ZodRawShape = {
-  score_delta: z.number(),
+  score_delta: z.number().describe(
+    "Only ever between two snapshots that asked the same question. When there is no such pair, including a "
+    + "re-baseline after the business name, market or queries changed, the tool returns NOT_YET_AVAILABLE "
+    + "saying so, never a number."),
   engine_changes: z.array(engineChange),
   competitor_changes: z.array(z.unknown()),
   new_issues: z.array(z.unknown()),
   resolved_issues: z.array(z.unknown()),
+  ...comparedFields,
 };
 
 export const compareCompetitorsOutput: ZodRawShape = {
@@ -285,7 +309,12 @@ export const getMonitoringStatusOutput: ZodRawShape = {
     latest_score: z.number().nullable(),
     last_audited_at: z.string().nullable().optional(),
     next_run_at: z.string().nullable().optional(),
-    change: changes.nullable().describe("Latest vs previous snapshot; null if fewer than two."),
+    change: changes.nullable().describe(
+      "The latest change against the most recent earlier snapshot that asked the same question; null when there "
+      + "is none — a first snapshot, a re-baseline, or snapshots that do not record what they asked."),
+    note: z.string().optional().describe(
+      "Present when there is no like-for-like change for a reason other than a first snapshot, or when snapshots "
+      + "were passed over: why, in words. Relay it."),
     summary: z.string(),
   })),
   summary: z.string(),

@@ -56,13 +56,19 @@ total_tests, passed, failed, warnings, errors }]`, **but**:
 **RESOLVED:** the portal shipped API-key-authed (Pro-gated)
 `GET /api/ai-visibility-history?domain=&since=&limit=` returning oldest-first
 snapshots `{ captured_at, run_id, score, by_engine: {chatgpt, perplexity,
-claude, gemini}, is_simulated }` — one row per interactive audit plus one per
-weekly scheduled run for tracked domains.
+claude, gemini}, is_simulated, source, question }` — one row per interactive
+audit plus one per weekly scheduled run for tracked domains and one per
+extension scan. `source` (the writer) and `question` (what the run asked: the
+business name looked for and the queries, with `question.key` saying when two
+snapshots asked the same one) were added in 2026-09 (website-auditor-api
+migration 034); rows stored before then carry `question: null`.
 **MCP wiring (live):** `client.getChanges()` reads it and collapses to a delta
-via `computeChanges` (throws `NOT_YET_AVAILABLE` below two snapshots);
-`client.getAiVisibilityHistory()` (1.0.4) returns the raw series, which
-`get_ai_visibility` folds into 7/30-day `trend` windows for Pro callers
-(`computeTrend` in `src/api/mappers.ts`).
+via `computeChanges`, only between snapshots whose `question.key`s match
+(`sameQuestion` in `src/api/mappers.ts`; throws `NOT_YET_AVAILABLE` below two
+snapshots, or with the re-baseline date when no earlier snapshot asked the
+latest one's question); `client.getAiVisibilityHistory()` (1.0.4) returns the
+raw series, which `get_ai_visibility` folds into 7/30-day `trend` windows for
+Pro callers under the same rule (`computeTrend`).
 
 ### 2b. Trial eligibility — live again (trial restored 2026-08-04)
 The 7-day trial returned on 2026-08-04 (removed 2026-07-27), and the

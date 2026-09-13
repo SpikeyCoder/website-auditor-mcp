@@ -106,7 +106,7 @@ export const P0_TOOLS: ToolSpec[] = [
     tier: "pro",
     title: "What changed since last check",
     description:
-      'Report what changed in a website\'s AI visibility and audit since it was last checked. Use this when someone asks "did anything change," "what\'s different this week/month," "did my AI visibility drop," or "did a competitor overtake me." Requires the domain to be tracked (see track_site). Returns deltas: score movement, engines gained/lost, competitors that moved, and new or resolved issues.',
+      'Report what changed in a website\'s AI visibility and audit since it was last checked. Use this when someone asks "did anything change," "what\'s different this week/month," "did my AI visibility drop," or "did a competitor overtake me." Requires the domain to be tracked (see track_site). Returns deltas: score movement, engines gained/lost, competitors that moved, and new or resolved issues. A change is only ever measured between two snapshots that asked the same question (the same business name, market and queries); after the question changes, it says when the series re-baselined instead of giving a number.',
     inputSchema: {
       domain: domainArg,
       since: z.string().optional().describe('Optional ISO date or "last_check".'),
@@ -229,7 +229,7 @@ export const MONITORING_TOOLS: ToolSpec[] = [
     tier: "pro",
     title: "Monitoring status summary",
     description:
-      'Get a glanceable summary of monitoring status across all tracked websites. Use this when someone asks "how are my tracked sites doing," "what\'s my current AI visibility across everything I monitor," "when were my sites last checked or when do they run next," or wants a dashboard of their monitored domains. Returns, per domain, the latest AI-visibility score, when it was last audited and next runs, and the most recent change since the prior check.',
+      'Get a glanceable summary of monitoring status across all tracked websites. Use this when someone asks "how are my tracked sites doing," "what\'s my current AI visibility across everything I monitor," "when were my sites last checked or when do they run next," or wants a dashboard of their monitored domains. Returns, per domain, the latest AI-visibility score, when it was last audited and next runs, and the most recent change against the last snapshot that asked the same question, or a note saying why there is none yet.',
     inputSchema: {},
   },
 ];

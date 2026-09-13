@@ -223,13 +223,20 @@ describe("WaApiClient.getSubscription — wired to GET /api/subscription", () =>
   });
 });
 
+// What a fixture snapshot asked unless a test says otherwise. get_changes only
+// subtracts snapshots whose question keys match (sameQuestion in mappers.ts).
+const ASKED = {
+  key: "q-example", business_name: "Example", name_source: "detected",
+  business_location: "", market_scope: "global", queries: ["best example"],
+};
+
 describe("WaApiClient.getChanges — wired to /api/ai-visibility-history", () => {
-  const history = (snapshots: unknown[]) => ({
+  const history = (snapshots: Array<Record<string, unknown>>) => ({
     success: true,
     domain: "example.com",
     count: snapshots.length,
     insufficient_history: snapshots.length < 2,
-    snapshots,
+    snapshots: snapshots.map((s) => ({ question: ASKED, ...s })),
   });
 
   it("calls the history endpoint with the API key and computes the latest delta", async () => {
@@ -523,11 +530,15 @@ describe("WaApiClient.getAiVisibilityHistory — raw snapshot series for trend",
     expect((init as RequestInit).headers).toMatchObject({ "X-API-Key": "wa_valid_key" });
 
     expect(snaps).toHaveLength(2);
+    // No source or question on the wire (an API from before 2026-09) reads as
+    // null: a snapshot that recorded nothing compares with nothing.
     expect(snaps[0]).toEqual({
       captured_at: "2026-07-01T00:00:00Z",
       score: 50,
       by_engine: { chatgpt: 40 },
       is_simulated: true,
+      source: null,
+      question: null,
     });
     expect(snaps[1]!.is_simulated).toBe(false);
   });
@@ -570,6 +581,111 @@ describe("WaApiClient.getAiVisibilityHistory since param", () => {
     await client.getAiVisibilityHistory({ domain: "example.com" });
     expect(String(fetchMock.mock.calls[0]![0])).toContain("since=2026-07-01");
     expect(String(fetchMock.mock.calls[1]![0])).not.toContain("since=");
+  });
+});
+
+describe("WaApiClient.getChanges — only between snapshots that asked the same question", () => {
+  const ELSEWHERE = {
+    ...ASKED, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best example in Honolulu, HI"],
+  };
+  const row = (captured_at: string, score: number, question: unknown = ASKED) => ({
+    captured_at, score, by_engine: { chatgpt: score, claude: score }, is_simulated: false, question,
+  });
+  const clientFor = (snapshots: unknown[]) =>
+    new WaApiClient(baseCfg, { fetch: makeFetch(200, { success: true, snapshots }) as unknown as typeof fetch });
+  const failure = (pending: Promise<unknown>) => pending.then(
+    () => { throw new Error("expected get_changes to refuse"); },
+    (e: unknown) => e as WaApiError,
+  );
+
+  it("passes over a snapshot that asked another question, names both dates, and says what it passed over", async () => {
+    const changes = await clientFor([
+      row("2026-09-01T09:00:00Z", 40),
+      row("2026-09-04T12:00:00Z", 90, ELSEWHERE),
+      row("2026-09-08T09:00:00Z", 55),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(15); // 55 - 40, not 55 - 90
+    expect(changes.from_captured_at).toBe("2026-09-01T09:00:00Z");
+    expect(changes.to_captured_at).toBe("2026-09-08T09:00:00Z");
+    expect(changes.skipped_snapshots).toBe(1);
+    expect(changes.note).toBe(
+      "Compared with 2026-09-01, the most recent snapshot that asked the same question; 1 snapshot in between "
+      + "asked a different question and was not compared.");
+  });
+
+  it("reports a re-baseline, its date and what changed, instead of a number", async () => {
+    const error = await failure(clientFor([
+      row("2026-09-01T09:00:00Z", 40),
+      row("2026-09-08T09:00:00Z", 90, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error).toBeInstanceOf(WaApiError);
+    expect(error.code).toBe("NOT_YET_AVAILABLE");
+    expect(error.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-09-08T09:00:00Z" });
+    expect(error.message).toBe(
+      'AI visibility for example.com re-baselined on 2026-09-08: the latest snapshot asked about the market '
+      + '"Honolulu, HI" rather than none, and no earlier snapshot asked the same question, so there is no '
+      + "like-for-like change to report yet. The next audit that asks it will show one.");
+  });
+
+  it("a snapshot that recorded nothing compares with nothing, on either side", async () => {
+    const latest = await failure(clientFor([row("2026-09-01T09:00:00Z", 40), row("2026-09-08T09:00:00Z", 60, null)])
+      .getChanges({ domain: "example.com" }));
+    expect(latest.code).toBe("NOT_YET_AVAILABLE");
+    expect(latest.details).toEqual({ reason: "question_not_recorded" });
+
+    const before = await failure(clientFor([row("2026-09-01T09:00:00Z", 40, null), row("2026-09-08T09:00:00Z", 60)])
+      .getChanges({ domain: "example.com" }));
+    expect(before.message).toContain("the snapshots before it do not record what they asked");
+
+    // An API that sends no question at all reads the same way: no fabricated delta.
+    const silent = await failure(clientFor([
+      { captured_at: "2026-09-01T09:00:00Z", score: 40, by_engine: {} },
+      { captured_at: "2026-09-08T09:00:00Z", score: 60, by_engine: {} },
+    ]).getChanges({ domain: "example.com" }));
+    expect(silent.code).toBe("NOT_YET_AVAILABLE");
+  });
+
+  it("with a window, compares with the earliest snapshot in it that asked the same question", async () => {
+    const changes = await clientFor([
+      row("2026-09-01T09:00:00Z", 90, ELSEWHERE),
+      row("2026-09-03T09:00:00Z", 30),
+      row("2026-09-05T09:00:00Z", 70, ELSEWHERE),
+      row("2026-09-08T09:00:00Z", 50),
+    ]).getChanges({ domain: "example.com", since: "2026-09-01T00:00:00Z" });
+    expect(changes.score_delta).toBe(20); // 50 - 30
+    expect(changes.from_captured_at).toBe("2026-09-03T09:00:00Z");
+    expect(changes.skipped_snapshots).toBe(2);
+    expect(changes.note).toContain("the earliest snapshot in the window that asked the same question");
+  });
+
+  it("with a window that holds no match, says so without claiming a re-baseline", async () => {
+    // An older snapshot outside the window may well have asked it.
+    const error = await failure(clientFor([row("2026-09-05T09:00:00Z", 70, ELSEWHERE), row("2026-09-08T09:00:00Z", 50)])
+      .getChanges({ domain: "example.com", since: "2026-09-05T00:00:00Z" }));
+    expect(error.code).toBe("NOT_YET_AVAILABLE");
+    expect(error.details).toEqual({ reason: "question_changed", since: "2026-09-05T00:00:00Z" });
+    expect(error.message).toContain("since 2026-09-05");
+    expect(error.message).not.toMatch(/re-baselined/i);
+  });
+});
+
+describe("WaApiClient.getAiVisibilityHistory — what each snapshot asked", () => {
+  it("maps source and question, and reads a malformed question as unrecorded", async () => {
+    const fetchMock = makeFetch(200, {
+      success: true,
+      snapshots: [
+        { captured_at: "2026-09-01T09:00:00Z", score: 40, by_engine: {}, source: "scheduled", question: ASKED },
+        { captured_at: "2026-09-08T09:00:00Z", score: 60, by_engine: {}, source: 7, question: { key: 42, queries: "x" } },
+      ],
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const [first, second] = await client.getAiVisibilityHistory({ domain: "example.com" });
+    expect(first!.source).toBe("scheduled");
+    expect(first!.question).toEqual(ASKED);
+    expect(second!.source).toBeNull();
+    expect(second!.question).toEqual({
+      key: null, business_name: null, name_source: null, business_location: null, market_scope: null, queries: null,
+    });
   });
 });
 
@@ -766,9 +882,9 @@ describe("WaApiClient.getChanges — snapshots without a usable score", () => {
   it("drops them rather than producing a NaN delta", async () => {
     const fetchImpl = makeFetch(200, {
       snapshots: [
-        { score: 40, by_engine: { chatgpt: 40 } },
-        { score: null, by_engine: {} },
-        { score: 55, by_engine: { chatgpt: 55 } },
+        { captured_at: "2026-06-01T00:00:00Z", score: 40, by_engine: { chatgpt: 40 }, question: ASKED },
+        { captured_at: "2026-06-04T00:00:00Z", score: null, by_engine: {}, question: ASKED },
+        { captured_at: "2026-06-08T00:00:00Z", score: 55, by_engine: { chatgpt: 55 }, question: ASKED },
       ],
     });
     const client = new WaApiClient(cfg, { fetch: fetchImpl as unknown as typeof fetch });
@@ -780,7 +896,10 @@ describe("WaApiClient.getChanges — snapshots without a usable score", () => {
   it("still reports insufficient history when filtering leaves fewer than two", async () => {
     // The filter must not turn "not enough history" into a silent zero delta.
     const fetchImpl = makeFetch(200, {
-      snapshots: [{ score: 40, by_engine: {} }, { score: null, by_engine: {} }],
+      snapshots: [
+        { captured_at: "2026-06-01T00:00:00Z", score: 40, by_engine: {}, question: ASKED },
+        { captured_at: "2026-06-08T00:00:00Z", score: null, by_engine: {}, question: ASKED },
+      ],
     });
     const client = new WaApiClient(cfg, { fetch: fetchImpl as unknown as typeof fetch });
     await expect(client.getChanges({ domain: "example.com" })).rejects.toMatchObject({

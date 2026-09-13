@@ -41,7 +41,27 @@ const richClient = {
     competitor_changes: [],
     new_issues: [{ name: "Missing FAQ schema" }],
     resolved_issues: [],
+    // Every field a same-question comparison adds beside the delta.
+    from_captured_at: "2026-08-13T09:00:00Z",
+    to_captured_at: "2026-08-20T09:00:00Z",
+    skipped_snapshots: 1,
+    note: "Compared with 2026-08-13, the most recent snapshot that asked the same question; 1 snapshot in between asked a different question and was not compared.",
   }),
+  // A series whose trend carries the same-question fields in a window and a
+  // question note, so get_ai_visibility's `trend` is validated populated.
+  getAiVisibilityHistory: async () => {
+    const asked = {
+      key: "q-example", business_name: "Example", name_source: "detected",
+      business_location: "", market_scope: "global", queries: ["best example"],
+    };
+    const elsewhere = { ...asked, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best example in Honolulu, HI"] };
+    const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+    return [
+      { captured_at: daysAgo(20), score: 40, by_engine: { chatgpt: 40 }, is_simulated: false, source: "scheduled", question: asked },
+      { captured_at: daysAgo(10), score: 90, by_engine: { chatgpt: 90 }, is_simulated: false, source: null, question: elsewhere },
+      { captured_at: daysAgo(1), score: 57, by_engine: { chatgpt: 57 }, is_simulated: false, source: "scheduled", question: asked },
+    ];
+  },
   compareCompetitors: async () => ({
     ranking: [
       { domain: "example.com", score: 57 },

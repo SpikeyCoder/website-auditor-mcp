@@ -301,11 +301,18 @@ describe("computeChanges (delta logic, ready for the pending endpoint)", () => {
 describe("computeTrend — 7/30-day windows over a snapshot series", () => {
   const NOW = new Date("2026-07-26T12:00:00Z");
   const at = (daysAgo: number) => new Date(NOW.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
-  const snap = (daysAgo: number, score: number, is_simulated = false) => ({
+  // Every snapshot asks the same question unless a test says otherwise: a window
+  // only compares snapshots whose question keys match.
+  const ASKED = {
+    key: "q-widgets", business_name: "Example Co", name_source: "detected",
+    business_location: "", market_scope: "global", queries: ["best widget shop"],
+  };
+  const snap = (daysAgo: number, score: number, is_simulated = false, question: typeof ASKED | null = ASKED) => ({
     captured_at: at(daysAgo),
     score,
     by_engine: { chatgpt: score },
     is_simulated,
+    question,
   });
 
   it("fewer than two snapshots -> null (no fabricated trend)", () => {
@@ -334,8 +341,8 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
   });
 
   it("engine deltas cover only engines measured at BOTH window endpoints (no from-0 fabrication, no silent drops)", () => {
-    const oldest = { captured_at: at(5), score: 50, by_engine: { chatgpt: 50, perplexity: 45 }, is_simulated: false };
-    const latest = { captured_at: at(1), score: 60, by_engine: { chatgpt: 60, gemini: 60 }, is_simulated: false };
+    const oldest = { captured_at: at(5), score: 50, by_engine: { chatgpt: 50, perplexity: 45 }, is_simulated: false, question: ASKED };
+    const latest = { captured_at: at(1), score: 60, by_engine: { chatgpt: 60, gemini: 60 }, is_simulated: false, question: ASKED };
     const trend = computeTrend([oldest, latest], NOW)!;
     const engines = trend.change_7d!.engine_changes.map((c) => c.engine);
     // gemini was unmeasured at the start -> must NOT appear as a +60 gain;
@@ -347,6 +354,51 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
   it("flags simulated data anywhere in the series", () => {
     const trend = computeTrend([snap(5, 40, true), snap(1, 60)], NOW)!;
     expect(trend.includes_simulated).toBe(true);
+  });
+
+  // ── only snapshots that asked the same question are compared ──────────
+  // A hand audit in another market, a name detection read differently, a
+  // change of category: each is a different question, and subtracting across
+  // one reports a change of subject as movement.
+  const ELSEWHERE = {
+    ...ASKED, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best widget shop in Honolulu, HI"],
+  };
+
+  it("a window compares with the OLDEST snapshot in it that asked the latest's question", () => {
+    const trend = computeTrend([snap(25, 40), snap(20, 90, false, ELSEWHERE), snap(10, 45), snap(1, 60)], NOW)!;
+    expect(trend.change_30d).toEqual(expect.objectContaining({
+      from_score: 40, to_score: 60, score_delta: 20, snapshots: 4, from_captured_at: at(25), skipped_snapshots: 1,
+    }));
+    expect(trend.question_note).toBe(
+      "Only snapshots that asked the same question as the latest are compared: 1 in the last 30 days did not, "
+      + `most recently on ${at(20).slice(0, 10)} (the market "Honolulu, HI" rather than none).`);
+  });
+
+  it("a change of question is a re-baseline: no window, and a note saying when and what", () => {
+    const trend = computeTrend([snap(20, 40), snap(6, 50), snap(1, 90, false, ELSEWHERE)], NOW)!;
+    expect(trend.change_7d).toBeNull();
+    expect(trend.change_30d).toBeNull();
+    expect(trend.question_note).toBe(
+      `Re-baselined on ${at(1).slice(0, 10)}: the latest snapshot asked about the market "Honolulu, HI" `
+      + "rather than none, and no earlier snapshot asked the same question, so there is no trend for it yet.");
+  });
+
+  it("a snapshot that recorded no question is compared with nothing, on either side", () => {
+    const unrecordedLatest = computeTrend([snap(6, 50), snap(1, 60, false, null)], NOW)!;
+    expect(unrecordedLatest.change_7d).toBeNull();
+    expect(unrecordedLatest.question_note).toMatch(/^The latest snapshot does not record what it asked/);
+
+    const unrecordedBefore = computeTrend([snap(6, 50, false, null), snap(1, 60)], NOW)!;
+    expect(unrecordedBefore.change_7d).toBeNull();
+    expect(unrecordedBefore.question_note)
+      .toMatch(/^Re-baselined on \d{4}-\d{2}-\d{2}: the snapshots before it do not record what they asked/);
+  });
+
+  it("says nothing about questions when every snapshot asked the same one", () => {
+    const trend = computeTrend([snap(20, 40), snap(6, 50), snap(1, 60)], NOW)!;
+    expect(trend).not.toHaveProperty("question_note");
+    expect(trend.change_7d!.skipped_snapshots).toBe(0);
+    expect(trend.change_7d!.from_captured_at).toBe(at(6));
   });
 });
 

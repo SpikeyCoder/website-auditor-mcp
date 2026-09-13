@@ -73,6 +73,11 @@ describe("get_ai_visibility trend", () => {
       score,
       by_engine: { chatgpt: score, perplexity: score, claude: score, gemini: score },
       is_simulated: false,
+      // One question throughout: the trend compares only snapshots that asked the same one.
+      question: {
+        key: "q-example", business_name: "Example", name_source: "detected",
+        business_location: "", market_scope: "global", queries: ["best example"],
+      },
     }));
 
   it("subscriber with history -> trend windows computed, audit result untouched", async () => {
@@ -110,6 +115,27 @@ describe("get_ai_visibility trend", () => {
     if (!res.ok) return;
     expect(res.data.trend).toBeNull();
     expect(res.data.trend_note).toContain("at least two snapshots");
+  });
+
+  it("a change of question re-baselines the trend, and the note says when and what", async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const [before, after] = snaps([
+      [new Date(now - 6 * day).toISOString(), 40],
+      [new Date(now - day).toISOString(), 90],
+    ]);
+    const renamed = { ...after!, question: { ...after!.question, key: "q-roasters", business_name: "Example Roasters" } };
+    const getAiVisibilityHistory = vi.fn(async () => [before!, renamed]);
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend!.change_7d).toBeNull();
+    expect(res.data.trend!.change_30d).toBeNull();
+    expect(res.data.trend!.question_note).toMatch(
+      /^Re-baselined on \d{4}-\d{2}-\d{2}: the latest snapshot asked about the business name "Example Roasters" rather than "Example"/);
   });
 
   it("history endpoint failure never fails the tool -> trend null + soft note", async () => {

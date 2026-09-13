@@ -22,14 +22,14 @@ server just makes them available to agents.
 | Tool | Tier | What it does |
 |---|---|---|
 | `get_sample_audit` | **Free — no key** | A complete sample report for `example.com` in the exact shape a real audit returns. Needs no API key, no subscription and no network. Try this first to see what you'd be buying. |
-| `get_ai_visibility` | **Pro** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + the top competitor appearing in your place. Pro subscribers also get `trend`: 7- and 30-day score movement from stored snapshot history. |
+| `get_ai_visibility` | **Pro** | Current AI-visibility score (0–100) + per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini) + the top competitor appearing in your place. Pro subscribers also get `trend`: 7- and 30-day score movement from stored snapshot history, compared only between snapshots that asked the same question. |
 | `run_audit` | **Pro**, rate-limited | Full one-time audit → category scores (AI visibility, SEO, security, performance) + top issues + a shareable report URL. |
-| `get_changes` | **Pro** | What changed since the last check — score movement, engines gained/lost, competitor moves, new/resolved issues. Requires the domain to be tracked. |
+| `get_changes` | **Pro** | What changed since the last check — score movement, engines gained/lost, competitor moves, new/resolved issues. Only between two snapshots that asked the same question (the same business name, market and queries): after the question changes, it reports a re-baseline and its date instead of a number. Requires the domain to be tracked. |
 | `compare_competitors` | **Pro** | Head-to-head AI-visibility ranking against named competitor domains + where each appears that you don't. Quota-aware: caps the audit fan-out to your remaining daily quota, reuses recent cached audits, and reports any competitors it had to skip rather than dropping them silently. |
 | `track_site` | **Pro** | Start (or stop) weekly monitoring of a site's AI visibility. Establishes the history `get_changes` reads from. |
 | `untrack_site` | **Pro** | Stop monitoring a site and free up a monitoring slot. Idempotent. |
 | `list_tracked_sites` | **Pro** | List the sites you're monitoring, with cadence, active state, and slots used/remaining. |
-| `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score, when each was last checked and next runs, and the most recent change. |
+| `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score, when each was last checked and next runs, and the most recent like-for-like change (or a note saying why there is none yet). |
 | `check_upgrade_status` | Any valid key | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms). Consumes no audit quota. |
 
 ## Prompts
