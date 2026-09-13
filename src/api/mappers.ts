@@ -596,9 +596,11 @@ export function measuredTheBusiness(s: { source?: string | null }): boolean {
  * cadences and a day, the span across which the weekly digest still compares
  * one re-audit with another, between that re-audit, each later snapshot of the
  * series (weekly re-audits included, recorded or not), and the newest snapshot
- * given. After a gap (the domain untracked or paused, or its re-audits
- * unmeasured, and nothing asking the question for a month), the series is every
- * snapshot again, until another weekly re-audit records its question.
+ * given. After a gap, a snapshot more than four weekly cadences and a day after
+ * the series' last one (the domain untracked or paused, or its re-audits
+ * unmeasured, while an audit asked something else), the series is every
+ * snapshot again, until another weekly re-audit records its question. Time alone
+ * opens no gap: with nothing newer, the series' last snapshot stays its latest.
  *
  * The weekly re-audits, because they are what monitors a tracked domain: an
  * audit run by hand in another market, or an extension scan, asks a question of
@@ -627,7 +629,7 @@ export function seriesOf<T extends { source?: string | null; question?: Snapshot
   // Only while the anchored series has no gap: from that re-audit, through each
   // later snapshot of it, to the newest snapshot given, no step is longer than
   // the reach. With no limit, an
-  // untracked domain kept its last weekly change as its latest for good. Judged
+  // untracked domain's audits in another market months later never became its latest. Judged
   // by the re-audit alone, one audit in another market a month after it hid a
   // like-for-like change measured days before; judged by the series' newest
   // snapshot alone, one audit of a question last re-audited a year before

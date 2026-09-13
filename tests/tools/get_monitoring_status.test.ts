@@ -119,6 +119,28 @@ describe("get_monitoring_status [Pro]", () => {
     expect(site.change).toBeNull();
     expect(site.summary).toMatch(/not audited yet/i);
   });
+
+  it("a domain audited without a measured snapshot says so, not that it was never audited", async () => {
+    const site = (count: number) => ({
+      domain: "shoes.com",
+      cadence: "weekly",
+      active: true,
+      last_audited_at: "2026-09-07T09:00:00Z",
+      next_run_at: "2026-09-14T09:00:00Z",
+      snapshots_count: count,
+      latest: null,
+      previous: null,
+    });
+    const statusFn = vi.fn(async () => ({ limit: 5, used: 2, remaining: 3, sites: [site(3), { ...site(1), domain: "boots.com" }] }));
+    const res = await getMonitoringStatus({}, makeDeps({ tier: "pro", client: { getMonitoringStatus: statusFn } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.sites[0]!.latest_score).toBeNull();
+    expect(res.data.sites[0]!.summary).toBe(
+      "shoes.com: audited, but none of its 3 snapshots measured the business, so there is no score yet.");
+    expect(res.data.sites[1]!.summary).toBe(
+      "boots.com: audited, but its one snapshot did not measure the business, so there is no score yet.");
+  });
 });
 
 describe("get_monitoring_status: a change only between snapshots that asked the same question", () => {
