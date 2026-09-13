@@ -506,6 +506,13 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     const note = computeTrend([run(20, 40, "a", ELSEWHERE), run(3, 70, "audit"), run(1, 90, "later")], NOW, "audit")!;
     expect(note.question_note).toMatch(/^No earlier snapshot asked the question the latest one, on /);
   });
+
+  it("finds an earlier snapshot of the latest's question from before the 30 days", () => {
+    const trend = computeTrend([snap(40, 40), snap(20, 90, false, ELSEWHERE), snap(1, 60)], NOW)!;
+    expect(trend.change_30d).toBeNull();
+    expect(trend.question_note).toMatch(
+      /^Only snapshots that asked the same question as the latest are compared\. Not compared, from the last 30 days: 1 snapshot that asked a different question\./);
+  });
 });
 
 /**

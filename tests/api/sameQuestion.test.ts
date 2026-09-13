@@ -313,6 +313,42 @@ describe("the series: the weekly re-audits, and whatever asked their question", 
     expect(ids(seriesOf([...weeks, later]))).toEqual(weeks.map((w) => w.id));
   });
 
+  it("breaks at any step, and snapshots outside the series bridge no gap", () => {
+    const dated = (id: string, source: string | null, q: SnapshotQuestion | null, captured_at: string) =>
+      ({ ...row(id, source, q), captured_at });
+    // A six-week gap between two audits of the weekly question, each close to its neighbours.
+    const middle = [
+      dated("week-1", "scheduled", asked, "2026-06-01T09:00:00Z"),
+      dated("by-hand-1", null, asked, "2026-06-08T12:00:00Z"),
+      dated("by-hand-2", null, asked, "2026-07-20T12:00:00Z"),
+      dated("by-hand-3", null, asked, "2026-07-27T12:00:00Z"),
+      dated("by-hand-elsewhere", null, elsewhere, "2026-07-28T12:00:00Z"),
+    ];
+    expect(ids(seriesOf(middle))).toEqual(ids(middle));
+    // Audits of another market every two weeks since the weekly re-audits stopped.
+    const bridged = [
+      dated("week-1", "scheduled", asked, "2026-05-04T09:00:00Z"),
+      dated("week-2", "scheduled", asked, "2026-05-11T09:00:00Z"),
+      ...["2026-05-25", "2026-06-08", "2026-06-22", "2026-07-06", "2026-07-20"].map((d) =>
+        dated(`elsewhere-${d}`, null, elsewhere, `${d}T12:00:00Z`)),
+    ];
+    expect(ids(seriesOf(bridged))).toEqual(ids(bridged));
+  });
+
+  it("starts the steps at the anchoring re-audit, whatever came before it", () => {
+    const dated = (id: string, source: string | null, q: SnapshotQuestion | null, captured_at: string) =>
+      ({ ...row(id, source, q), captured_at });
+    // Audited elsewhere before it was tracked, re-audited weekly, then paused.
+    const history = [
+      dated("by-hand-before", null, elsewhere, "2026-07-20T12:00:00Z"),
+      dated("week-1", "scheduled", asked, "2026-07-25T09:00:00Z"),
+      dated("week-2", "scheduled", asked, "2026-08-01T09:00:00Z"),
+      dated("by-hand-elsewhere-1", null, elsewhere, "2026-08-20T12:00:00Z"),
+      dated("by-hand-elsewhere-2", null, elsewhere, "2026-09-10T12:00:00Z"),
+    ];
+    expect(ids(seriesOf(history))).toEqual(ids(history));
+  });
+
   it("does not count a weekly re-audit that measured nothing of the business", () => {
     expect(measuredTheBusiness({ source: "scheduled_unmeasured" })).toBe(false);
     expect(measuredTheBusiness({ source: "scheduled" })).toBe(true);

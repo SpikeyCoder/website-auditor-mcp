@@ -592,13 +592,13 @@ export function measuredTheBusiness(s: { source?: string | null }): boolean {
  * (oldest first) until one is a weekly re-audit ("scheduled") that recorded its
  * question, and from then on the weekly re-audits together with every other
  * snapshot that asked what the newest such re-audit asked. That question
- * anchors the series only while it has been measured without a break: no more
- * than four weekly cadences and a day, the span across which the weekly digest
- * still compares one re-audit with another, between that re-audit, each later
- * snapshot of the series, and the newest snapshot given. After a break (the
- * domain untracked or paused, or its re-audits unmeasured, and nothing asking
- * the question for a month), the series is every snapshot again, until another
- * weekly re-audit records its question.
+ * anchors the series only while the series has no gap longer than four weekly
+ * cadences and a day, the span across which the weekly digest still compares
+ * one re-audit with another, between that re-audit, each later snapshot of the
+ * series (weekly re-audits included, recorded or not), and the newest snapshot
+ * given. After a gap (the domain untracked or paused, or its re-audits
+ * unmeasured, and nothing asking the question for a month), the series is every
+ * snapshot again, until another weekly re-audit records its question.
  *
  * The weekly re-audits, because they are what monitors a tracked domain: an
  * audit run by hand in another market, or an extension scan, asks a question of
@@ -624,9 +624,9 @@ export function seriesOf<T extends { source?: string | null; question?: Snapshot
   if (!anchors.length) return rows;
   const newest = anchors[anchors.length - 1]!;
   const anchored = rows.filter((s) => s.source === "scheduled" || sameQuestion(s, newest));
-  // Only while that question has been measured without a break: from that
-  // re-audit, through each later snapshot of the anchored series, to the newest
-  // snapshot given, no step is longer than the reach. With no limit, an
+  // Only while the anchored series has no gap: from that re-audit, through each
+  // later snapshot of it, to the newest snapshot given, no step is longer than
+  // the reach. With no limit, an
   // untracked domain kept its last weekly change as its latest for good. Judged
   // by the re-audit alone, one audit in another market a month after it hid a
   // like-for-like change measured days before; judged by the series' newest
