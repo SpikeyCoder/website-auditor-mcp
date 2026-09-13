@@ -351,9 +351,12 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     expect(trend.change_7d!.engine_changes[0]).toEqual({ engine: "chatgpt", from: 50, to: 60, delta: 10 });
   });
 
-  it("flags simulated data anywhere in the series", () => {
-    const trend = computeTrend([snap(5, 40, true), snap(1, 60)], NOW)!;
-    expect(trend.includes_simulated).toBe(true);
+  it("leaves simulated snapshots out: they measured nothing to move from", () => {
+    expect(computeTrend([snap(5, 40, true), snap(1, 60)], NOW)).toBeNull();
+    const trend = computeTrend([snap(10, 40), snap(5, 90, true), snap(1, 60)], NOW)!;
+    expect(trend.change_30d).toEqual(expect.objectContaining({ from_score: 40, to_score: 60, snapshots: 2 }));
+    expect(trend.snapshots_analyzed).toBe(2);
+    expect(trend.includes_simulated).toBe(false);
   });
 
   // ── only snapshots that asked the same question are compared ──────────
@@ -375,14 +378,14 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
       + `${at(20).slice(0, 10)}, asked about the market "Honolulu, HI" rather than none.`);
   });
 
-  it("a change of question is a re-baseline: no window, and a note saying when and what", () => {
+  it("a change of question has no window, and a note saying when and what", () => {
     const trend = computeTrend([snap(20, 40), snap(6, 50), snap(1, 90, false, ELSEWHERE)], NOW)!;
     expect(trend.change_7d).toBeNull();
     expect(trend.change_30d).toBeNull();
     expect(trend.question_note).toBe(
-      `Re-baselined on ${at(1).slice(0, 10)}: that day's snapshot asked about the market "Honolulu, HI" `
-      + `rather than none, compared with the snapshot on ${at(6).slice(0, 10)}, and no earlier snapshot asked `
-      + "the same question, so there is no trend for it.");
+      `No earlier snapshot asked the question the latest one, on ${at(1).slice(0, 10)}, asked. It asked about the `
+      + `market "Honolulu, HI" rather than none, compared with the snapshot on ${at(6).slice(0, 10)}, so there is `
+      + "no trend for it yet.");
   });
 
   it("a snapshot that recorded no question is compared with nothing, on either side", () => {
@@ -393,7 +396,7 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     const unrecordedBefore = computeTrend([snap(6, 50, false, null), snap(1, 60)], NOW)!;
     expect(unrecordedBefore.change_7d).toBeNull();
     expect(unrecordedBefore.question_note)
-      .toMatch(/^Re-baselined on \d{4}-\d{2}-\d{2}: the snapshots before it do not record what they asked/);
+      .toMatch(/^The snapshots before the latest one, on \d{4}-\d{2}-\d{2}, do not record what they asked/);
   });
 
   it("says nothing about questions when every snapshot asked the same one", () => {
@@ -428,17 +431,18 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     expect(trend.question_note).toContain(`rather than none, compared with the snapshot on ${at(20).slice(0, 10)},`);
   });
 
-  it("reads the weekly series: an audit beside it that asked something else is left out, and said so", () => {
+  it("follows the question the newest snapshot asked, whoever wrote it, as the audit it sits under", () => {
     const weekly = (daysAgo: number, score: number, question: typeof ASKED = ASKED) =>
       ({ ...snap(daysAgo, score, false, question), source: "scheduled" });
-    const byHand = computeTrend(
-      [weekly(20, 40), weekly(6, 50), { ...snap(1, 90, false, ELSEWHERE), source: "extension" }], NOW)!;
-    expect(byHand.latest_captured_at).toBe(at(6));
-    expect(byHand.change_30d).toEqual(expect.objectContaining({ from_score: 40, to_score: 50, score_delta: 10, snapshots: 2 }));
-    expect(byHand.question_note).toBe(
-      "Left out as not part of the weekly series: 1 snapshot that asked a different question, newer than "
-      + `${at(6).slice(0, 10)}. The newest of them that records its question, on ${at(1).slice(0, 10)}, asked `
-      + 'about the market "Honolulu, HI" rather than none.');
+    // The audit just run, in another market beside a weekly series: the trend is
+    // that market's, not the weekly re-audits' (get_changes reports those).
+    const byHand = computeTrend([
+      weekly(10, 50), weekly(3, 55),
+      { ...snap(2, 70, false, ELSEWHERE), source: null }, { ...snap(1, 80, false, ELSEWHERE), source: null },
+    ], NOW)!;
+    expect(byHand.latest_captured_at).toBe(at(1));
+    expect(byHand.change_7d).toEqual(
+      expect.objectContaining({ from_score: 70, to_score: 80, score_delta: 10, skipped_snapshots: 1 }));
 
     // One that asked the weekly question is the newer measurement of it.
     const sameAsked = computeTrend([weekly(20, 40), weekly(6, 50), snap(1, 80)], NOW)!;
@@ -450,21 +454,15 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
       [weekly(20, 40), weekly(6, 50), { ...snap(1, 25), source: "scheduled_unmeasured" }], NOW)!;
     expect(unmeasured.latest_captured_at).toBe(at(6));
     expect(unmeasured).not.toHaveProperty("question_note");
-
-    const moved = computeTrend([weekly(20, 40), weekly(6, 50), weekly(1, 90, ELSEWHERE)], NOW)!;
-    expect(moved.question_note).toMatch(/^Re-baselined on /);
   });
 
-  it("explains a weekly re-baseline against the weekly re-audits, not an audit beside them", () => {
+  it("counts only what it analyzed, leaving a simulated snapshot out", () => {
     const weekly = (daysAgo: number, score: number, question: typeof ASKED = ASKED) =>
       ({ ...snap(daysAgo, score, false, question), source: "scheduled" });
-    const trend = computeTrend([
-      weekly(20, 40),
-      { ...snap(10, 60, false, ELSEWHERE), source: null },
-      weekly(1, 50, { ...ASKED, key: "q-category", queries: ["best widget store"] }),
-    ], NOW)!;
-    expect(trend.question_note).toContain(`compared with the snapshot on ${at(20).slice(0, 10)}`);
-    expect(trend.question_note).not.toContain("Honolulu");
+    const trend = computeTrend(
+      [weekly(20, 40), weekly(6, 50), { ...snap(1, 90, true, ELSEWHERE), source: "extension" }], NOW)!;
+    expect(trend.snapshots_analyzed).toBe(2);
+    expect(trend.includes_simulated).toBe(false);
   });
 });
 

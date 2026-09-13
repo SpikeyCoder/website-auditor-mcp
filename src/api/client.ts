@@ -275,24 +275,36 @@ export class WaApiClient implements WaApiClientLike {
    * re-audits — the "value when nobody's watching" loop.
    *
    * ONLY BETWEEN SNAPSHOTS THAT ASKED THE SAME QUESTION (sameQuestion in
-   * mappers.ts). Without a `since` cursor the latest snapshot is compared with
-   * the most recent earlier one that asked what it asked, passing over any that
-   * asked something else; with one, with the earliest such snapshot in the
-   * window. The result names both dates and says what was passed over.
+   * mappers.ts), over the domain's series (seriesOf). Without a `since` cursor
+   * the series' latest snapshot is compared with the most recent earlier one
+   * that asked what it asked, passing over any that asked something else; with
+   * one, with the earliest such snapshot captured since then. The result names
+   * both dates and says what was passed over or left out.
    *
    * It throws NOT_YET_AVAILABLE with a clear message rather than fabricating a
    * change when there is nothing like for like to compare: fewer than two
-   * snapshots, a latest snapshot that does not record what it asked, or a change
-   * of question that no earlier snapshot shares, which it reports as a
-   * re-baseline with the date and what changed.
+   * measured snapshots; a series whose only weekly re-audit is the oldest
+   * snapshot; nothing in the series since `since`; a latest snapshot that does
+   * not record what it asked; or no earlier snapshot that asked its question,
+   * reported as a re-baseline with the date and what changed, or, with `since`,
+   * as nothing like for like in the window. A `since` that does not parse is
+   * INVALID_INPUT.
    */
   async getChanges(params: GetChangesParams): Promise<Changes> {
     const since = params.since && params.since !== "last_check" ? params.since : undefined;
+    if (since !== undefined && Number.isNaN(Date.parse(since))) {
+      throw new WaApiError("INVALID_INPUT", 'since must be an ISO-8601 date or timestamp, or "last_check".');
+    }
+    // THE WHOLE HISTORY, with the window applied below. Which snapshots form the
+    // series depends on weekly re-audits older than any window, and a history
+    // the API had already cut to the window built a different series from the
+    // one /api/monitoring-status reads.
+    //
     // The trend's read and filter, reused: a row with no usable score poisons a
     // delta. Subtracting an absent score yields NaN, which JSON.stringify writes
     // as `null` in the text content and which fails the declared output schema
     // outright, so a successful call came back as an error naming neither.
-    const snaps = await this.getAiVisibilityHistory({ domain: params.domain, since });
+    const snaps = await this.getAiVisibilityHistory({ domain: params.domain });
     if (snaps.length < 2) {
       throw new WaApiError(
         "NOT_YET_AVAILABLE",
@@ -765,6 +777,17 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
   const earlier = series.slice(0, -1);
   const after = laterNote(rows.slice(at + 1), current);
   const on = day(current.captured_at);
+  const sinceAt = since === undefined ? undefined : Date.parse(since);
+
+  if (since !== undefined && sinceAt !== undefined && Date.parse(current.captured_at) < sinceAt) {
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      `No AI-visibility snapshot for ${domain} to compare since ${dateOf(since)}: the latest in its series is from ${on}, so there is no change in that window.${after}`,
+    );
+  }
+  // What the window holds before the latest: every snapshot before it without
+  // one.
+  const inWindow = sinceAt === undefined ? before : before.filter((s) => Date.parse(s.captured_at) >= sinceAt);
 
   if (!before.length) {
     throw new WaApiError(
@@ -776,7 +799,8 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
   // THE CHANGE THAT STILL EXISTS, for every refusal below: a caller asking what
   // changed wants the last like-for-like change even when the latest has none.
   // Looked for in the series first, where the weekly re-audits are.
-  const pair = newestComparablePair(earlier) ?? newestComparablePair(before);
+  const seriesPair = newestComparablePair(earlier);
+  const pair = seriesPair ?? newestComparablePair(before);
   const previous_change = pair
     ? {
       from_captured_at: pair.from.captured_at,
@@ -784,8 +808,11 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
       score_delta: pair.to.score - pair.from.score,
     }
     : null;
+  // The series' pair is the most recent only among the series once snapshots
+  // outside it came before the latest too, so it is named as the series'.
+  const whose = seriesPair && before.length > earlier.length ? "The weekly series' most recent" : "The most recent";
   const priorChange = previous_change
-    ? ` The most recent like-for-like change before it was ${movement(previous_change.score_delta)}, `
+    ? ` ${whose} like-for-like change before it was ${movement(previous_change.score_delta)}, `
       + `from ${day(previous_change.from_captured_at)} to ${day(previous_change.to_captured_at)}.`
     : "";
   const withPrevious = previous_change ? { previous_change } : {};
@@ -801,7 +828,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
     );
   }
 
-  const { base } = since ? oldestSameQuestion(before, current) : newestSameQuestion(before, current);
+  const { base } = since ? oldestSameQuestion(inWindow, current) : newestSameQuestion(before, current);
   if (!base) {
     // Explained against the newest snapshot in the series that recorded its
     // question: an audit beside the series asked something else, and the one
@@ -813,8 +840,17 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
       : null;
     const unrecorded = "the snapshots before it do not record what they asked";
     // A window can hold no match while an older snapshot outside it does, so
-    // only the unwindowed read may call this a re-baseline.
+    // only the unwindowed read may call this a re-baseline. When that older one
+    // exists, the refusal names it rather than a difference that is not there.
     if (since) {
+      const outside = newestSameQuestion(before, current).base;
+      if (outside) {
+        throw new WaApiError(
+          "NOT_YET_AVAILABLE",
+          `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked; the most recent that did is from ${day(outside.captured_at)}, before the window, so there is no like-for-like change in it.${priorChange}${after}`,
+          { details: { reason: "not_in_window", since, ...withPrevious } },
+        );
+      }
       throw new WaApiError(
         "NOT_YET_AVAILABLE",
         `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked (${asked ? `that one ${asked}` : unrecorded}), so there is no like-for-like change in that window.${priorChange}${after}`,
@@ -830,7 +866,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
 
   // Every snapshot between the base and the latest, or in the window before the
   // latest: by construction none of them asked the latest's question.
-  const passedOver = notCompared(since ? before : before.slice(before.indexOf(base) + 1), current);
+  const passedOver = notCompared(since ? inWindow : before.slice(before.indexOf(base) + 1), current);
   const skipped = passedOver.different + passedOver.unrecorded;
   const result: Changes = {
     ...computeChanges(

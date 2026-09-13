@@ -33,7 +33,7 @@ async function attachTrend(result: AiVisibility, domain: string, deps: ToolDeps)
       result.trend = trend;
     } else {
       result.trend_note =
-        "Not enough history yet to show a trend — at least two snapshots are needed. Each audit stores one, and tracked sites (track_site) add one automatically every week.";
+        "Not enough history yet to show a trend — at least two measured snapshots are needed. Each audit stores one, and tracked sites (track_site) add one automatically every week.";
     }
   } catch {
     // History is a bonus on this tool; the fresh score above is still valid.

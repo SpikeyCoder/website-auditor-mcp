@@ -232,9 +232,27 @@ describe("the series: the weekly re-audits, and whatever asked their question", 
     ]))).toEqual(["by-hand-asked", "week-1", "week-2", "scan-asked"]);
   });
 
-  it("keeps only the weekly re-audits when the newest of them recorded nothing", () => {
+  it("is anchored on the newest weekly re-audit that recorded its question", () => {
+    // One that recorded nothing matches nothing, so it cannot be the anchor.
     expect(ids(seriesOf([row("week-1", "scheduled", asked), row("week-2", "scheduled", null), row("by-hand", null, asked)])))
-      .toEqual(["week-1", "week-2"]);
+      .toEqual(["week-1", "week-2", "by-hand"]);
+    // And until one has, the series is every snapshot.
+    expect(ids(seriesOf([row("week-1", "scheduled", null), row("by-hand", null, elsewhere)])))
+      .toEqual(["week-1", "by-hand"]);
+  });
+
+  it("lets a weekly re-audit anchor the series only while it is current", () => {
+    const dated = (id: string, source: string | null, q: SnapshotQuestion | null, captured_at: string) =>
+      ({ ...row(id, source, q), captured_at });
+    const stale = [
+      dated("week-1", "scheduled", asked, "2026-02-01T09:00:00Z"),
+      dated("by-hand-1", null, elsewhere, "2026-09-01T12:00:00Z"),
+      dated("by-hand-2", null, elsewhere, "2026-09-10T12:00:00Z"),
+    ];
+    expect(ids(seriesOf(stale))).toEqual(["week-1", "by-hand-1", "by-hand-2"]);
+    // Within four weeks and a day of the newest snapshot, it still anchors the series.
+    const current = [{ ...stale[0]!, captured_at: "2026-08-13T09:00:00Z" }, stale[1]!, stale[2]!];
+    expect(ids(seriesOf(current))).toEqual(["week-1"]);
   });
 
   it("does not count a weekly re-audit that measured nothing of the business", () => {
@@ -254,5 +272,12 @@ describe("the series: the weekly re-audits, and whatever asked their question", 
       " Left out as not part of the weekly series: 1 snapshot that asked a different question and 1 snapshot that "
       + "does not record what it asked, newer than 2026-09-08. The newest of them that records its question, on "
       + '2026-09-10, asked about no market rather than "Austin, TX".');
+
+    // Beside a latest that recorded nothing, nothing is said about what they asked.
+    expect(laterNote([
+      { captured_at: "2026-09-09T09:00:00Z", question: elsewhere },
+      { captured_at: "2026-09-10T09:00:00Z", question: asked },
+    ], { captured_at: "2026-09-08T09:00:00Z", question: null as SnapshotQuestion | null })).toBe(
+      " Left out as not part of the weekly series: 2 newer snapshots, the newest on 2026-09-10.");
   });
 });

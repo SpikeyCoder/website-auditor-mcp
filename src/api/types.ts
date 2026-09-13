@@ -388,7 +388,11 @@ export interface MonitoringComparison {
   status: string;
   /** "compared": snapshots between the two that asked something else. */
   skipped_snapshots?: number;
-  /** "rebaselined": the snapshot just before `latest`, which asked something else. */
+  /**
+   * "rebaselined": what `latest` changed from: the newest earlier snapshot in the
+   * series that recorded its question, failing that the newest earlier measured
+   * snapshot that did, failing that the one just before.
+   */
   prior?: { captured_at: string; question: SnapshotQuestion | null };
 }
 

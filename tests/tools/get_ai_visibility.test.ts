@@ -114,10 +114,10 @@ describe("get_ai_visibility trend", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.trend).toBeNull();
-    expect(res.data.trend_note).toContain("at least two snapshots");
+    expect(res.data.trend_note).toContain("at least two measured snapshots");
   });
 
-  it("a change of question re-baselines the trend, and the note says when and what", async () => {
+  it("a change of question leaves no trend, and the note says when and what", async () => {
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
     const [before, after] = snaps([
@@ -135,7 +135,7 @@ describe("get_ai_visibility trend", () => {
     expect(res.data.trend!.change_7d).toBeNull();
     expect(res.data.trend!.change_30d).toBeNull();
     expect(res.data.trend!.question_note).toMatch(
-      /^Re-baselined on \d{4}-\d{2}-\d{2}: that day's snapshot asked about the business name "Example Roasters" rather than "Example"/);
+      /^No earlier snapshot asked the question the latest one, on \d{4}-\d{2}-\d{2}, asked\. It asked about the business name "Example Roasters" rather than "Example"/);
   });
 
   it("history endpoint failure never fails the tool -> trend null + soft note", async () => {
