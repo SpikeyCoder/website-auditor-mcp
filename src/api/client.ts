@@ -283,12 +283,15 @@ export class WaApiClient implements WaApiClientLike {
    *
    * It throws NOT_YET_AVAILABLE with a clear message rather than fabricating a
    * change when there is nothing like for like to compare: fewer than two
-   * measured snapshots; a series whose only weekly re-audit is the oldest
-   * snapshot; nothing in the series since `since`; a latest snapshot that does
-   * not record what it asked; or no earlier snapshot that asked its question,
-   * reported as a re-baseline with the date and what changed, or, with `since`,
-   * as nothing like for like in the window. A `since` that does not parse is
-   * INVALID_INPUT.
+   * measured snapshots; a weekly series that is one measured re-audit, the
+   * oldest measured snapshot, with every newer one asking something else;
+   * nothing in the series since `since`; a latest snapshot that does not record
+   * what it asked; or no earlier snapshot that asked its question, reported as a
+   * re-baseline with the date and what changed, or, with `since`, as nothing
+   * like for like for it in the window. Each says what it is about, the series
+   * or the latest's question, and names a like-for-like change that exists
+   * elsewhere: before the latest, or among newer snapshots the series leaves
+   * out. A `since` that does not parse is INVALID_INPUT.
    */
   async getChanges(params: GetChangesParams): Promise<Changes> {
     const since = params.since && params.since !== "last_check" ? params.since : undefined;
@@ -321,6 +324,7 @@ export class WaApiClient implements WaApiClientLike {
 
     type WireSnapshot = {
       captured_at?: string;
+      run_id?: unknown;
       score?: number | null;
       by_engine?: Record<string, number | null> | null;
       is_simulated?: boolean | null;
@@ -337,6 +341,8 @@ export class WaApiClient implements WaApiClientLike {
         typeof s?.score === "number" && typeof s?.captured_at === "string")
       .map((s) => ({
         captured_at: s.captured_at,
+        // Which audit wrote it: how the trend finds the audit it sits under.
+        run_id: typeof s.run_id === "string" ? s.run_id : null,
         score: s.score,
         by_engine: Object.fromEntries(
           Object.entries(s.by_engine ?? {}).filter(([, v]) => typeof v === "number"),
@@ -780,9 +786,14 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
   const sinceAt = since === undefined ? undefined : Date.parse(since);
 
   if (since !== undefined && sinceAt !== undefined && Date.parse(current.captured_at) < sinceAt) {
+    // About the series, which is all this compares: newer snapshots outside it
+    // can sit in the window, a like-for-like pair among them, and `after`
+    // names them and that change.
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `No AI-visibility snapshot for ${domain} to compare since ${dateOf(since)}: the latest in its series is from ${on}, so there is no change in that window.${after}`,
+      after
+        ? `No AI-visibility snapshot in the weekly series for ${domain} since ${dateOf(since)}: the series' latest is from ${on}, so the series has no change in that window.${after}`
+        : `No AI-visibility snapshot for ${domain} to compare since ${dateOf(since)}: the latest is from ${on}, so there is no change in that window.`,
     );
   }
   // What the window holds before the latest: every snapshot before it without
@@ -790,9 +801,12 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
   const inWindow = sinceAt === undefined ? before : before.filter((s) => Date.parse(s.captured_at) >= sinceAt);
 
   if (!before.length) {
+    // Only a weekly series that is one measured re-audit, the oldest measured
+    // snapshot, gets here (seriesOf): every newer snapshot is left out of it,
+    // and `after` names them.
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `Not enough AI-visibility history for ${domain} yet: its only weekly re-audit so far, on ${on}, has nothing before it to compare with.${after}`,
+      `Not enough history in the weekly series for ${domain} yet: its only measured re-audit so far, on ${on}, has no measured snapshot before it to compare with.${after}`,
     );
   }
 
@@ -839,6 +853,9 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
         + day(prior.captured_at)
       : null;
     const unrecorded = "the snapshots before it do not record what they asked";
+    // A first recorded question is no change of question: nothing earlier says
+    // what it asked.
+    const reason = asked ? "question_changed" : "earlier_not_recorded";
     // A window can hold no match while an older snapshot outside it does, so
     // only the unwindowed read may call this a re-baseline. When that older one
     // exists, the refusal names it rather than a difference that is not there.
@@ -847,20 +864,20 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
       if (outside) {
         throw new WaApiError(
           "NOT_YET_AVAILABLE",
-          `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked; the most recent that did is from ${day(outside.captured_at)}, before the window, so there is no like-for-like change in it.${priorChange}${after}`,
+          `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked; the most recent that did is from ${day(outside.captured_at)}, before the window, so there is no like-for-like change for it in the window.${priorChange}${after}`,
           { details: { reason: "not_in_window", since, ...withPrevious } },
         );
       }
       throw new WaApiError(
         "NOT_YET_AVAILABLE",
-        `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked (${asked ? `that one ${asked}` : unrecorded}), so there is no like-for-like change in that window.${priorChange}${after}`,
-        { details: { reason: "question_changed", since, ...withPrevious } },
+        `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked (${asked ? `that one ${asked}` : unrecorded}), so there is no like-for-like change for it in that window.${priorChange}${after}`,
+        { details: { reason, since, ...withPrevious } },
       );
     }
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
       `AI visibility for ${domain} re-baselined on ${on}: ${asked ? `that day's snapshot ${asked}, and no earlier snapshot asked the same question` : unrecorded}, so there is no like-for-like change for it yet.${priorChange}${after}`,
-      { details: { reason: "question_changed", rebaselined_at: current.captured_at, ...withPrevious } },
+      { details: { reason, rebaselined_at: current.captured_at, ...withPrevious } },
     );
   }
 

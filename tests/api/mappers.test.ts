@@ -6,6 +6,7 @@ import {
   topCompetitor,
   computeChanges,
   computeTrend,
+  measuredRun,
 } from "../../src/api/mappers.js";
 import { isGap } from "../../src/tools/compareCompetitors.js";
 import { mapEngines } from "../../src/tools/getMonitoringStatus.js";
@@ -463,6 +464,30 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
       [weekly(20, 40), weekly(6, 50), { ...snap(1, 90, true, ELSEWHERE), source: "extension" }], NOW)!;
     expect(trend.snapshots_analyzed).toBe(2);
     expect(trend.includes_simulated).toBe(false);
+  });
+
+  it("ends at the audit it sits under, named by its run", () => {
+    const run = (daysAgo: number, score: number, run_id: string, question: typeof ASKED = ASKED) =>
+      ({ ...snap(daysAgo, score, false, question), run_id });
+    const history = [run(20, 40, "a"), run(6, 50, "b"), run(3, 70, "audit"), run(1, 90, "later", ELSEWHERE)];
+    // A snapshot written after the audit, in another market, is not what the audit asked.
+    const trend = computeTrend(history, NOW, "audit")!;
+    expect(trend.latest_captured_at).toBe(at(3));
+    expect(trend.change_7d).toEqual(expect.objectContaining({ from_score: 50, to_score: 70 }));
+    expect(trend.snapshots_analyzed).toBe(3);
+    // Without a run, the newest measured snapshot.
+    expect(computeTrend(history, NOW)!.latest_captured_at).toBe(at(1));
+    // A run that left no measured snapshot has no trend to end at.
+    expect(computeTrend(history, NOW, "missing")).toBeNull();
+  });
+
+  it("says whether a run left a measured snapshot", () => {
+    const run = (run_id: string | null, over: object = {}) => ({ ...snap(1, 50), run_id, ...over });
+    expect(measuredRun([run("audit")], "audit")).toBe(true);
+    expect(measuredRun([run("other")], "audit")).toBe(false);
+    expect(measuredRun([run(null)], "audit")).toBe(false);
+    expect(measuredRun([run("audit", { is_simulated: true })], "audit")).toBe(false);
+    expect(measuredRun([run("audit", { source: "scheduled_unmeasured" })], "audit")).toBe(false);
   });
 });
 

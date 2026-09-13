@@ -65,23 +65,29 @@ migration 034); rows stored before then carry `question: null`.
 **MCP wiring (live):** `client.getChanges()` reads it and collapses to a delta
 via `computeChanges`, only between measured snapshots whose `question.key`s
 match (`sameQuestion` in `src/api/mappers.ts`), over the domain's series as
-`/api/monitoring-status` reads it (`seriesOf`: the weekly re-audits and whatever
-asked their question, while the newest weekly re-audit is within four weeks and a
-day of the newest snapshot), skipping simulated snapshots and weekly re-audits that
-measured nothing of the business. It reads the whole history and applies
-`since` itself, because which snapshots form the series depends on weekly
+`/api/monitoring-status` reads it (`seriesOf`: the measured weekly re-audits and
+whatever asked their question, while the newest of those is within four weeks and
+a day of the newest measured snapshot), skipping simulated snapshots and weekly
+re-audits that measured nothing of the business. It reads the whole history and
+applies `since` itself, because which snapshots form the series depends on weekly
 re-audits older than any window. It throws `NOT_YET_AVAILABLE` below two
-measured snapshots, when the only weekly re-audit is the oldest snapshot, and
-when the series has nothing since `since` (no `details` on those three); when
-the series' latest records no question (`details.reason:
+measured snapshots, when the series is one measured re-audit with nothing
+measured before it, and when the series has nothing since `since` (no `details`
+on those three); when the series' latest records no question (`details.reason:
 "question_not_recorded"`); and when no earlier snapshot asked its question
-(`"question_changed"`, with `rebaselined_at` unless `since` narrowed the
-window; `"not_in_window"` when one did, but only before the window). The last two carry the most recent like-for-like change before it as
-`previous_change` when there is one. A `since` that does not parse is
-`INVALID_INPUT`. `client.getAiVisibilityHistory()` (1.0.4) returns the
-raw series, which `get_ai_visibility` folds into 7/30-day `trend` windows for
-Pro callers: for the question the newest measured snapshot asked, between
-measured snapshots that asked it (`computeTrend`).
+(`"question_changed"`, or `"earlier_not_recorded"` when no earlier snapshot
+records its question, with `rebaselined_at` unless `since` narrowed the window;
+`"not_in_window"` when one did, but only before the window). Those with a
+`reason` carry `previous_change` when there is one: the weekly series' most
+recent like-for-like change before the latest, or, when the series has none,
+the most recent among all earlier measured snapshots. A refusal that leaves
+newer snapshots out of the series names them, and the most recent like-for-like
+change among them. A `since` that does not parse is `INVALID_INPUT`.
+`client.getAiVisibilityHistory()` (1.0.4) returns the raw series, which
+`get_ai_visibility` folds into 7/30-day `trend` windows for Pro callers: for the
+question the audit just run asked, ending at its snapshot (matched by `run_id`),
+between measured snapshots that asked it (`computeTrend`); null, with a
+`trend_note`, when that audit stored no measured snapshot.
 
 ### 2b. Trial eligibility — live again (trial restored 2026-08-04)
 The 7-day trial returned on 2026-08-04 (removed 2026-07-27), and the

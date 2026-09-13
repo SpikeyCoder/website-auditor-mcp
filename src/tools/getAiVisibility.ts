@@ -7,12 +7,12 @@
  * active/trialing subscription — no free API tier (api PR #17).
  *
  * The result includes `trend`: 7- and 30-day movement computed from the
- * domain's stored snapshot history. Trend is strictly additive — any failure
+ * domain's stored snapshot history, for the question this audit asked. Trend is strictly additive — any failure
  * to load history degrades to `trend: null` with a `trend_note`, never to a
  * failed tool call.
  */
 import type { AiVisibility } from "../api/types.js";
-import { toAiVisibility, computeTrend, detectUnreachable } from "../api/mappers.js";
+import { toAiVisibility, computeTrend, detectUnreachable, measuredRun } from "../api/mappers.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetAiVisibilityArgs {
@@ -25,10 +25,19 @@ export interface GetAiVisibilityArgs {
 
 /** Fill `trend`/`trend_note` on a mapped result. Never throws.
  *  Runs after gateProTool, so the caller is a verified subscriber. */
-async function attachTrend(result: AiVisibility, domain: string, deps: ToolDeps): Promise<void> {
+async function attachTrend(result: AiVisibility, domain: string, runId: string, deps: ToolDeps): Promise<void> {
   try {
     const snapshots = await deps.client.getAiVisibilityHistory({ domain });
-    const trend = computeTrend(snapshots);
+    // FOR THIS AUDIT'S QUESTION, or none. Following the newest measured
+    // snapshot instead, an audit that stored no score (no engine answered, a
+    // name it could not confirm, a page it could not read) or a simulated one
+    // sat above another audit's trend, for a question it may never have asked.
+    if (!measuredRun(snapshots, runId)) {
+      result.trend_note =
+        "No trend for this audit: it stored no measured AI-visibility snapshot to follow (no score, a simulated one, or none at all), and earlier snapshots may have asked a different question.";
+      return;
+    }
+    const trend = computeTrend(snapshots, new Date(), runId);
     if (trend) {
       result.trend = trend;
     } else {
@@ -64,6 +73,6 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
   }
 
   const result = toAiVisibility(response.report);
-  await attachTrend(result, args.domain, deps);
+  await attachTrend(result, args.domain, response.runId, deps);
   return ok(result);
 }

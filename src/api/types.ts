@@ -188,6 +188,8 @@ export interface AiVisibilitySnapshot {
   source?: string | null;
   /** What it asked. Null or absent when the snapshot recorded nothing about it: it compares with nothing. */
   question?: SnapshotQuestion | null;
+  /** The audit run that wrote it, null when the API sent none: how a trend finds the audit it sits under. */
+  run_id?: string | null;
 }
 
 /**
@@ -220,12 +222,14 @@ export interface AiVisibilityTrend {
   change_30d: TrendWindow | null;
   snapshots_analyzed: number;
   latest_captured_at: string;
-  /** True if any analyzed snapshot was simulated (estimated) data. */
+  /** Always false: simulated snapshots are left out of the trend. Kept for clients that read it. */
   includes_simulated: boolean;
   /**
-   * Present when a change of question shaped the trend: a re-baseline, or
-   * snapshots left out. In words, because a window that is null for a change of
-   * question otherwise reads exactly like one that is null for want of history.
+   * Present when what the snapshots asked shaped the trend: no earlier snapshot
+   * asked the latest one's question, snapshots from the last 30 days asked
+   * another or recorded none and were not compared, or the latest records
+   * nothing. In words, because a window that is null for a change of question
+   * otherwise reads exactly like one that is null for want of history.
    */
   question_note?: string;
 }

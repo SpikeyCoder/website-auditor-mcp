@@ -125,11 +125,13 @@ const aiVisibilityTrend = open({
   change_30d: trendWindow.nullable(),
   snapshots_analyzed: z.number(),
   latest_captured_at: z.string(),
-  includes_simulated: z.boolean().describe("True if any analyzed snapshot was estimated rather than measured."),
+  includes_simulated: z.boolean().describe(
+    "Always false: simulated snapshots are left out of the trend. Kept for clients that read it."),
   question_note: z.string().optional().describe(
-    "Present when what the snapshots asked shaped the trend: a re-baseline, snapshots left out, or a latest "
-    + "snapshot that does not record what it asked. Relay it — a difference between scores that answered "
-    + "different questions is not a change in visibility."),
+    "Present when what the snapshots asked shaped the trend: no earlier snapshot asked the latest one's "
+    + "question, snapshots from the last 30 days were not compared, or the latest snapshot does not record "
+    + "what it asked. Relay it — a difference between scores that answered different questions is not a "
+    + "change in visibility."),
 });
 
 const aiVisibilitySource = open({

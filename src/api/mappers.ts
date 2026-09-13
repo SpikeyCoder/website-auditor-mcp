@@ -591,12 +591,13 @@ export function measuredTheBusiness(s: { source?: string | null }): boolean {
  * THE DOMAIN'S SERIES, as /api/monitoring-status reads it: every snapshot given
  * (oldest first) until one is a weekly re-audit ("scheduled") that recorded its
  * question, and from then on the weekly re-audits together with every other
- * snapshot that asked what the newest such re-audit asked. That re-audit
- * anchors the series only while it is current: at most four weekly cadences and
- * a day older than the newest snapshot given, the window in which the weekly
- * digest still compares one re-audit with another. Past it the domain is no
- * longer re-audited (untracked, paused, or unmeasured every week), and the
- * series is every snapshot again.
+ * snapshot that asked what the newest such re-audit asked. That question
+ * anchors the series only while it is current: while the newest of those
+ * snapshots is at most four weekly cadences and a day older than the newest
+ * snapshot given, the span across which the weekly digest still compares one
+ * re-audit with another. Past it nothing has measured the weekly question for a
+ * month (the domain untracked or paused, or its re-audits unmeasured, and no
+ * audit asking it), and the series is every snapshot again.
  *
  * The weekly re-audits, because they are what monitors a tracked domain: an
  * audit run by hand in another market, or an extension scan, asks a question of
@@ -621,30 +622,41 @@ export function seriesOf<T extends { source?: string | null; question?: Snapshot
   const anchors = rows.filter((s) => s.source === "scheduled" && Boolean(s.question?.key));
   if (!anchors.length) return rows;
   const newest = anchors[anchors.length - 1]!;
-  // Only while it is current. An anchor months behind kept an untracked
-  // domain's last weekly change as its latest for good, and hid every
-  // like-for-like change since.
-  const behind = Date.parse(rows[rows.length - 1]!.captured_at ?? "") - Date.parse(newest.captured_at ?? "");
+  const anchored = rows.filter((s) => s.source === "scheduled" || sameQuestion(s, newest));
+  // Only while that question is current, judged by the anchored series' own
+  // newest snapshot. With no limit, an untracked domain kept its last weekly
+  // change as its latest for good, and hid every like-for-like change since.
+  // Judged by the re-audit alone, one audit in another market a month after it
+  // hid a like-for-like change measured days before.
+  const behind = Date.parse(rows[rows.length - 1]!.captured_at ?? "")
+    - Date.parse(anchored[anchored.length - 1]!.captured_at ?? "");
   if (behind > SERIES_ANCHOR_REACH_MS) return rows;
-  return rows.filter((s) => s.source === "scheduled" || sameQuestion(s, newest));
+  return anchored;
 }
 
 /**
  * What to say about snapshots newer than the series' latest, which the series
  * leaves out: they asked something the weekly re-audits do not ask, or recorded
- * nothing. Empty when there are none; otherwise a sentence with a leading space.
+ * nothing. When two of them asked the same question it names the most recent
+ * such change: a refusal about the series is not "nothing changed" about them.
+ * Empty when there are none; otherwise sentences with a leading space.
  */
-export function laterNote<T extends { captured_at: string; question?: SnapshotQuestion | null }>(
+export function laterNote<T extends { captured_at: string; score: number; question?: SnapshotQuestion | null }>(
   later: T[],
   latest: T,
 ): string {
   if (!later.length) return "";
+  const pair = newestComparablePair(later);
+  const change = pair
+    ? ` The most recent like-for-like change among them was ${movement(pair.to.score - pair.from.score)}, `
+      + `from ${day(pair.from.captured_at)} to ${day(pair.to.captured_at)}.`
+    : "";
   if (!latest.question?.key) {
     // Nothing is known about what the latest asked, so nothing is said about
     // what these asked beside it.
     const n = later.length;
     return ` Left out as not part of the weekly series: ${n === 1 ? "1 newer snapshot" : `${n} newer snapshots`}, `
-      + `${n === 1 ? "on" : "the newest on"} ${day(later[n - 1]!.captured_at)}.`;
+      + `${n === 1 ? "on" : "the newest on"} ${day(later[n - 1]!.captured_at)}.${change}`;
   }
   const newest = newestRecorded(later);
   const what = newest?.question && latest.question?.key
@@ -652,7 +664,7 @@ export function laterNote<T extends { captured_at: string; question?: SnapshotQu
       + `${questionDifference(newest.question, latest.question)}.`
     : "";
   return ` Left out as not part of the weekly series: ${notComparedPhrase(notCompared(later, latest))}, `
-    + `newer than ${day(latest.captured_at)}.${what}`;
+    + `newer than ${day(latest.captured_at)}.${what}${change}`;
 }
 
 /**
@@ -689,24 +701,32 @@ function trendQuestionNote(latest: AiVisibilitySnapshot, before: AiVisibilitySna
 
 /**
  * Fold a raw snapshot series (oldest first) into 7- and 30-day trend windows.
- * The trend sits under the audit just run, so it follows the question the
- * newest snapshot asked, whatever wrote it: a window compares that snapshot
- * against the OLDEST snapshot inside the window that asked the same question
- * (see sameQuestion), and is null when it holds none. get_changes and
- * get_monitoring_status report the domain's weekly series instead (seriesOf).
- * Simulated snapshots, and weekly re-audits that measured nothing of the
- * business, are no point to measure movement from and are left out. Snapshot
- * cadence is irregular (one per audit + one per weekly scheduled run), so
- * windows describe "movement within the last N days", not fixed daily points.
- * Returns null when fewer than two measured snapshots remain.
+ * The trend sits under an audit, so it follows the question that audit asked:
+ * it ends at the snapshot of the run `runId` names (without one, at the newest
+ * measured snapshot), and a window compares that snapshot against the OLDEST
+ * snapshot inside the window that asked the same question (see sameQuestion),
+ * and is null when it holds none. get_changes and get_monitoring_status report
+ * the domain's weekly series instead (seriesOf). Simulated snapshots, and
+ * weekly re-audits that measured nothing of the business, are no point to
+ * measure movement from and are left out. Snapshot cadence is irregular (one
+ * per audit + one per weekly scheduled run), so windows describe "movement
+ * within the last N days", not fixed daily points. Returns null when fewer than
+ * two measured snapshots remain, or when `runId` names no measured snapshot
+ * (measuredRun says which).
  *
  * `now` is injectable for deterministic tests; callers default it.
  */
 export function computeTrend(
   snapshots: AiVisibilitySnapshot[],
   now: Date = new Date(),
+  runId?: string,
 ): AiVisibilityTrend | null {
-  const rows = snapshots.filter((s) => !s.is_simulated && measuredTheBusiness(s));
+  const measured = snapshots.filter((s) => !s.is_simulated && measuredTheBusiness(s));
+  // Ending at the audit's own snapshot: the newest measured snapshot is another
+  // audit's whenever this one stored no score or a simulated one, and the trend
+  // then followed a question this audit never asked.
+  const end = runId === undefined ? measured.length : measured.findIndex((s) => s.run_id === runId) + 1;
+  const rows = measured.slice(0, end);
   if (rows.length < 2) return null;
 
   const latest = rows[rows.length - 1]!;
@@ -749,6 +769,11 @@ export function computeTrend(
     includes_simulated: rows.some((s) => s.is_simulated),
     ...(question_note ? { question_note } : {}),
   };
+}
+
+/** Whether the run `runId` left a measured snapshot in `snapshots` for a trend to end at. */
+export function measuredRun(snapshots: AiVisibilitySnapshot[], runId: string): boolean {
+  return snapshots.some((s) => s.run_id === runId && !s.is_simulated && measuredTheBusiness(s));
 }
 
 export function computeChanges(

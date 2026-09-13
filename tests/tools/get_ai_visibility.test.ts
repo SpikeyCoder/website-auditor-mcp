@@ -68,8 +68,10 @@ describe("get_ai_visibility [Subscription]", () => {
 
 describe("get_ai_visibility trend", () => {
   const snaps = (specs: Array<[string, number]>) =>
-    specs.map(([captured_at, score]) => ({
+    specs.map(([captured_at, score], i) => ({
       captured_at,
+      // The newest is the audit just run (runAudit's mock run): the trend ends at its snapshot.
+      run_id: i === specs.length - 1 ? "abc123def456" : `earlier-${i}`,
       score,
       by_engine: { chatgpt: score, perplexity: score, claude: score, gemini: score },
       is_simulated: false,
@@ -151,6 +153,53 @@ describe("get_ai_visibility trend", () => {
     expect(res.data.score).toBe(62);
     expect(res.data.trend).toBeNull();
     expect(res.data.trend_note).toContain("could not be loaded");
+  });
+
+  it("an audit that stored no measured snapshot gets no trend, however much history there is", async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 20 * day).toISOString(), 40],
+      [new Date(now - 5 * day).toISOString(), 50],
+      [new Date(now - 1 * day).toISOString(), 60],
+    ]);
+    const last = history.length - 1;
+    // No score stored: the client drops the audit's row, so the newest is another audit's.
+    const unscored = history.map((s, i) => (i === last ? { ...s, run_id: "another-audit" } : s));
+    // Simulated: the row is there, and measured nothing.
+    const simulated = history.map((s, i) => (i === last ? { ...s, is_simulated: true } : s));
+    for (const snapshots of [unscored, simulated]) {
+      const res = await getAiVisibility(
+        { domain: "example.com" },
+        makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => snapshots) } }),
+      );
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.data.trend).toBeNull();
+      expect(res.data.trend_note).toMatch(/^No trend for this audit: it stored no measured AI-visibility snapshot/);
+    }
+  });
+
+  it("the trend ends at this audit's snapshot, not a newer one", async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 20 * day).toISOString(), 40],
+      [new Date(now - 5 * day).toISOString(), 50],
+      [new Date(now - 2 * day).toISOString(), 60],
+    ]);
+    const newer = {
+      ...history[1]!, run_id: "a-weekly-re-audit", captured_at: new Date(now - day).toISOString(), score: 99,
+      by_engine: { chatgpt: 99, perplexity: 99, claude: 99, gemini: 99 },
+    };
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => [...history, newer]) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend!.latest_captured_at).toBe(history[2]!.captured_at);
+    expect(res.data.trend!.change_7d!.score_delta).toBe(10);
   });
 });
 
