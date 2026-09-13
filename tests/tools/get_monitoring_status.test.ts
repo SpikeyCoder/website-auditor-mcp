@@ -120,26 +120,47 @@ describe("get_monitoring_status [Pro]", () => {
     expect(site.summary).toMatch(/not audited yet/i);
   });
 
-  it("a domain audited without a measured snapshot says so, not that it was never audited", async () => {
-    const site = (count: number) => ({
-      domain: "shoes.com",
+  it("a domain with no latest score says why, and never calls an audited domain unaudited", async () => {
+    const site = (over: object) => ({
+      domain: "example.com",
       cadence: "weekly",
       active: true,
       last_audited_at: "2026-09-07T09:00:00Z",
       next_run_at: "2026-09-14T09:00:00Z",
-      snapshots_count: count,
+      snapshots_count: 0,
       latest: null,
       previous: null,
+      ...over,
     });
-    const statusFn = vi.fn(async () => ({ limit: 5, used: 2, remaining: 3, sites: [site(3), { ...site(1), domain: "boots.com" }] }));
+    const statusFn = vi.fn(async () => ({
+      limit: 5,
+      used: 5,
+      remaining: 0,
+      sites: [
+        site({ domain: "shoes.com", snapshots_count: 3 }),
+        site({ domain: "boots.com", snapshots_count: 1 }),
+        site({ domain: "stored-none.com" }),
+        site({ domain: "hand-only.com", snapshots_count: 2, last_audited_at: null }),
+        site({
+          domain: "older-api.com",
+          snapshots_count: 3,
+          latest: { score: null, by_engine: {}, captured_at: "2026-09-07T09:00:00Z", is_simulated: false },
+          previous: { score: 55, by_engine: {}, captured_at: "2026-08-31T09:00:00Z", is_simulated: false },
+        }),
+      ],
+    }));
     const res = await getMonitoringStatus({}, makeDeps({ tier: "pro", client: { getMonitoringStatus: statusFn } }));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.sites[0]!.latest_score).toBeNull();
-    expect(res.data.sites[0]!.summary).toBe(
-      "shoes.com: audited, but none of its 3 snapshots measured the business, so there is no score yet.");
-    expect(res.data.sites[1]!.summary).toBe(
-      "boots.com: audited, but its one snapshot did not measure the business, so there is no score yet.");
+    const summary = Object.fromEntries(res.data.sites.map((s) => [s.domain, s.summary]));
+    expect(summary).toEqual({
+      "shoes.com": "shoes.com: audited, but none of its 3 snapshots measured the business, so there is no score yet.",
+      "boots.com": "boots.com: audited, but its one snapshot did not measure the business, so there is no score yet.",
+      "stored-none.com": "stored-none.com: audited on 2026-09-07, but no snapshot was stored, so there is no score yet.",
+      "hand-only.com": "hand-only.com: audited, but none of its 2 snapshots measured the business, so there is no score yet.",
+      "older-api.com": "older-api.com: its latest snapshot, on 2026-09-07, has no score.",
+    });
+    expect(res.data.sites.every((s) => s.latest_score === null && s.change === null)).toBe(true);
   });
 });
 

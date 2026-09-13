@@ -154,18 +154,24 @@ export async function getMonitoringStatus(
         next_run_at: s.next_run_at,
       };
       if (!s.latest || latestScore === null) {
-        // AUDITED IS NOT "NOT AUDITED". A domain whose snapshots all measured
-        // nothing of the business, such as weekly re-audits of a name invented
-        // from the hostname, has no latest score, and calling it never audited
-        // sat beside the date of its last audit.
+        // AUDITED IS NOT "NOT AUDITED". A domain with no latest score may have
+        // been audited all the same: its snapshots all measured nothing of the
+        // business (weekly re-audits of a name invented from the hostname), a
+        // scheduled run stored none (an unscannable host, a failed audit), or an
+        // older API sent a latest snapshot without a score. Calling any of them
+        // never audited sat beside the date of its last audit.
         const n = s.snapshots_count ?? 0;
-        return {
-          ...base,
-          change: null,
-          summary: n > 0
-            ? `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score yet.`
-            : `${s.domain}: not audited yet — the first scheduled run will set a baseline.`,
-        };
+        let summary: string;
+        if (s.latest) {
+          summary = `${s.domain}: its latest snapshot, on ${String(s.latest.captured_at).slice(0, 10)}, has no score.`;
+        } else if (n > 0) {
+          summary = `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score yet.`;
+        } else if (s.last_audited_at) {
+          summary = `${s.domain}: audited on ${String(s.last_audited_at).slice(0, 10)}, but no snapshot was stored, so there is no score yet.`;
+        } else {
+          summary = `${s.domain}: not audited yet — the first scheduled run will set a baseline.`;
+        }
+        return { ...base, change: null, summary };
       }
       const { change, label, note } = assess(s.latest, latestScore, s);
       return {

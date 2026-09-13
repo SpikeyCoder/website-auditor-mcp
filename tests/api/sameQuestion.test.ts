@@ -349,6 +349,16 @@ describe("the series: the weekly re-audits, and whatever asked their question", 
     expect(ids(seriesOf(history))).toEqual(ids(history));
   });
 
+  it("opens no gap with time alone", () => {
+    const dated = (id: string, source: string | null, q: SnapshotQuestion | null, captured_at: string) =>
+      ({ ...row(id, source, q), captured_at });
+    // Years old, with nothing newer: the weekly question still anchors the series.
+    expect(ids(seriesOf([
+      dated("week-1", "scheduled", asked, "2020-03-01T09:00:00Z"),
+      dated("by-hand-elsewhere", null, elsewhere, "2020-03-10T12:00:00Z"),
+    ]))).toEqual(["week-1"]);
+  });
+
   it("does not count a weekly re-audit that measured nothing of the business", () => {
     expect(measuredTheBusiness({ source: "scheduled_unmeasured" })).toBe(false);
     expect(measuredTheBusiness({ source: "scheduled" })).toBe(true);

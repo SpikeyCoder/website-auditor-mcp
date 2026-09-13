@@ -315,10 +315,11 @@ export const getMonitoringStatusOutput: ZodRawShape = {
     next_run_at: z.string().nullable().optional(),
     change: changes.nullable().describe(
       "The latest change against the most recent earlier snapshot that asked the same question; null when there "
-      + "is none — a first snapshot, a re-baseline, or snapshots that do not record what they asked."),
+      + "is none — no scored snapshot yet (the summary says why), a first snapshot, a re-baseline, or snapshots "
+      + "that do not record what they asked."),
     note: z.string().optional().describe(
-      "Present when there is no like-for-like change for a reason other than a first snapshot, or when snapshots "
-      + "were passed over: why, in words. Relay it."),
+      "Present when there is no like-for-like change because of a re-baseline or snapshots that do not record "
+      + "what they asked, or when snapshots were passed over: why, in words. Relay it."),
     summary: z.string(),
   })),
   summary: z.string(),

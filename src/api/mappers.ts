@@ -596,11 +596,11 @@ export function measuredTheBusiness(s: { source?: string | null }): boolean {
  * cadences and a day, the span across which the weekly digest still compares
  * one re-audit with another, between that re-audit, each later snapshot of the
  * series (weekly re-audits included, recorded or not), and the newest snapshot
- * given. After a gap, a snapshot more than four weekly cadences and a day after
- * the series' last one (the domain untracked or paused, or its re-audits
+ * given. After a gap (the domain untracked or paused, or its re-audits
  * unmeasured, while an audit asked something else), the series is every
- * snapshot again, until another weekly re-audit records its question. Time alone
- * opens no gap: with nothing newer, the series' last snapshot stays its latest.
+ * snapshot again, until another weekly re-audit records its question. A gap is a
+ * step between snapshots, so time alone opens none: with nothing newer, the
+ * series' last snapshot stays its latest.
  *
  * The weekly re-audits, because they are what monitors a tracked domain: an
  * audit run by hand in another market, or an extension scan, asks a question of

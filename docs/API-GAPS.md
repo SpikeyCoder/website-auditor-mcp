@@ -66,7 +66,7 @@ migration 034); rows stored before then carry `question: null`.
 via `computeChanges`, only between measured snapshots whose `question.key`s
 match (`sameQuestion` in `src/api/mappers.ts`), over the domain's series as
 `/api/monitoring-status` reads it (`seriesOf`: the measured weekly re-audits and
-whatever asked their question, while the series has no gap longer than four weeks
+whatever asked the same question as the newest recorded one, while the series has no gap longer than four weeks
 and a day from the newest weekly re-audit that recorded its question, through each
 later snapshot of the series, weekly re-audits included, to the newest measured
 snapshot), skipping simulated snapshots and weekly
