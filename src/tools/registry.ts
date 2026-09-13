@@ -106,7 +106,7 @@ export const P0_TOOLS: ToolSpec[] = [
     tier: "pro",
     title: "What changed since last check",
     description:
-      'Report what changed in a website\'s AI visibility and audit since it was last checked. Use this when someone asks "did anything change," "what\'s different this week/month," "did my AI visibility drop," or "did a competitor overtake me." Requires the domain to be tracked (see track_site). Returns deltas: score movement, engines gained/lost, competitors that moved, and new or resolved issues. A change is only ever measured between two snapshots that asked the same question (the same business name, market and queries); when there is no such pair it says why instead of giving a number, with the date the series re-baselined when it did. The series is the measured weekly re-audits and any audit that asked their question, while one of those is within four weeks and a day of the newest measured snapshot; otherwise every measured snapshot.',
+      'Report what changed in a website\'s AI visibility and audit since it was last checked. Use this when someone asks "did anything change," "what\'s different this week/month," "did my AI visibility drop," or "did a competitor overtake me." Requires the domain to be tracked (see track_site). Returns deltas: score movement, engines gained/lost, competitors that moved, and new or resolved issues. A change is only ever measured between two snapshots that asked the same question (the same business name, market and queries); when there is no such pair it says why instead of giving a number, with the date the series re-baselined when it did. The series is the measured weekly re-audits and any audit that asked their question, while that question has been measured at least every four weeks and a day since the newest such re-audit; otherwise every measured snapshot.',
     inputSchema: {
       domain: domainArg,
       since: z.string().optional().describe('Optional ISO date or "last_check".'),
@@ -229,7 +229,7 @@ export const MONITORING_TOOLS: ToolSpec[] = [
     tier: "pro",
     title: "Monitoring status summary",
     description:
-      'Get a glanceable summary of monitoring status across all tracked websites. Use this when someone asks "how are my tracked sites doing," "what\'s my current AI visibility across everything I monitor," "when were my sites last checked or when do they run next," or wants a dashboard of their monitored domains. Returns, per domain, the latest AI-visibility score of its series (the weekly re-audits, and any audit that asked their question), when it was last audited and next runs, and the most recent change against the last snapshot that asked the same question, or a note saying why there is none yet.',
+      'Get a glanceable summary of monitoring status across all tracked websites. Use this when someone asks "how are my tracked sites doing," "what\'s my current AI visibility across everything I monitor," "when were my sites last checked or when do they run next," or wants a dashboard of their monitored domains. Returns, per domain, the latest AI-visibility score of its series (the measured weekly re-audits and any audit that asked their question, while that question has been measured at least every four weeks and a day since the newest such re-audit; otherwise every measured snapshot), when it was last audited and next runs, and the most recent change against the last snapshot that asked the same question, or a note saying why there is none yet.',
     inputSchema: {},
   },
 ];

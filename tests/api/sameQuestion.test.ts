@@ -256,13 +256,22 @@ describe("the series: the weekly re-audits, and whatever asked their question", 
     // Within four weeks and a day of the newest snapshot, it still anchors the series.
     const current = [{ ...stale[0]!, captured_at: "2026-08-13T09:00:00Z" }, stale[1]!, stale[2]!];
     expect(ids(seriesOf(current))).toEqual(["week-1"]);
-    // Judged by the anchored series' newest snapshot, which an audit of the weekly question can be.
+    // Kept while audits of the weekly question follow it within the reach.
     const measuredSince = [
       dated("week-1", "scheduled", asked, "2026-07-25T09:00:00Z"),
-      dated("by-hand-asked", null, asked, "2026-08-29T12:00:00Z"),
+      dated("by-hand-asked", null, asked, "2026-08-22T12:00:00Z"),
       dated("by-hand-elsewhere", null, elsewhere, "2026-09-01T12:00:00Z"),
     ];
     expect(ids(seriesOf(measuredSince))).toEqual(["week-1", "by-hand-asked"]);
+    // Broken by a longer step between them, and not brought back by an audit of it a year later.
+    const broken = [measuredSince[0]!, { ...measuredSince[1]!, captured_at: "2026-08-29T12:00:00Z" }, measuredSince[2]!];
+    expect(ids(seriesOf(broken))).toEqual(["week-1", "by-hand-asked", "by-hand-elsewhere"]);
+    const yearLater = [
+      dated("week-1", "scheduled", asked, "2025-09-01T09:00:00Z"),
+      dated("by-hand-asked", null, asked, "2026-09-03T12:00:00Z"),
+      dated("by-hand-elsewhere", null, elsewhere, "2026-09-08T12:00:00Z"),
+    ];
+    expect(ids(seriesOf(yearLater))).toEqual(["week-1", "by-hand-asked", "by-hand-elsewhere"]);
   });
 
   it("stops anchoring the series four weeks and a day after its newest snapshot, to the millisecond", () => {
@@ -274,6 +283,34 @@ describe("the series: the weekly re-audits, and whatever asked their question", 
     expect(SERIES_ANCHOR_REACH_MS).toBe(29 * 24 * 60 * 60 * 1000);
     expect(ids(seriesOf(at(SERIES_ANCHOR_REACH_MS)))).toEqual(["week-1"]);
     expect(ids(seriesOf(at(SERIES_ANCHOR_REACH_MS + 1)))).toEqual(["week-1", "by-hand"]);
+    // And between two measurements of the question.
+    const step = (gap: number) => [
+      { ...row("week-1", "scheduled", asked), captured_at: new Date(last).toISOString() },
+      { ...row("by-hand-asked", null, asked), captured_at: new Date(last + gap).toISOString() },
+      { ...row("by-hand", null, elsewhere), captured_at: new Date(last + gap + 60_000).toISOString() },
+    ];
+    expect(ids(seriesOf(step(SERIES_ANCHOR_REACH_MS)))).toEqual(["week-1", "by-hand-asked"]);
+    expect(ids(seriesOf(step(SERIES_ANCHOR_REACH_MS + 1)))).toEqual(["week-1", "by-hand-asked", "by-hand"]);
+  });
+
+  it("starts again at weekly re-audits that resume after a break", () => {
+    const dated = (id: string, source: string | null, q: SnapshotQuestion | null, captured_at: string) =>
+      ({ ...row(id, source, q), captured_at });
+    expect(ids(seriesOf([
+      dated("week-old", "scheduled", asked, "2025-09-01T09:00:00Z"),
+      dated("week-1", "scheduled", asked, "2026-09-01T09:00:00Z"),
+      dated("week-2", "scheduled", asked, "2026-09-08T09:00:00Z"),
+      dated("by-hand-elsewhere", null, elsewhere, "2026-09-10T12:00:00Z"),
+    ]))).toEqual(["week-old", "week-1", "week-2"]);
+  });
+
+  it("counts weekly re-audits that recorded no question as steps of the series", () => {
+    const week = 7 * 24 * 60 * 60 * 1000;
+    const start = Date.parse("2026-06-01T09:00:00.000Z");
+    const weeks = Array.from({ length: 15 }, (_, i) =>
+      ({ ...row(`week-${i}`, "scheduled", i === 0 ? asked : null), captured_at: new Date(start + i * week).toISOString() }));
+    const later = { ...row("by-hand-elsewhere", null, elsewhere), captured_at: new Date(start + 14 * week + 3 * 24 * 60 * 60 * 1000).toISOString() };
+    expect(ids(seriesOf([...weeks, later]))).toEqual(weeks.map((w) => w.id));
   });
 
   it("does not count a weekly re-audit that measured nothing of the business", () => {

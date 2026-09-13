@@ -489,6 +489,23 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     expect(measuredRun([run("audit", { is_simulated: true })], "audit")).toBe(false);
     expect(measuredRun([run("audit", { source: "scheduled_unmeasured" })], "audit")).toBe(false);
   });
+
+  it("ends at the audit in every part of the trend", () => {
+    const run = (daysAgo: number, score: number, run_id: string, question: typeof ASKED = ASKED, is_simulated = false) =>
+      ({ ...snap(daysAgo, score, is_simulated, question), run_id });
+    // A simulated snapshot before the audit does not move where the trend ends.
+    const simulatedFirst = computeTrend(
+      [run(20, 10, "sim", ASKED, true), run(10, 40, "a"), run(3, 70, "audit"), run(1, 90, "later")], NOW, "audit")!;
+    expect(simulatedFirst.latest_captured_at).toBe(at(3));
+    expect(simulatedFirst.snapshots_analyzed).toBe(2);
+    // Its windows end there: nothing else in the last 7 days asked its question before it.
+    const windows = computeTrend([run(20, 40, "a"), run(3, 70, "audit"), run(1, 90, "later")], NOW, "audit")!;
+    expect(windows.change_7d).toBeNull();
+    expect(windows.change_30d).toEqual(expect.objectContaining({ from_score: 40, to_score: 70, snapshots: 2 }));
+    // And so does its note: a newer snapshot of its question is no earlier one.
+    const note = computeTrend([run(20, 40, "a", ELSEWHERE), run(3, 70, "audit"), run(1, 90, "later")], NOW, "audit")!;
+    expect(note.question_note).toMatch(/^No earlier snapshot asked the question the latest one, on /);
+  });
 });
 
 /**

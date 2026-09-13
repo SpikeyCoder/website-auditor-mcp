@@ -949,8 +949,8 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     const error = await failure(clientFor([weekly("2026-09-01T09:00:00Z", 40), weekly("2026-09-08T09:00:00Z", 30)])
       .getChanges({ domain: "example.com", since: "2026-09-09T00:00:00Z" }));
     expect(error.message).toBe(
-      "No AI-visibility snapshot for example.com to compare since 2026-09-09: the latest is from 2026-09-08, so "
-      + "there is no change in that window.");
+      "No AI-visibility snapshot for example.com to compare since 2026-09-09: the latest measured snapshot is from "
+      + "2026-09-08, so there is no change in that window.");
   });
 
   it("scopes a windowed refusal to the latest's question when the window holds another question's change", async () => {
@@ -996,6 +996,38 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       "Left out as not part of the weekly series: 1 snapshot that asked a different question, newer than "
       + '2026-08-29. The newest of them that records its question, on 2026-09-01, asked about the market "Honolulu, '
       + 'HI" rather than none.');
+  });
+
+  it("explains a re-baseline by an audit beside the series, and says so in its reason", async () => {
+    const error = await failure(clientFor([
+      weekly("2026-09-01T09:00:00Z", 40, null), byHand("2026-09-04T12:00:00Z", 60, ELSEWHERE), weekly("2026-09-08T09:00:00Z", 50),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-09-08T09:00:00Z" });
+    expect(error.message).toContain("compared with the snapshot on 2026-09-04");
+  });
+
+  it("names a pair beside the series as the most recent change, not the series'", async () => {
+    const OTHER = { ...ASKED, key: "q-inc", business_name: "Example Inc", queries: ["best example inc"] };
+    const error = await failure(clientFor([
+      weekly("2026-09-01T09:00:00Z", 40), byHand("2026-09-03T12:00:00Z", 60, ELSEWHERE),
+      byHand("2026-09-05T12:00:00Z", 70, ELSEWHERE), weekly("2026-09-08T09:00:00Z", 50, OTHER),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error.details).toMatchObject({
+      reason: "question_changed",
+      previous_change: { from_captured_at: "2026-09-03T12:00:00Z", to_captured_at: "2026-09-05T12:00:00Z", score_delta: 10 },
+    });
+    expect(error.message).toContain(" The most recent like-for-like change before it was up 10, from 2026-09-03 to 2026-09-05.");
+  });
+
+  it("does not let one audit of a question last re-audited a year before take the series back", async () => {
+    const changes = await clientFor([
+      weekly("2025-08-25T09:00:00Z", 40), weekly("2025-09-01T09:00:00Z", 45),
+      byHand("2026-08-24T12:00:00Z", 55, ELSEWHERE), byHand("2026-08-31T12:00:00Z", 60, ELSEWHERE),
+      byHand("2026-09-03T12:00:00Z", 70), byHand("2026-09-08T12:00:00Z", 30, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(-30);
+    expect(changes.from_captured_at).toBe("2026-08-31T12:00:00Z");
+    expect(changes.skipped_snapshots).toBe(1);
   });
 
   it("stops following weekly re-audits months behind the newest snapshot, and reports what changed since", async () => {

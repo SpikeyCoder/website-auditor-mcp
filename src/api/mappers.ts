@@ -592,12 +592,13 @@ export function measuredTheBusiness(s: { source?: string | null }): boolean {
  * (oldest first) until one is a weekly re-audit ("scheduled") that recorded its
  * question, and from then on the weekly re-audits together with every other
  * snapshot that asked what the newest such re-audit asked. That question
- * anchors the series only while it is current: while the newest of those
- * snapshots is at most four weekly cadences and a day older than the newest
- * snapshot given, the span across which the weekly digest still compares one
- * re-audit with another. Past it nothing has measured the weekly question for a
- * month (the domain untracked or paused, or its re-audits unmeasured, and no
- * audit asking it), and the series is every snapshot again.
+ * anchors the series only while it has been measured without a break: no more
+ * than four weekly cadences and a day, the span across which the weekly digest
+ * still compares one re-audit with another, between that re-audit, each later
+ * snapshot of the series, and the newest snapshot given. After a break (the
+ * domain untracked or paused, or its re-audits unmeasured, and nothing asking
+ * the question for a month), the series is every snapshot again, until another
+ * weekly re-audit records its question.
  *
  * The weekly re-audits, because they are what monitors a tracked domain: an
  * audit run by hand in another market, or an extension scan, asks a question of
@@ -623,14 +624,19 @@ export function seriesOf<T extends { source?: string | null; question?: Snapshot
   if (!anchors.length) return rows;
   const newest = anchors[anchors.length - 1]!;
   const anchored = rows.filter((s) => s.source === "scheduled" || sameQuestion(s, newest));
-  // Only while that question is current, judged by the anchored series' own
-  // newest snapshot. With no limit, an untracked domain kept its last weekly
-  // change as its latest for good, and hid every like-for-like change since.
-  // Judged by the re-audit alone, one audit in another market a month after it
-  // hid a like-for-like change measured days before.
-  const behind = Date.parse(rows[rows.length - 1]!.captured_at ?? "")
-    - Date.parse(anchored[anchored.length - 1]!.captured_at ?? "");
-  if (behind > SERIES_ANCHOR_REACH_MS) return rows;
+  // Only while that question has been measured without a break: from that
+  // re-audit, through each later snapshot of the anchored series, to the newest
+  // snapshot given, no step is longer than the reach. With no limit, an
+  // untracked domain kept its last weekly change as its latest for good. Judged
+  // by the re-audit alone, one audit in another market a month after it hid a
+  // like-for-like change measured days before; judged by the series' newest
+  // snapshot alone, one audit of a question last re-audited a year before
+  // brought it back.
+  const steps = [...anchored.slice(anchored.indexOf(newest)), rows[rows.length - 1]!];
+  for (let i = 1; i < steps.length; i += 1) {
+    const step = Date.parse(steps[i]!.captured_at ?? "") - Date.parse(steps[i - 1]!.captured_at ?? "");
+    if (step > SERIES_ANCHOR_REACH_MS) return rows;
+  }
   return anchored;
 }
 

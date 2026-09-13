@@ -284,14 +284,17 @@ export class WaApiClient implements WaApiClientLike {
    * It throws NOT_YET_AVAILABLE with a clear message rather than fabricating a
    * change when there is nothing like for like to compare: fewer than two
    * measured snapshots; a weekly series that is one measured re-audit, the
-   * oldest measured snapshot, with every newer one asking something else;
-   * nothing in the series since `since`; a latest snapshot that does not record
-   * what it asked; or no earlier snapshot that asked its question, reported as a
-   * re-baseline with the date and what changed, or, with `since`, as nothing
-   * like for like for it in the window. Each says what it is about, the series
-   * or the latest's question, and names a like-for-like change that exists
-   * elsewhere: before the latest, or among newer snapshots the series leaves
-   * out. A `since` that does not parse is INVALID_INPUT.
+   * oldest measured snapshot, with every newer one asking something else or
+   * recording nothing; nothing in the series since `since`; a latest snapshot
+   * that does not record what it asked; or no earlier snapshot that asked its
+   * question, reported as a re-baseline with the date and what changed, or, with
+   * `since`, as nothing like for like for it in the window. Each says what it is
+   * about, the series or the latest's question. The last two, which carry a
+   * `reason`, also give the weekly series' most recent like-for-like change
+   * before the latest, failing that the most recent among all earlier
+   * snapshots; and a refusal that leaves newer snapshots out of the series names
+   * the most recent like-for-like change among them. A `since` that does not
+   * parse is INVALID_INPUT.
    */
   async getChanges(params: GetChangesParams): Promise<Changes> {
     const since = params.since && params.since !== "last_check" ? params.since : undefined;
@@ -793,7 +796,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
       "NOT_YET_AVAILABLE",
       after
         ? `No AI-visibility snapshot in the weekly series for ${domain} since ${dateOf(since)}: the series' latest is from ${on}, so the series has no change in that window.${after}`
-        : `No AI-visibility snapshot for ${domain} to compare since ${dateOf(since)}: the latest is from ${on}, so there is no change in that window.`,
+        : `No AI-visibility snapshot for ${domain} to compare since ${dateOf(since)}: the latest measured snapshot is from ${on}, so there is no change in that window.`,
     );
   }
   // What the window holds before the latest: every snapshot before it without

@@ -66,8 +66,8 @@ migration 034); rows stored before then carry `question: null`.
 via `computeChanges`, only between measured snapshots whose `question.key`s
 match (`sameQuestion` in `src/api/mappers.ts`), over the domain's series as
 `/api/monitoring-status` reads it (`seriesOf`: the measured weekly re-audits and
-whatever asked their question, while the newest of those is within four weeks and
-a day of the newest measured snapshot), skipping simulated snapshots and weekly
+whatever asked their question, while that question has been measured at least
+every four weeks and a day since the newest such re-audit), skipping simulated snapshots and weekly
 re-audits that measured nothing of the business. It reads the whole history and
 applies `since` itself, because which snapshots form the series depends on weekly
 re-audits older than any window. It throws `NOT_YET_AVAILABLE` below two
