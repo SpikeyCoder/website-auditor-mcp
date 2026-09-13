@@ -5,6 +5,13 @@ import {
   oldestSameQuestion,
   toQuestion,
   questionDifference,
+  notCompared,
+  notComparedPhrase,
+  newestRecorded,
+  newestComparablePair,
+  movement,
+  day,
+  breaksTheSeries,
 } from "../../src/api/mappers.js";
 import type { SnapshotQuestion } from "../../src/api/types.js";
 
@@ -120,10 +127,86 @@ describe("questionDifference says what changed, and only that", () => {
       .toMatch(/^different queries/);
   });
 
-  it("does not call a re-spelling of the same name, or the same market, a new one", () => {
+  it("does not call the same name in another case, or the same market re-spaced, a new one", () => {
     expect(questionDifference(
-      question({ business_name: "MAIN LOCK-SHOP", business_location: "austin,  tx", queries: ["x"] }),
+      question({ business_name: "  MAIN LOCK SHOP", business_location: "austin,  tx", queries: ["x"] }),
       question(),
     )).toMatch(/^different queries/);
+  });
+
+  it("does call a name spaced or punctuated differently a new one, as the API's key does", () => {
+    // The engine looks for the lowercased name as written, so "Main Lock-Shop" is
+    // credited with different answers than "Main Lock Shop".
+    expect(questionDifference(question({ business_name: "Main Lock-Shop" }), question()))
+      .toBe('the business name "Main Lock-Shop" rather than "Main Lock Shop"');
+  });
+});
+
+describe("what was passed over, and why", () => {
+  const asked = question();
+  const elsewhere = question({ key: "q-global", business_location: "", queries: ["best locksmith"] });
+
+  it("counts a different question apart from a question nobody recorded", () => {
+    // The second is most snapshots for weeks after the API began recording, and
+    // calling it "a different question" says something nobody knows.
+    expect(notCompared(
+      [
+        snapshot("same", asked),
+        snapshot("elsewhere", elsewhere),
+        snapshot("before-034", null),
+        snapshot("a-name-without-queries", question({ key: null, queries: [] })),
+      ],
+      snapshot("now", asked),
+    )).toEqual({ different: 1, unrecorded: 2 });
+  });
+
+  it("says each reason with its own count, and leaves out a reason with none", () => {
+    expect(notComparedPhrase({ different: 1, unrecorded: 2 }))
+      .toBe("1 snapshot that asked a different question and 2 snapshots that do not record what they asked");
+    expect(notComparedPhrase({ different: 2, unrecorded: 0 })).toBe("2 snapshots that asked a different question");
+    expect(notComparedPhrase({ different: 0, unrecorded: 1 })).toBe("1 snapshot that does not record what it asked");
+  });
+});
+
+describe("what a refusal can still say", () => {
+  const asked = question();
+  const elsewhere = question({ key: "q-global", business_location: "", queries: ["best locksmith"] });
+
+  it("explains a re-baseline with the newest snapshot that recorded its question", () => {
+    expect(newestRecorded([snapshot("asked", asked), snapshot("elsewhere", elsewhere), snapshot("before-034", null)])?.id)
+      .toBe("elsewhere");
+    expect(newestRecorded([snapshot("before-034", null)])).toBeNull();
+  });
+
+  it("finds the most recent like-for-like pair, passing over what sits between", () => {
+    const pair = newestComparablePair([
+      snapshot("week-1", asked), snapshot("by-hand", elsewhere), snapshot("week-2", asked), snapshot("before-034", null),
+    ]);
+    expect([pair?.from.id, pair?.to.id]).toEqual(["week-1", "week-2"]);
+
+    const newer = newestComparablePair([
+      snapshot("week-1", asked), snapshot("week-2", asked), snapshot("by-hand-1", elsewhere), snapshot("by-hand-2", elsewhere),
+    ]);
+    expect([newer?.from.id, newer?.to.id]).toEqual(["by-hand-1", "by-hand-2"]);
+
+    expect(newestComparablePair([snapshot("week-1", asked), snapshot("by-hand", elsewhere)])).toBeNull();
+    expect(newestComparablePair([snapshot("a", null), snapshot("b", null)])).toBeNull();
+  });
+
+  it("reads a movement and a date plainly, whatever arrives", () => {
+    expect(movement(5)).toBe("up 5");
+    expect(movement(-3)).toBe("down 3");
+    expect(movement(0)).toBe("unchanged");
+    expect(day("2026-09-08T09:00:00Z")).toBe("2026-09-08");
+    expect(day(undefined)).toBe("an unknown date");
+    expect(day(20260908)).toBe("an unknown date");
+    expect(day("2026")).toBe("an unknown date");
+  });
+
+  it("re-baselines on a weekly re-audit, or where there is no weekly series, and not on an audit beside one", () => {
+    expect(breaksTheSeries({ source: "scheduled" }, [{ source: "scheduled" }])).toBe(true);
+    expect(breaksTheSeries({ source: "extension" }, [{ source: "scheduled" }, { source: null }])).toBe(false);
+    expect(breaksTheSeries({ source: null }, [{ source: null }, { source: "extension" }])).toBe(true);
+    expect(breaksTheSeries({}, [])).toBe(true);
   });
 });

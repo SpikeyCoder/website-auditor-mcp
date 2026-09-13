@@ -154,8 +154,8 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
     expect(out.change!.skipped_snapshots).toBe(1);
     expect(out.summary).toBe("example.com: AI visibility 70/100 (up 20 since 2026-09-01).");
     expect(out.note).toBe(
-      "Compared with 2026-09-01, the most recent snapshot that asked the same question; 1 snapshot in between "
-      + "asked a different question and was not compared.");
+      "Compared with 2026-09-01, the most recent snapshot that asked the same question; passed over in between: "
+      + "1 snapshot that asked a different question or did not record what was asked.");
   });
 
   it("a re-baseline is said, not subtracted", async () => {
@@ -166,8 +166,9 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
     expect(out.change).toBeNull();
     expect(out.summary).toBe("example.com: AI visibility 70/100 (re-baselined on 2026-09-08; no like-for-like change yet).");
     expect(out.note).toBe(
-      'Re-baselined on 2026-09-08: it asked about the market "Honolulu, HI" rather than none, and no earlier '
-      + "snapshot asked the same question, so there is no like-for-like change yet.");
+      'Re-baselined on 2026-09-08: it asked about the market "Honolulu, HI" rather than none, compared with the '
+      + "snapshot on 2026-09-01, and no earlier snapshot asked the same question, so there is no like-for-like "
+      + "change yet.");
   });
 
   it("never subtracts a pair it cannot confirm asked the same question, whichever API sent it", async () => {
@@ -177,8 +178,8 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
     expect(different.change).toBeNull();
     expect(different.summary).toBe("example.com: AI visibility 70/100 (no like-for-like change yet).");
     expect(different.note).toBe(
-      'The previous snapshot asked about the market "Honolulu, HI" rather than none, so no like-for-like change '
-      + "can be shown.");
+      'The previous snapshot, on 2026-09-01, asked about the market "Honolulu, HI" rather than none, so no '
+      + "like-for-like change can be shown.");
 
     const unrecorded = await run(site({
       latest: snapshot(70, "2026-09-08T09:00:00Z", null),
@@ -199,5 +200,41 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
     const baseline = await run(site({ comparison: { status: "baseline" }, snapshots_count: 1 }));
     expect(baseline.summary).toBe("example.com: AI visibility 70/100 (baseline; no change yet).");
     expect(baseline).not.toHaveProperty("note");
+  });
+
+  it("a re-baseline after snapshots that recorded nothing says so, and nothing it cannot know", async () => {
+    const out = await run(site({
+      comparison: { status: "rebaselined", prior: { captured_at: "2026-09-01T09:00:00Z", question: null } },
+    }));
+    expect(out.change).toBeNull();
+    expect(out.note).toBe(
+      "Re-baselined on 2026-09-08: the snapshots before it do not record what they asked, so there is no "
+      + "like-for-like change yet.");
+  });
+
+  it("reads a malformed question as unrecorded, not as a re-baseline, and the other sites still report", async () => {
+    const statusFn = vi.fn(async () => ({
+      limit: 5,
+      used: 2,
+      remaining: 3,
+      sites: [
+        site({
+          latest: snapshot(70, "2026-09-08T09:00:00Z", { key: 7, business_name: ["Example"], queries: "best example" }),
+          comparison: { status: "rebaselined", prior: { captured_at: 42, question: "q-example" } },
+        }),
+        site({
+          domain: "healthy.com",
+          previous: snapshot(50, "2026-09-01T09:00:00Z"),
+          comparison: { status: "compared", skipped_snapshots: 0 },
+        }),
+      ],
+    }));
+    const res = await getMonitoringStatus({}, makeDeps({ tier: "pro", client: { getMonitoringStatus: statusFn } }));
+    if (!res.ok) throw new Error(`expected a result, got ${res.error.code}`);
+    const [malformed, healthy] = res.data.sites;
+    expect(malformed!.change).toBeNull();
+    expect(malformed!.summary).toBe("example.com: AI visibility 70/100 (no like-for-like change yet).");
+    expect(malformed!.note).toMatch(/do not record what each audit asked/);
+    expect(healthy!.summary).toBe("healthy.com: AI visibility 70/100 (up 20 since 2026-09-01).");
   });
 });

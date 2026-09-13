@@ -446,8 +446,8 @@ export function newestSameQuestion<T extends { question?: SnapshotQuestion | nul
 /**
  * For a window: the OLDEST of `earlier` that asked what `current` asked, so the
  * change spans as much of the window as a like-for-like comparison can, and how
- * many of `earlier` asked something else and were left out. `skipped` is 0 when
- * there is no base.
+ * many of `earlier` were left out, having asked something else or recorded
+ * nothing. `skipped` is 0 when there is no base.
  */
 export function oldestSameQuestion<T extends { question?: SnapshotQuestion | null }>(
   earlier: T[],
@@ -455,6 +455,70 @@ export function oldestSameQuestion<T extends { question?: SnapshotQuestion | nul
 ): { base: T | null; skipped: number } {
   const base = earlier.find((s) => sameQuestion(s, current)) ?? null;
   return { base, skipped: base ? earlier.filter((s) => !sameQuestion(s, current)).length : 0 };
+}
+
+/**
+ * Why each of `snapshots` does not compare with `current`: it asked a different
+ * question, or it recorded none. Two different facts, and saying the first
+ * about the second tells a caller something nobody knows. For weeks after the
+ * API began recording questions, most snapshots in any window are the second.
+ */
+export function notCompared<T extends { question?: SnapshotQuestion | null }>(
+  snapshots: T[],
+  current: T,
+): { different: number; unrecorded: number } {
+  let different = 0;
+  let unrecorded = 0;
+  for (const s of snapshots) {
+    if (sameQuestion(s, current)) continue;
+    if (s.question?.key) different += 1;
+    else unrecorded += 1;
+  }
+  return { different, unrecorded };
+}
+
+/** `1 snapshot that asked a different question and 2 snapshots that do not record what they asked`. */
+export function notComparedPhrase({ different, unrecorded }: { different: number; unrecorded: number }): string {
+  const parts: string[] = [];
+  if (different > 0) {
+    parts.push(`${different} ${different === 1 ? "snapshot" : "snapshots"} that asked a different question`);
+  }
+  if (unrecorded > 0) {
+    parts.push(unrecorded === 1
+      ? "1 snapshot that does not record what it asked"
+      : `${unrecorded} snapshots that do not record what they asked`);
+  }
+  return listOf(parts);
+}
+
+/** The newest of `snapshots` (oldest first) that recorded its question, or null. */
+export function newestRecorded<T extends { question?: SnapshotQuestion | null }>(snapshots: T[]): T | null {
+  for (let i = snapshots.length - 1; i >= 0; i -= 1) {
+    const candidate = snapshots[i]!;
+    if (candidate.question?.key) return candidate;
+  }
+  return null;
+}
+
+/**
+ * The most recent like-for-like pair within `snapshots` (oldest first): the
+ * newest snapshot that an earlier one asked the same question as, and the newest
+ * such earlier one. Null when no two of them asked the same question.
+ */
+export function newestComparablePair<T extends { question?: SnapshotQuestion | null }>(
+  snapshots: T[],
+): { from: T; to: T } | null {
+  for (let i = snapshots.length - 1; i > 0; i -= 1) {
+    const to = snapshots[i]!;
+    const { base } = newestSameQuestion(snapshots.slice(0, i), to);
+    if (base) return { from: base, to };
+  }
+  return null;
+}
+
+/** `up 5`, `down 3` or `unchanged`. */
+export function movement(delta: number): string {
+  return delta > 0 ? `up ${delta}` : delta < 0 ? `down ${Math.abs(delta)}` : "unchanged";
 }
 
 /** A question off the wire, read defensively: anything malformed is absent, never guessed. */
@@ -471,8 +535,9 @@ export function toQuestion(raw: unknown): SnapshotQuestion | null {
   };
 }
 
-const squashed = (name: string | null): string =>
-  (name ?? "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+// A name as the engine's matcher starts from it (`name.lower().strip()`) and as
+// the API keys it: names that differ in more than case are different questions.
+const nameOf = (name: string | null): string => (name ?? "").trim().toLowerCase();
 const spaced = (text: string | null): string => (text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 const quoted = (text: string | null): string | null => (text?.trim() ? `"${text.trim()}"` : null);
 
@@ -494,7 +559,7 @@ function contrast(label: string, other: string | null, reference: string | null)
  */
 export function questionDifference(other: SnapshotQuestion, reference: SnapshotQuestion): string {
   const parts: string[] = [];
-  if (squashed(other.business_name) !== squashed(reference.business_name)) {
+  if (nameOf(other.business_name) !== nameOf(reference.business_name)) {
     parts.push(contrast("business name", other.business_name, reference.business_name));
   }
   if (spaced(other.business_location) !== spaced(reference.business_location)) {
@@ -506,37 +571,69 @@ export function questionDifference(other: SnapshotQuestion, reference: SnapshotQ
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const day = (iso: string): string => iso.slice(0, 10);
+
+/** The date part of a timestamp, or a plain phrase for anything that is not one. */
+export function day(iso: unknown): string {
+  return typeof iso === "string" && iso.length >= 10 ? iso.slice(0, 10) : "an unknown date";
+}
 
 /**
- * Why the trend compared less than its windows span, or nothing at all, when a
- * change of question is the reason. Undefined when every snapshot in play asked
- * the same question.
+ * Whether a snapshot with no like-for-like predecessor re-baselines its series:
+ * when it is a weekly re-audit, or when there are no weekly re-audits to be a
+ * series. An audit run by hand beside a weekly series only asked something the
+ * series does not, and calling that a re-baseline hid the series' own last
+ * change behind a break that never happened to it.
+ */
+export function breaksTheSeries(
+  latest: { source?: string | null },
+  earlier: Array<{ source?: string | null }>,
+): boolean {
+  return latest.source === "scheduled" || !earlier.some((s) => s.source === "scheduled");
+}
+
+/**
+ * Why the trend compared less than its windows span, or nothing at all, when
+ * what the snapshots asked is the reason. Undefined when every snapshot in play
+ * asked the latest's question.
  */
 function trendQuestionNote(snapshots: AiVisibilitySnapshot[], now: Date): string | undefined {
   const latest = snapshots[snapshots.length - 1]!;
   const earlier = snapshots.slice(0, -1);
   if (!latest.question?.key) {
-    return "The latest snapshot does not record what it asked the assistants, so no trend is computed "
-      + "through it. Snapshots stored from now on record it.";
+    return "The latest snapshot does not record what it asked the assistants, so no trend is computed through it.";
   }
   if (!newestSameQuestion(earlier, latest).base) {
-    const prior = earlier[earlier.length - 1]!;
-    const why = prior.question?.key
-      ? `the latest snapshot asked about ${questionDifference(latest.question, prior.question)}`
-      : "the snapshots before it do not record what they asked";
-    return `Re-baselined on ${day(latest.captured_at)}: ${why}, and no earlier snapshot asked the same `
-      + "question, so there is no trend for it yet.";
+    // Explained against the newest snapshot that RECORDED its question, dated:
+    // the one just before may have recorded nothing, or be a one-off audit.
+    const prior = newestRecorded(earlier);
+    const diff = prior?.question
+      ? `${questionDifference(latest.question, prior.question)}, compared with the snapshot on ${day(prior.captured_at)}`
+      : null;
+    if (breaksTheSeries(latest, earlier)) {
+      return diff
+        ? `Re-baselined on ${day(latest.captured_at)}: the latest snapshot asked about ${diff}, and no earlier `
+          + "snapshot asked the same question, so there is no trend for it."
+        : `Re-baselined on ${day(latest.captured_at)}: the snapshots before it do not record what they asked, `
+          + "so there is no trend for it.";
+    }
+    return `The latest snapshot, on ${day(latest.captured_at)}, is not a weekly re-audit. `
+      + (diff
+        ? `It asked about ${diff}, and no earlier snapshot asked the same question`
+        : "The snapshots before it do not record what they asked")
+      + ", so there is no trend through it; the weekly re-audits did not re-baseline.";
   }
   const cutoff = now.getTime() - 30 * DAY_MS;
-  const left = earlier.filter((s) => Date.parse(s.captured_at) >= cutoff && !sameQuestion(s, latest));
-  if (!left.length) return undefined;
-  const last = left[left.length - 1]!;
-  const how = last.question?.key
-    ? `, most recently on ${day(last.captured_at)} (${questionDifference(last.question, latest.question)})`
+  const inWindow = earlier.filter((s) => Date.parse(s.captured_at) >= cutoff);
+  const left = notCompared(inWindow, latest);
+  if (left.different + left.unrecorded === 0) return undefined;
+  let lastDifferent: AiVisibilitySnapshot | undefined;
+  for (const s of inWindow) if (s.question?.key && !sameQuestion(s, latest)) lastDifferent = s;
+  const how = lastDifferent?.question
+    ? ` The most recent that asked a different one, on ${day(lastDifferent.captured_at)}, asked about `
+      + `${questionDifference(lastDifferent.question, latest.question)}.`
     : "";
-  return "Only snapshots that asked the same question as the latest are compared: "
-    + `${left.length} in the last 30 days did not${how}.`;
+  return "Only snapshots that asked the same question as the latest are compared; left out of the last 30 "
+    + `days: ${notComparedPhrase(left)}.${how}`;
 }
 
 /**

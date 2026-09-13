@@ -609,8 +609,8 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(changes.to_captured_at).toBe("2026-09-08T09:00:00Z");
     expect(changes.skipped_snapshots).toBe(1);
     expect(changes.note).toBe(
-      "Compared with 2026-09-01, the most recent snapshot that asked the same question; 1 snapshot in between "
-      + "asked a different question and was not compared.");
+      "Compared with 2026-09-01, the most recent snapshot that asked the same question; passed over in between: "
+      + "1 snapshot that asked a different question.");
   });
 
   it("reports a re-baseline, its date and what changed, instead of a number", async () => {
@@ -623,8 +623,8 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(error.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-09-08T09:00:00Z" });
     expect(error.message).toBe(
       'AI visibility for example.com re-baselined on 2026-09-08: the latest snapshot asked about the market '
-      + '"Honolulu, HI" rather than none, and no earlier snapshot asked the same question, so there is no '
-      + "like-for-like change to report yet. The next audit that asks it will show one.");
+      + '"Honolulu, HI" rather than none, compared with the snapshot on 2026-09-01, and no earlier snapshot '
+      + "asked the same question, so there is no like-for-like change for it yet.");
   });
 
   it("a snapshot that recorded nothing compares with nothing, on either side", async () => {
@@ -666,6 +666,93 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(error.details).toEqual({ reason: "question_changed", since: "2026-09-05T00:00:00Z" });
     expect(error.message).toContain("since 2026-09-05");
     expect(error.message).not.toMatch(/re-baselined/i);
+  });
+
+  it("compares with the NEWEST earlier snapshot that asked the same question, not the oldest", async () => {
+    const changes = await clientFor([
+      row("2026-09-01T09:00:00Z", 30),
+      row("2026-09-04T09:00:00Z", 50),
+      row("2026-09-06T09:00:00Z", 90, ELSEWHERE),
+      row("2026-09-08T09:00:00Z", 55),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(5); // 55 - 50
+    expect(changes.from_captured_at).toBe("2026-09-04T09:00:00Z");
+    expect(changes.skipped_snapshots).toBe(1);
+  });
+
+  it("names both reasons a snapshot was passed over, and counts each", async () => {
+    const changes = await clientFor([
+      row("2026-09-01T09:00:00Z", 40),
+      row("2026-09-03T09:00:00Z", 90, ELSEWHERE),
+      row("2026-09-05T09:00:00Z", 70, null),
+      row("2026-09-08T09:00:00Z", 55),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.skipped_snapshots).toBe(2);
+    expect(changes.note).toBe(
+      "Compared with 2026-09-01, the most recent snapshot that asked the same question; passed over in between: "
+      + "1 snapshot that asked a different question and 1 snapshot that does not record what it asked.");
+  });
+
+  it("an audit by hand that asked something new is not a re-baseline, and the weekly change before it still shows", async () => {
+    const weekly = (captured_at: string, score: number, question: unknown = ASKED) =>
+      ({ ...row(captured_at, score, question), source: "scheduled" });
+    const series = [weekly("2026-09-01T09:00:00Z", 40), weekly("2026-09-08T09:00:00Z", 30)];
+    const previous_change = {
+      from_captured_at: "2026-09-01T09:00:00Z", to_captured_at: "2026-09-08T09:00:00Z", score_delta: -10,
+    };
+
+    const byHand = await failure(clientFor([
+      ...series, { ...row("2026-09-10T12:00:00Z", 20, ELSEWHERE), source: "extension" },
+    ]).getChanges({ domain: "example.com" }));
+    expect(byHand.details).toEqual({ reason: "question_changed", previous_change });
+    expect(byHand.message).toBe(
+      "The latest AI-visibility snapshot for example.com, on 2026-09-10, is not a weekly re-audit. It asked about "
+      + 'the market "Honolulu, HI" rather than none, compared with the snapshot on 2026-09-08, and no earlier '
+      + "snapshot asked the same question, so there is no like-for-like change for it; the weekly re-audits did "
+      + "not re-baseline. The most recent like-for-like change before it was down 10, from 2026-09-01 to 2026-09-08.");
+
+    // The weekly re-audit itself asking something new does start the series again.
+    const moved = await failure(clientFor([...series, weekly("2026-09-15T09:00:00Z", 20, ELSEWHERE)])
+      .getChanges({ domain: "example.com" }));
+    expect(moved.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-09-15T09:00:00Z", previous_change });
+    expect(moved.message).toMatch(/^AI visibility for example\.com re-baselined on 2026-09-15: /);
+  });
+
+  it("explains a re-baseline against the newest snapshot that recorded its question", async () => {
+    const error = await failure(clientFor([
+      row("2026-09-01T09:00:00Z", 40),
+      row("2026-09-04T09:00:00Z", 50, null),
+      row("2026-09-08T09:00:00Z", 60, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error.message).toContain(
+      'asked about the market "Honolulu, HI" rather than none, compared with the snapshot on 2026-09-01,');
+  });
+
+  it("a simulated snapshot is no comparison point", async () => {
+    const changes = await clientFor([
+      row("2026-09-01T09:00:00Z", 40),
+      { ...row("2026-09-04T09:00:00Z", 95), is_simulated: true },
+      row("2026-09-08T09:00:00Z", 60),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(20);
+    expect(changes.skipped_snapshots).toBe(0);
+
+    const alone = await failure(clientFor([
+      { ...row("2026-09-01T09:00:00Z", 40), is_simulated: true },
+      row("2026-09-08T09:00:00Z", 60),
+    ]).getChanges({ domain: "example.com" }));
+    expect(alone.code).toBe("NOT_YET_AVAILABLE");
+    expect(alone.message).toContain("at least two measured snapshots");
+  });
+
+  it("drops a null row, and quotes a since that is not a timestamp as given", async () => {
+    const changes = await clientFor([null, row("2026-09-01T09:00:00Z", 40), row("2026-09-08T09:00:00Z", 60)])
+      .getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(20);
+
+    const error = await failure(clientFor([row("2026-09-05T09:00:00Z", 70, ELSEWHERE), row("2026-09-08T09:00:00Z", 50)])
+      .getChanges({ domain: "example.com", since: "last-week" }));
+    expect(error.message).toContain("since last-week");
   });
 });
 

@@ -41,7 +41,8 @@ import type {
 import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
 import {
-  computeChanges, newestSameQuestion, oldestSameQuestion, questionDifference, toQuestion,
+  breaksTheSeries, computeChanges, day, movement, newestComparablePair, newestRecorded, newestSameQuestion,
+  notCompared, notComparedPhrase, oldestSameQuestion, questionDifference, toQuestion,
 } from "./mappers.js";
 import { normalizeDomain } from "./domain.js";
 
@@ -306,24 +307,25 @@ export class WaApiClient implements WaApiClientLike {
     url.searchParams.set("domain", params.domain);
     if (params.since) url.searchParams.set("since", params.since);
 
-    const body = (await this.requestJson("GET", url)) as {
-      snapshots?: Array<{
-        captured_at?: string;
-        score?: number | null;
-        by_engine?: Record<string, number | null>;
-        is_simulated?: boolean | null;
-        source?: unknown;
-        question?: unknown;
-      }>;
+    type WireSnapshot = {
+      captured_at?: string;
+      score?: number | null;
+      by_engine?: Record<string, number | null> | null;
+      is_simulated?: boolean | null;
+      source?: unknown;
+      question?: unknown;
     };
+    const body = (await this.requestJson("GET", url)) as { snapshots?: Array<WireSnapshot | null> };
 
     // Server returns oldest-first; drop rows without a usable score or
-    // timestamp rather than inventing zeros that would poison deltas.
+    // timestamp, a null row among them, rather than inventing zeros that would
+    // poison deltas.
     return (body.snapshots ?? [])
-      .filter((s) => typeof s.score === "number" && typeof s.captured_at === "string")
+      .filter((s): s is WireSnapshot & { captured_at: string; score: number } =>
+        typeof s?.score === "number" && typeof s?.captured_at === "string")
       .map((s) => ({
-        captured_at: s.captured_at as string,
-        score: s.score as number,
+        captured_at: s.captured_at,
+        score: s.score,
         by_engine: Object.fromEntries(
           Object.entries(s.by_engine ?? {}).filter(([, v]) => typeof v === "number"),
         ) as Record<string, number>,
@@ -730,8 +732,11 @@ function quotaResetsAt(rateLimit: unknown): string | null {
   return null;
 }
 
-const day = (iso: string): string => iso.slice(0, 10);
-const snapshotsWord = (n: number): string => `${n} ${n === 1 ? "snapshot" : "snapshots"}`;
+/** A caller's `since` as a date where it parses; the API accepts anything Date.parse does. */
+function dateOf(since: string): string {
+  const t = Date.parse(since);
+  return Number.isNaN(t) ? since : new Date(t).toISOString().slice(0, 10);
+}
 
 /**
  * The like-for-like change get_changes reports, or why there is none — see
@@ -739,39 +744,84 @@ const snapshotsWord = (n: number): string => `${n} ${n === 1 ? "snapshot" : "sna
  * two long; `since` is set exactly when the caller asked for a window.
  */
 function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: string | undefined): Changes {
-  const current = snaps[snaps.length - 1]!;
-  const earlier = snaps.slice(0, -1);
+  // A simulated snapshot measured nothing, so it is no comparison point: the
+  // rule get_monitoring_status and the weekly digest already apply.
+  const series = snaps.filter((s) => !s.is_simulated);
+  if (series.length < 2) {
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      `Not enough AI-visibility history for ${domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).`,
+    );
+  }
+  const current = series[series.length - 1]!;
+  const earlier = series.slice(0, -1);
 
   if (!current.question?.key) {
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `The latest AI-visibility snapshot for ${domain} does not record what it asked the assistants, so it can't be compared like for like. Snapshots stored from now on record it, and the next one starts a series that can be compared.`,
+      `The latest AI-visibility snapshot for ${domain} does not record what it asked the assistants, so it can't be compared like for like.`,
       { details: { reason: "question_not_recorded" } },
     );
   }
 
-  const { base, skipped } = since ? oldestSameQuestion(earlier, current) : newestSameQuestion(earlier, current);
+  const { base } = since ? oldestSameQuestion(earlier, current) : newestSameQuestion(earlier, current);
   if (!base) {
-    const prior = earlier[earlier.length - 1]!;
-    const why = prior.question?.key
-      ? `the latest snapshot asked about ${questionDifference(current.question, prior.question)}`
-      : "the snapshots before it do not record what they asked";
+    // Explained against the newest snapshot that RECORDED its question, and
+    // dated: the one just before may have recorded nothing, or be a one-off
+    // audit rather than the series the caller has in mind.
+    const prior = newestRecorded(earlier);
+    const asked = prior?.question
+      ? `asked about ${questionDifference(current.question, prior.question)}, compared with the snapshot on `
+        + day(prior.captured_at)
+      : null;
+    const unrecorded = "the snapshots before it do not record what they asked";
+    // THE CHANGE THAT STILL EXISTS. A one-off audit that asked something new
+    // leaves the series before it intact, and a refusal that withheld that
+    // series' last change would hide what a caller asking "what changed" wants.
+    const pair = newestComparablePair(earlier);
+    const previous_change = pair
+      ? {
+        from_captured_at: pair.from.captured_at,
+        to_captured_at: pair.to.captured_at,
+        score_delta: pair.to.score - pair.from.score,
+      }
+      : null;
+    const before = previous_change
+      ? ` The most recent like-for-like change before it was ${movement(previous_change.score_delta)}, `
+        + `from ${day(previous_change.from_captured_at)} to ${day(previous_change.to_captured_at)}.`
+      : "";
+    const withPrevious = previous_change ? { previous_change } : {};
     // A window can hold no match while an older snapshot outside it does, so
     // only the unwindowed read may call this a re-baseline.
     if (since) {
       throw new WaApiError(
         "NOT_YET_AVAILABLE",
-        `No AI-visibility snapshot for ${domain} since ${day(since)} asked the question the latest one asked (${why}), so there is no like-for-like change in that window.`,
-        { details: { reason: "question_changed", since } },
+        `No AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the latest one asked (${asked ? `the latest snapshot ${asked}` : unrecorded}), so there is no like-for-like change in that window.${before}`,
+        { details: { reason: "question_changed", since, ...withPrevious } },
+      );
+    }
+    // Only a weekly re-audit, or a series with no weekly re-audits, starts
+    // again. An audit run by hand beside the weekly series asked something the
+    // series does not ask; calling that a re-baseline announced a break the
+    // series never had.
+    if (breaksTheSeries(current, earlier)) {
+      throw new WaApiError(
+        "NOT_YET_AVAILABLE",
+        `AI visibility for ${domain} re-baselined on ${day(current.captured_at)}: ${asked ? `the latest snapshot ${asked}, and no earlier snapshot asked the same question` : unrecorded}, so there is no like-for-like change for it yet.${before}`,
+        { details: { reason: "question_changed", rebaselined_at: current.captured_at, ...withPrevious } },
       );
     }
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `AI visibility for ${domain} re-baselined on ${day(current.captured_at)}: ${why}, and no earlier snapshot asked the same question, so there is no like-for-like change to report yet. The next audit that asks it will show one.`,
-      { details: { reason: "question_changed", rebaselined_at: current.captured_at } },
+      `The latest AI-visibility snapshot for ${domain}, on ${day(current.captured_at)}, is not a weekly re-audit. ${asked ? `It ${asked}, and no earlier snapshot asked the same question` : "The snapshots before it do not record what they asked"}, so there is no like-for-like change for it; the weekly re-audits did not re-baseline.${before}`,
+      { details: { reason: "question_changed", ...withPrevious } },
     );
   }
 
+  // Everything in the window that is not the base's question, or everything
+  // after the base: by construction none of those asked the latest's question.
+  const passedOver = notCompared(since ? earlier : earlier.slice(earlier.indexOf(base) + 1), current);
+  const skipped = passedOver.different + passedOver.unrecorded;
   const result: Changes = {
     ...computeChanges(
       { score: current.score, by_engine: current.by_engine },
@@ -782,10 +832,9 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
     skipped_snapshots: skipped,
   };
   if (skipped > 0) {
-    const verb = skipped === 1 ? "was" : "were";
     result.note = since
-      ? `Compared with ${day(base.captured_at)}, the earliest snapshot in the window that asked the same question as the latest; ${snapshotsWord(skipped)} in the window asked a different question and ${verb} not compared.`
-      : `Compared with ${day(base.captured_at)}, the most recent snapshot that asked the same question; ${snapshotsWord(skipped)} in between asked a different question and ${verb} not compared.`;
+      ? `Compared with ${day(base.captured_at)}, the earliest snapshot in the window that asked the same question as the latest; left out of the window: ${notComparedPhrase(passedOver)}.`
+      : `Compared with ${day(base.captured_at)}, the most recent snapshot that asked the same question; passed over in between: ${notComparedPhrase(passedOver)}.`;
   }
   return result;
 }

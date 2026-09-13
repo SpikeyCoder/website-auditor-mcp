@@ -115,8 +115,8 @@ const trendWindow = open({
   snapshots: z.number().describe("Snapshots that fell inside this window."),
   from_captured_at: z.string().optional().describe("When the snapshot this window compares against was captured."),
   skipped_snapshots: z.number().optional().describe(
-    "Snapshots in the window that asked a different question (another business name, market or queries), "
-    + "so were not compared."),
+    "Snapshots in the window that were not compared: they asked a different question (another business name, "
+    + "market or queries), or do not record what they asked."),
 });
 
 const aiVisibilityTrend = open({
@@ -127,8 +127,9 @@ const aiVisibilityTrend = open({
   latest_captured_at: z.string(),
   includes_simulated: z.boolean().describe("True if any analyzed snapshot was estimated rather than measured."),
   question_note: z.string().optional().describe(
-    "Present when a change of question shaped the trend: a re-baseline, or snapshots left out. Relay it — a "
-    + "difference between scores that answered different questions is not a change in visibility."),
+    "Present when what the snapshots asked shaped the trend: a re-baseline, snapshots left out, or a latest "
+    + "snapshot that does not record what it asked. Relay it — a difference between scores that answered "
+    + "different questions is not a change in visibility."),
 });
 
 const aiVisibilitySource = open({
@@ -155,15 +156,15 @@ const auditIssue = open({
   recommendation: z.string().optional(),
 });
 
-// Emitted beside a delta by get_changes and get_monitoring_status. Spread into
-// both shapes rather than nested, because get_changes returns them at its root.
-const comparedFields = {
+// Emitted beside a delta by get_changes, at its root, and by
+// get_monitoring_status, inside `change`: spread rather than nested for that
+// reason. The note is get_changes' alone; monitoring puts its note on the site.
+const comparedSpan = {
   from_captured_at: z.string().optional().describe("When the earlier snapshot compared was captured."),
   to_captured_at: z.string().optional().describe("When the later one was."),
   skipped_snapshots: z.number().optional().describe(
-    "Snapshots that asked a different question (another business name, market or queries) and were passed "
-    + "over."),
-  note: z.string().optional().describe("Present when snapshots were passed over: what, in words. Relay it."),
+    "Snapshots passed over because they asked a different question (another business name, market or "
+    + "queries) or do not record what they asked."),
 };
 
 const changes = open({
@@ -172,7 +173,7 @@ const changes = open({
   competitor_changes: z.array(z.unknown()),
   new_issues: z.array(z.unknown()),
   resolved_issues: z.array(z.unknown()),
-  ...comparedFields,
+  ...comparedSpan,
 });
 
 // ─── per-tool output schemas ───────────────────────────────────────────────
@@ -224,7 +225,8 @@ export const getChangesOutput: ZodRawShape = {
   competitor_changes: z.array(z.unknown()),
   new_issues: z.array(z.unknown()),
   resolved_issues: z.array(z.unknown()),
-  ...comparedFields,
+  ...comparedSpan,
+  note: z.string().optional().describe("Present when snapshots were passed over: which, and why, in words. Relay it."),
 };
 
 export const compareCompetitorsOutput: ZodRawShape = {

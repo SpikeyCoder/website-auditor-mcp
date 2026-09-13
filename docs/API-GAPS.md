@@ -63,10 +63,13 @@ business name looked for and the queries, with `question.key` saying when two
 snapshots asked the same one) were added in 2026-09 (website-auditor-api
 migration 034); rows stored before then carry `question: null`.
 **MCP wiring (live):** `client.getChanges()` reads it and collapses to a delta
-via `computeChanges`, only between snapshots whose `question.key`s match
-(`sameQuestion` in `src/api/mappers.ts`; throws `NOT_YET_AVAILABLE` below two
-snapshots, or with the re-baseline date when no earlier snapshot asked the
-latest one's question); `client.getAiVisibilityHistory()` (1.0.4) returns the
+via `computeChanges`, only between measured snapshots whose `question.key`s
+match (`sameQuestion` in `src/api/mappers.ts`). It throws `NOT_YET_AVAILABLE`
+below two measured snapshots; when the latest records no question
+(`details.reason: "question_not_recorded"`); and when no earlier snapshot asked
+the latest one's question (`"question_changed"`, with `rebaselined_at` when the
+latest re-baselines its series, and the most recent like-for-like change before
+it as `previous_change`). `client.getAiVisibilityHistory()` (1.0.4) returns the
 raw series, which `get_ai_visibility` folds into 7/30-day `trend` windows for
 Pro callers under the same rule (`computeTrend`).
 

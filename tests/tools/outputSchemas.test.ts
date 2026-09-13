@@ -45,7 +45,7 @@ const richClient = {
     from_captured_at: "2026-08-13T09:00:00Z",
     to_captured_at: "2026-08-20T09:00:00Z",
     skipped_snapshots: 1,
-    note: "Compared with 2026-08-13, the most recent snapshot that asked the same question; 1 snapshot in between asked a different question and was not compared.",
+    note: "Compared with 2026-08-13, the most recent snapshot that asked the same question; passed over in between: 1 snapshot that asked a different question.",
   }),
   // A series whose trend carries the same-question fields in a window and a
   // question note, so get_ai_visibility's `trend` is validated populated.
@@ -93,19 +93,38 @@ const richClient = {
       created_at: null,
     }],
   }),
-  getMonitoringStatus: async () => ({
-    limit: 5,
-    used: 1,
-    remaining: 4,
-    sites: [{
-      domain: "example.com",
-      cadence: "weekly",
-      active: true,
-      latest_score: 57,
-      last_audited_at: "2026-08-20T00:00:00Z",
-      next_run_at: "2026-08-27T00:00:00Z",
-    }],
-  }),
+  // A site whose change passed over a snapshot, so get_monitoring_status's
+  // `change` span and `note` are validated populated.
+  getMonitoringStatus: async () => {
+    const asked = {
+      key: "q-example", business_name: "Example", name_source: "detected",
+      business_location: "", market_scope: "global", queries: ["best example"],
+    };
+    const snapshot = (score: number, captured_at: string) => ({
+      score,
+      by_engine: { chatgpt: score, perplexity: null, claude: score, gemini: score },
+      captured_at,
+      is_simulated: false,
+      source: "scheduled",
+      question: asked,
+    });
+    return {
+      limit: 5,
+      used: 1,
+      remaining: 4,
+      sites: [{
+        domain: "example.com",
+        cadence: "weekly",
+        active: true,
+        last_audited_at: "2026-08-20T00:00:00Z",
+        next_run_at: "2026-08-27T00:00:00Z",
+        snapshots_count: 3,
+        latest: snapshot(57, "2026-08-20T09:00:00Z"),
+        previous: snapshot(61, "2026-08-13T09:00:00Z"),
+        comparison: { status: "compared", skipped_snapshots: 1 },
+      }],
+    };
+  },
   getRecommendations: async () => ({
     recommendations: [
       { action: "Add FAQ schema", why: "Assistants quote FAQ blocks.", expected_impact: "high", effort: "low" },
