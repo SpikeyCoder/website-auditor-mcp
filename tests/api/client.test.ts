@@ -605,6 +605,11 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     ({ ...row(captured_at, score, question), source: "scheduled" });
   const byHand = (captured_at: string, score: number, question: unknown = ASKED) =>
     ({ ...row(captured_at, score, question), source: null });
+  // A weekly re-audit that measured nothing of the business, stored as most are: with no score.
+  const measuredNothing = (captured_at: string, score: number | null = null) => ({
+    captured_at, score, by_engine: { chatgpt: score, claude: score }, is_simulated: false, question: ASKED,
+    source: "scheduled_unmeasured",
+  });
 
   it("passes over a snapshot that asked another question, names both dates, and says what it passed over", async () => {
     const changes = await clientFor([
@@ -765,6 +770,139 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     // And with a single snapshot, which measured nothing.
     const single = await failure(clientFor([unmeasured("2026-09-07T09:00:00Z")]).getChanges({ domain: "example.com" }));
     expect(single.message.endsWith("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.")).toBe(true);
+  });
+
+  it("names a newer weekly re-audit that stored no score, in a result and in a refusal", async () => {
+    // Most weekly re-audits that measured nothing store no score, and read with the other unscored rows they were
+    // dropped before anything could name them, so the change before them read as current.
+    const measured = [weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55)];
+    const fetchMock = makeFetch(200, { success: true, snapshots: [...measured, measuredNothing("2026-09-07T09:00:00Z")] });
+    const changes = await new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch })
+      .getChanges({ domain: "example.com" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(changes.score_delta).toBe(5);
+    expect(changes.to_captured_at).toBe("2026-08-31T09:00:00Z");
+    expect(changes.note).toBe("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.");
+
+    const refused = await failure(clientFor([measured[1]!, measuredNothing("2026-09-07T09:00:00Z")])
+      .getChanges({ domain: "example.com" }));
+    expect(refused.message).toBe(
+      "Not enough AI-visibility history for example.com yet — at least two measured snapshots are needed to show what "
+      + "changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site). The weekly re-audit on "
+      + "2026-09-07 measured nothing of the business, so it is not compared.");
+
+    // A row without a usable timestamp still counts for nothing.
+    const undated = [
+      { ...measuredNothing("2026-09-07T09:00:00Z"), captured_at: undefined },
+      { ...measuredNothing("2026-09-07T09:00:00Z"), captured_at: "last week" },
+    ];
+    expect(await clientFor([...measured, ...undated]).getChanges({ domain: "example.com" })).not.toHaveProperty("note");
+    const bare = await failure(clientFor(undated).getChanges({ domain: "example.com" }));
+    expect(bare.message.endsWith("re-audited weekly (see track_site).")).toBe(true);
+  });
+
+  it("names a newer weekly re-audit that measured nothing in each refusal about a window", async () => {
+    const named = " The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.";
+    const measured = [weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55)];
+
+    const empty = await failure(clientFor([...measured, measuredNothing("2026-09-07T09:00:00Z")])
+      .getChanges({ domain: "example.com", since: "2026-09-01T00:00:00Z" }));
+    expect(empty.message).toBe(
+      "No AI-visibility snapshot for example.com to compare since 2026-09-01: the latest measured snapshot is from "
+      + `2026-08-31, so there is no change in that window.${named}`);
+
+    // Named against the series' latest, though the audit in another market is newer than the re-audit.
+    const leftOut = await failure(clientFor([
+      ...measured, measuredNothing("2026-09-07T09:00:00Z"), byHand("2026-09-10T12:00:00Z", 20, ELSEWHERE),
+    ]).getChanges({ domain: "example.com", since: "2026-09-09T00:00:00Z" }));
+    expect(leftOut.message).toBe(
+      "No AI-visibility snapshot in the weekly series for example.com since 2026-09-09: the series' latest is from "
+      + "2026-08-31, so the series has no change in that window. Left out as not part of the weekly series: 1 "
+      + "snapshot that asked a different question, newer than 2026-08-31. The newest of them that records its "
+      + `question, on 2026-09-10, asked about the market "Honolulu, HI" rather than none.${named}`);
+
+    const beforeWindow = await failure(clientFor([
+      measured[0]!, byHand("2026-08-28T12:00:00Z", 60, ELSEWHERE), measured[1]!, measuredNothing("2026-09-07T09:00:00Z"),
+    ]).getChanges({ domain: "example.com", since: "2026-08-27T00:00:00Z" }));
+    expect(beforeWindow.details).toEqual({ reason: "not_in_window", since: "2026-08-27T00:00:00Z" });
+    expect(beforeWindow.message).toBe(
+      "No earlier AI-visibility snapshot for example.com since 2026-08-27 asked the question the one on 2026-08-31 "
+      + "asked; the most recent that did is from 2026-08-24, before the window, so there is no like-for-like change "
+      + `for it in the window.${named}`);
+
+    const changed = await failure(clientFor([
+      byHand("2026-08-28T12:00:00Z", 60), weekly("2026-08-31T09:00:00Z", 55, ELSEWHERE), measuredNothing("2026-09-07T09:00:00Z"),
+    ]).getChanges({ domain: "example.com", since: "2026-08-27T00:00:00Z" }));
+    expect(changed.details).toEqual({ reason: "question_changed", since: "2026-08-27T00:00:00Z" });
+    expect(changed.message).toBe(
+      "No earlier AI-visibility snapshot for example.com since 2026-08-27 asked the question the one on 2026-08-31 "
+      + 'asked (that one asked about the market "Honolulu, HI" rather than none, compared with the snapshot on '
+      + `2026-08-28), so there is no like-for-like change for it in that window.${named}`);
+  });
+
+  it("names a newer weekly re-audit that measured nothing in each refusal about the series' latest", async () => {
+    const named = " The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.";
+    const earlier = [weekly("2026-08-17T09:00:00Z", 45), weekly("2026-08-24T09:00:00Z", 50)];
+    const previous_change = { from_captured_at: "2026-08-17T09:00:00Z", to_captured_at: "2026-08-24T09:00:00Z", score_delta: 5 };
+
+    const onlyOne = await failure(clientFor([
+      weekly("2026-08-31T09:00:00Z", 55), measuredNothing("2026-09-07T09:00:00Z"), byHand("2026-09-10T12:00:00Z", 20, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" }));
+    expect(onlyOne.message).toBe(
+      "Not enough history in the weekly series for example.com yet: its only measured re-audit so far, on "
+      + "2026-08-31, has no measured snapshot before it to compare with. Left out as not part of the weekly series: "
+      + "1 snapshot that asked a different question, newer than 2026-08-31. The newest of them that records its "
+      + `question, on 2026-09-10, asked about the market "Honolulu, HI" rather than none.${named}`);
+
+    const unrecorded = await failure(clientFor([
+      ...earlier, weekly("2026-08-31T09:00:00Z", 55, null), measuredNothing("2026-09-07T09:00:00Z"),
+    ]).getChanges({ domain: "example.com" }));
+    expect(unrecorded.details).toEqual({ reason: "question_not_recorded", previous_change });
+    expect(unrecorded.message).toBe(
+      "The latest AI-visibility snapshot for example.com, on 2026-08-31, does not record what it asked the "
+      + "assistants, so it can't be compared like for like. The most recent like-for-like change before it was up 5, "
+      + `from 2026-08-17 to 2026-08-24.${named}`);
+
+    const rebaselined = await failure(clientFor([
+      ...earlier, weekly("2026-08-31T09:00:00Z", 30, ELSEWHERE), measuredNothing("2026-09-07T09:00:00Z"),
+    ]).getChanges({ domain: "example.com" }));
+    expect(rebaselined.details).toEqual({ reason: "question_changed", rebaselined_at: "2026-08-31T09:00:00Z", previous_change });
+    expect(rebaselined.message).toBe(
+      "AI visibility for example.com re-baselined on 2026-08-31: that day's snapshot asked about the market "
+      + '"Honolulu, HI" rather than none, compared with the snapshot on 2026-08-24, and no earlier snapshot asked the '
+      + "same question, so there is no like-for-like change for it yet. The most recent like-for-like change before "
+      + `it was up 5, from 2026-08-17 to 2026-08-24.${named}`);
+  });
+
+  it("names a weekly re-audit that measured nothing after the series' latest, before a newer audit beside the series", async () => {
+    // Newer than the series' latest, not than the newest measured snapshot: the audit in another market came after it.
+    const changes = await clientFor([
+      weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55), measuredNothing("2026-09-07T09:00:00Z"),
+      byHand("2026-09-10T12:00:00Z", 20, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(5);
+    expect(changes.to_captured_at).toBe("2026-08-31T09:00:00Z");
+    expect(changes.note).toBe(
+      "Left out as not part of the weekly series: 1 snapshot that asked a different question, newer than 2026-08-31. "
+      + 'The newest of them that records its question, on 2026-09-10, asked about the market "Honolulu, HI" rather '
+      + "than none. The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.");
+  });
+
+  it("names only the weekly re-audits newer than the measured snapshot when there are fewer than two", async () => {
+    const refusal = "Not enough AI-visibility history for example.com yet — at least two measured snapshots are needed to "
+      + "show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).";
+    // One before the measured snapshot, with a score and without: neither is why no second one came.
+    for (const older of [measuredNothing("2026-08-24T09:00:00Z", 30), measuredNothing("2026-08-24T09:00:00Z")]) {
+      const error = await failure(clientFor([older, weekly("2026-08-31T09:00:00Z", 55), measuredNothing("2026-09-07T09:00:00Z")])
+        .getChanges({ domain: "example.com" }));
+      expect(error.message).toBe(
+        `${refusal} The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.`);
+    }
+    // With no measured snapshot at all, every one is named.
+    const none = await failure(clientFor([measuredNothing("2026-08-24T09:00:00Z"), measuredNothing("2026-08-31T09:00:00Z")])
+      .getChanges({ domain: "example.com" }));
+    expect(none.message).toBe(
+      `${refusal} 2 weekly re-audits measured nothing of the business, the newest on 2026-08-31, so they are not compared.`);
   });
 
   it("explains a re-baseline against the newest snapshot that recorded its question", async () => {

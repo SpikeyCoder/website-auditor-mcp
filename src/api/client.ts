@@ -295,6 +295,13 @@ export class WaApiClient implements WaApiClientLike {
    * snapshots; and a refusal that leaves newer snapshots out of the series names
    * the most recent like-for-like change among them. A `since` that does not
    * parse is INVALID_INPUT.
+   *
+   * The result's note and every refusal also name the weekly re-audits newer
+   * than the series' latest that measured nothing of the business, whether or
+   * not they stored a score (unmeasuredNote): no comparison uses them, and
+   * unnamed, an older change reads as current. With fewer than two measured
+   * snapshots there is no series, and the refusal names those newer than the
+   * newest measured snapshot, or every one when there is none.
    */
   async getChanges(params: GetChangesParams): Promise<Changes> {
     const since = params.since && params.since !== "last_check" ? params.since : undefined;
@@ -306,21 +313,42 @@ export class WaApiClient implements WaApiClientLike {
     // the API had already cut to the window built a different series from the
     // one /api/monitoring-status reads.
     //
-    // The trend's read and filter, reused: a row with no usable score poisons a
-    // delta. Subtracting an absent score yields NaN, which JSON.stringify writes
-    // as `null` in the text content and which fails the declared output schema
-    // outright, so a successful call came back as an error naming neither.
-    const snaps = await this.getAiVisibilityHistory({ domain: params.domain });
+    // ONE READ, TWO LISTS. What is compared is the trend's rows: a row with no
+    // usable score poisons a delta. Subtracting an absent score yields NaN, which
+    // JSON.stringify writes as `null` in the text content and which fails the
+    // declared output schema outright, so a successful call came back as an error
+    // naming neither. What is named is every weekly re-audit that measured
+    // nothing, scored or not: a declined page, an invented name scoring 0 and a
+    // run no engine answered store no score, and dropped with the other unscored
+    // rows, they went unnamed and an older change read as current.
+    const history = await this.historyRows({ domain: params.domain });
+    const snaps = history.filter(scored);
+    const unmeasuredRuns = history.filter((s) => !measuredTheBusiness(s));
     if (snaps.length < 2) {
+      // Named against the newest measured snapshot, as changesInHistory's refusal is.
+      const measured = snaps.filter((s) => !s.is_simulated && measuredTheBusiness(s));
       throw new WaApiError(
         "NOT_YET_AVAILABLE",
-        `Not enough AI-visibility history for ${params.domain} yet — at least two snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).${unmeasuredNote(snaps, null)}`,
+        `Not enough AI-visibility history for ${params.domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).${unmeasuredNote(unmeasuredRuns, measured[measured.length - 1] ?? null)}`,
       );
     }
-    return changesInHistory(params.domain, snaps, since);
+    return changesInHistory(params.domain, snaps, unmeasuredRuns, since);
   }
 
   async getAiVisibilityHistory(params: { domain: string; since?: string }): Promise<AiVisibilitySnapshot[]> {
+    // Only the rows with a usable score, rather than invented zeros that would
+    // poison deltas.
+    return (await this.historyRows(params)).filter(scored);
+  }
+
+  /**
+   * The history endpoint's rows, oldest first as the server returns them, read
+   * defensively: a row without a timestamp, a null row among them, is dropped,
+   * and a row without a usable score is kept with a null one.
+   * getAiVisibilityHistory keeps the scored rows; getChanges also names the
+   * weekly re-audits among the rest that measured nothing of the business.
+   */
+  private async historyRows(params: { domain: string; since?: string }): Promise<HistoryRow[]> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/ai-visibility-history`);
     url.searchParams.set("domain", params.domain);
     if (params.since) url.searchParams.set("since", params.since);
@@ -336,17 +364,13 @@ export class WaApiClient implements WaApiClientLike {
     };
     const body = (await this.requestJson("GET", url)) as { snapshots?: Array<WireSnapshot | null> };
 
-    // Server returns oldest-first; drop rows without a usable score or
-    // timestamp, a null row among them, rather than inventing zeros that would
-    // poison deltas.
     return (body.snapshots ?? [])
-      .filter((s): s is WireSnapshot & { captured_at: string; score: number } =>
-        typeof s?.score === "number" && typeof s?.captured_at === "string")
+      .filter((s): s is WireSnapshot & { captured_at: string } => typeof s?.captured_at === "string")
       .map((s) => ({
         captured_at: s.captured_at,
         // Which audit wrote it: how the trend finds the audit it sits under.
         run_id: typeof s.run_id === "string" ? s.run_id : null,
-        score: s.score,
+        score: typeof s.score === "number" ? s.score : null,
         by_engine: Object.fromEntries(
           Object.entries(s.by_engine ?? {}).filter(([, v]) => typeof v === "number"),
         ) as Record<string, number>,
@@ -759,12 +783,27 @@ function dateOf(since: string): string {
   return Number.isNaN(t) ? since : new Date(t).toISOString().slice(0, 10);
 }
 
+/** A history row as the endpoint sends it: a snapshot whose score is null when the run stored none. */
+type HistoryRow = Omit<AiVisibilitySnapshot, "score"> & { score: number | null };
+
+/** Whether a history row has a usable score: only those are compared, or read by a trend. */
+function scored(row: HistoryRow): row is AiVisibilitySnapshot {
+  return row.score !== null;
+}
+
 /**
  * The like-for-like change get_changes reports, or why there is none — see
- * WaApiClient.getChanges. `snaps` is the usable history, oldest first, at least
- * two long; `since` is set exactly when the caller asked for a window.
+ * WaApiClient.getChanges. `snaps` is the scored history, oldest first, at least
+ * two long; `unmeasuredRuns` the history's weekly re-audits that measured
+ * nothing of the business, scored or not, which are only named; `since` is set
+ * exactly when the caller asked for a window.
  */
-function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: string | undefined): Changes {
+function changesInHistory(
+  domain: string,
+  snaps: AiVisibilitySnapshot[],
+  unmeasuredRuns: HistoryRow[],
+  since: string | undefined,
+): Changes {
   // A simulated snapshot, or a weekly re-audit that measured nothing of the
   // business, is no comparison point: the rule get_monitoring_status and the
   // weekly digest already apply.
@@ -772,7 +811,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
   if (rows.length < 2) {
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `Not enough AI-visibility history for ${domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).${unmeasuredNote(snaps, rows[rows.length - 1] ?? null)}`,
+      `Not enough AI-visibility history for ${domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).${unmeasuredNote(unmeasuredRuns, rows[rows.length - 1] ?? null)}`,
     );
   }
 
@@ -788,7 +827,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
   // Weekly re-audits newer than the series' latest that measured nothing of the
   // business: no comparison uses them, so they are named, and no result reads
   // as current when the newest weekly runs measured nothing.
-  const unmeasured = unmeasuredNote(snaps, current);
+  const unmeasured = unmeasuredNote(unmeasuredRuns, current);
   const later = `${after}${unmeasured}`;
   const on = day(current.captured_at);
   const sinceAt = since === undefined ? undefined : Date.parse(since);

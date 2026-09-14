@@ -104,7 +104,7 @@ export const P0_TOOLS: ToolSpec[] = [
   {
     name: "get_changes",
     tier: "pro",
-    title: "What changed since last check",
+    title: "What changed in AI visibility",
     description:
       'Report what changed in a website\'s AI-visibility score, only between two snapshots that asked the same question. Use this when someone asks "did anything change," "what\'s different this week/month," or "did my AI visibility drop." Requires the domain to be tracked (see track_site). Returns the change in the overall score and the per-engine score changes, for engines measured both times; competitor_changes, new_issues and resolved_issues are always empty, since snapshots record neither competitors nor audit issues. A change is only ever measured between two snapshots that asked the same question (the same business name, market and queries); when there is no such pair it says why instead of giving a number, with the date the series re-baselined when it did. The series is the measured weekly re-audits and any audit that asked the same question as the newest recorded one, while it has no gap longer than four weeks and a day from the newest weekly re-audit that recorded its question, through each later snapshot of the series (weekly re-audits included, recorded or not), to the newest measured snapshot; otherwise every measured snapshot.',
     inputSchema: {

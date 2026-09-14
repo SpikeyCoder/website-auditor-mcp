@@ -293,4 +293,13 @@ describe("published manifests stay in sync with the code", () => {
     expect(listed.description).toContain("Report what changed in a website's AI-visibility score, only between two snapshots that asked the same question");
     expect(listed.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor (moves|changes)|(new|resolved) issues|overtake/i);
   });
+
+  it("titles get_changes by what it reports, and opens its listing with that title", () => {
+    // "What changed since last check" promised a comparison with the caller's last look, and get_changes reports the
+    // latest like-for-like change. The directory shows the title, and the listing opens with it.
+    const spec = SERVED_TOOLS.find((t: { name: string }) => t.name === "get_changes")!;
+    const listed = manifest.tools.find((t: { name: string }) => t.name === "get_changes");
+    expect(spec.title).toBe("What changed in AI visibility");
+    expect(listed.description.startsWith(`${spec.title} [read-only]. `)).toBe(true);
+  });
 });

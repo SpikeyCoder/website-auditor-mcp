@@ -203,6 +203,26 @@ describe("get_monitoring_status: a score older than the last scheduled run", () 
       "current.com": "current.com: AI visibility 55/100 (up 5 since 2026-08-24).",
     });
   });
+
+  it("names a run claimed an hour after the score on the same day, beside no change", async () => {
+    // The instants decide, not the dates: an audit at 08:00 whose snapshot is the site's baseline, then the weekly run
+    // claimed at 09:00, which stored no measured snapshot.
+    const statusFn = vi.fn(async () => ({
+      limit: 5, used: 1, remaining: 4,
+      sites: [{
+        domain: "example.com", cadence: "weekly", active: true, next_run_at: "2026-09-14T09:00:00Z", snapshots_count: 1,
+        last_audited_at: "2026-09-07T09:00:00Z", latest: snapshot(55, "2026-09-07T08:00:00Z"), previous: null,
+        comparison: { status: "baseline" },
+      }],
+    }));
+    const res = await getMonitoringStatus({}, makeDeps({ tier: "pro", client: { getMonitoringStatus: statusFn } }));
+    if (!res.ok) throw new Error(`expected a result, got ${res.error.code}`);
+    const site = res.data.sites[0]!;
+    expect(site.change).toBeNull();
+    expect(site.summary).toBe(
+      "example.com: AI visibility 55/100 (baseline; no change yet). That score is from 2026-09-07; the scheduled run "
+      + "on 2026-09-07 has stored no measured snapshot.");
+  });
 });
 
 describe("get_monitoring_status: a change only between snapshots that asked the same question", () => {

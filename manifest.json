@@ -88,7 +88,7 @@
     },
     {
       "name": "get_changes",
-      "description": "What changed since last check [read-only]. Report what changed in a website's AI-visibility score, only between two snapshots that asked the same question (the same business name and queries), and otherwise why there is no change to report. Requires the domain to be tracked. Returns the change in the overall score and the per-engine score changes, for engines measured both times."
+      "description": "What changed in AI visibility [read-only]. Report what changed in a website's AI-visibility score, only between two snapshots that asked the same question (the same business name and queries), and otherwise why there is no change to report. Requires the domain to be tracked. Returns the change in the overall score and the per-engine score changes, for engines measured both times."
     },
     {
       "name": "compare_competitors",

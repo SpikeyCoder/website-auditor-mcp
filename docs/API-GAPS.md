@@ -84,7 +84,14 @@ records its question, with `rebaselined_at` unless `since` narrowed the window;
 recent like-for-like change before the latest, or, when the series has none,
 the most recent among all earlier measured snapshots. A refusal that leaves
 newer snapshots out of the series names them, and the most recent like-for-like
-change among them. A `since` that does not parse is `INVALID_INPUT`.
+change among them. The result's `note` and every refusal also name the weekly
+re-audits newer than the series' latest that measured nothing of the business
+(`source: "scheduled_unmeasured"`), read from the same response whether or not
+they stored a score (a declined page, an invented name scoring 0 and a run no
+engine answered carry `score: null`): no comparison uses them, and unnamed, an
+older change reads as current. Below two measured snapshots, the refusal names
+those newer than the newest measured snapshot, or every one when there is none.
+A `since` that does not parse is `INVALID_INPUT`.
 `client.getAiVisibilityHistory()` (1.0.4) returns the raw series, which
 `get_ai_visibility` folds into 7/30-day `trend` windows for Pro callers: for the
 question the audit just run asked, ending at its snapshot (matched by `run_id`),
