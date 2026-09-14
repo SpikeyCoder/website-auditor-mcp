@@ -282,4 +282,14 @@ describe("published manifests stay in sync with the code", () => {
     expect(listed.description).toMatch(/null/);
     expect(listed.description).toMatch(/absent/);
   });
+
+  it("lists get_changes by what it computes, as the registry describes it", () => {
+    // The directory renders this copy, and it promised engines gained or lost,
+    // competitor moves and new or resolved issues, none of which get_changes
+    // computes. The registry's copy and computeChanges are pinned in
+    // tests/tools/registry.test.ts.
+    const listed = manifest.tools.find((t: { name: string }) => t.name === "get_changes");
+    expect(listed.description).toContain("the change in the overall score and in the score of each engine measured both times");
+    expect(listed.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor moves|resolved issues|overtake/i);
+  });
 });

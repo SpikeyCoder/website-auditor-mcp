@@ -50,8 +50,8 @@ unverified** (Pro tools then return `SUBSCRIPTION_UNVERIFIED`, not a false
 `[{ id, domain, base_url, started_at, finished_at, duration_s, status, overall_score,
 total_tests, passed, failed, warnings, errors }]`, **but**:
 - it's on website-auditor.io (Flask), not the API portal, and is **not API-key-authed**;
-- it returns audit-level scores, not the per-engine AI-visibility deltas the tool
-  promises (engine gained/lost, competitor moves).
+- it returns audit-level scores, not the per-engine AI-visibility scores the tool
+  compares.
 
 **RESOLVED:** the portal shipped API-key-authed (Pro-gated)
 `GET /api/ai-visibility-history?domain=&since=&limit=` returning oldest-first
@@ -125,13 +125,13 @@ that endpoint, or a dedicated quota endpoint, would let the tool pre-flight.)
 
 ## Smaller mismatches (worked around, worth fixing)
 
-- **`/api/audit` requires `businessName` and `businessCity`** (naive
-  `if (!businessCity)` validation), but the MCP tools take only `domain` per the
-  listing doc. The engine re-detects name/sector/location from the site
-  (`BusinessIdentifier`), so these should be optional. **Workaround:** the client
-  derives `businessName` from the domain and sends a whitespace `businessCity`
-  sentinel (the engine `.strip()`s it, so detection still wins). See
-  `CITY_SENTINEL` in `src/api/client.ts`.
+- **`/api/audit` required `businessName` and `businessCity`** (a naive
+  `if (!businessCity)` check), so the client once derived a name from the domain
+  and sent a one-space city. **Resolved, and that workaround was harmful:** a
+  sent name replaces the one the engine detects and is trusted as confirmed. API
+  PR #42 made both optional, the client now sends each only when its caller
+  supplies one (`setIfProvided` in `src/api/client.ts`), and
+  website-auditor-api#100 ignores the name that builds before 1.0.14 made up.
 - **No dedicated SEO / security / performance 0–100 scores** in the report.
   `run_audit` derives them: `security`/`performance` from each module's pass-rate,
   and `seo` as an explicit **proxy** from `ai_visibility.site_signals` (structured

@@ -13,14 +13,6 @@ import type { Changes, MonitoringSite, MonitoringSnapshot } from "../api/types.j
 import { computeChanges, day, movement, questionDifference, sameQuestion, toQuestion } from "../api/mappers.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 
-/**
- * How long after its claim a scheduled run may still be going. Every domain in a
- * batch is stamped with the tick's time, a batch holds at most 25, and each audit
- * polls the engine for up to 180 s (the API's scheduler.js and auditRunner.js), so
- * the last in a batch can finish about 75 minutes after its stamp.
- */
-const RUN_MAY_BE_LIVE_MS = 2 * 60 * 60 * 1000;
-
 export interface MonitoringStatusSite {
   domain: string;
   cadence: string;
@@ -170,8 +162,12 @@ export async function getMonitoringStatus(
         // never audited sat beside the date of its last audit. Nor is every
         // claimed run an audit: the scheduler stamps last_audited_at when it
         // claims the domain, before the audit runs, fails, or is skipped for a
-        // site that cannot be scored, so that case names the run, not an audit,
-        // and says it may still be going only within RUN_MAY_BE_LIVE_MS of it.
+        // site that cannot be scored, so that case names the run, not an audit.
+        // It says when a run stores no snapshot instead of guessing whether this
+        // one is still going: nothing bounds how long a run takes after its stamp
+        // (the batch size can be raised, and a batch goes on after its request
+        // ends at 300 s), so a window for "may still be running" is wrong for
+        // some batch, and one sentence has to hold at any age.
         const n = s.snapshots_count ?? 0;
         let summary: string;
         if (s.latest) {
@@ -179,10 +175,7 @@ export async function getMonitoringStatus(
         } else if (n > 0) {
           summary = `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score.`;
         } else if (s.last_audited_at) {
-          const claimed = Date.parse(s.last_audited_at);
-          summary = Number.isFinite(claimed) && Date.now() - claimed < RUN_MAY_BE_LIVE_MS
-            ? `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot — it may still be running, or the audit failed, or the site cannot be scored — so there is no score.`
-            : `${s.domain}: its scheduled run on ${day(s.last_audited_at)} stored no snapshot — the audit failed, or the site cannot be scored — so there is no score.`;
+          summary = `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot, so there is no score. A run stores none while it is still going, if it fails, or if it is skipped, as it is for a site that cannot be scored.`;
         } else {
           summary = `${s.domain}: not audited yet — the first scheduled run will set a baseline.`;
         }

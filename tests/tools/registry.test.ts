@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { P0_TOOLS, P1_TOOLS, ALL_TOOL_SPECS, SERVED_TOOLS } from "../../src/tools/registry.js";
+import { computeChanges } from "../../src/api/mappers.js";
 
 describe("tool registry", () => {
   it("registers exactly the four Phase-0 tools with the exact names agents bind to", () => {
@@ -27,6 +28,26 @@ describe("tool registry", () => {
 
     const audit = P0_TOOLS.find((t) => t.name === "run_audit")!;
     expect(audit.description.startsWith("Run a full one-time audit of a website")).toBe(true);
+  });
+
+  it("describes get_changes by what it computes", () => {
+    // computeChanges skips an engine measured on one side only and fills no
+    // competitor or issue list, so the description promises none of them, and
+    // sends no question about competitors here: compare_competitors answers it.
+    const changes = computeChanges(
+      { score: 50, by_engine: { chatgpt: 60, claude: null } },
+      { score: 40, by_engine: { chatgpt: 50, claude: 30 } },
+    );
+    expect(changes).toEqual({
+      score_delta: 10,
+      engine_changes: [{ engine: "chatgpt", from: 50, to: 60, delta: 10 }],
+      competitor_changes: [],
+      new_issues: [],
+      resolved_issues: [],
+    });
+    const tool = P0_TOOLS.find((t) => t.name === "get_changes")!;
+    expect(tool.description).toContain("the change in the overall score and in the score of each engine measured both times");
+    expect(tool.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor moves|resolved issues|overtake/i);
   });
 
   it("keeps the verbatim compare_competitors copy but appends quota guidance for agents", () => {
