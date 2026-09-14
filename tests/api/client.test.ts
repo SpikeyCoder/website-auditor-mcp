@@ -562,6 +562,24 @@ describe("WaApiClient.getAiVisibilityHistory — raw snapshot series for trend",
     expect(snaps[0]!.by_engine).toEqual({ chatgpt: 55 }); // null engine dropped too
   });
 
+  it("keeps a real score of zero, and reads a score that is not a number as none", async () => {
+    // A detected name that no engine named scores 0, and the API stores that 0: only a declined page, an invented
+    // name scoring 0, a run no engine answered and an unscannable host store none. Read as none, an audit that
+    // scored 0 would get no trend, as though it stored no measured snapshot. A score that is not a number is none.
+    const fetchMock = makeFetch(200, {
+      success: true,
+      snapshots: [
+        { captured_at: "2026-07-01T00:00:00Z", score: 0, by_engine: { chatgpt: 0 } },
+        { captured_at: "2026-07-10T00:00:00Z", score: "55", by_engine: { chatgpt: 55 } },
+      ],
+    });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    expect(await client.getAiVisibilityHistory({ domain: "example.com" })).toEqual([{
+      captured_at: "2026-07-01T00:00:00Z", run_id: null, score: 0, by_engine: { chatgpt: 0 }, is_simulated: false,
+      source: null, question: null,
+    }]);
+  });
+
   it("does NOT throw on short history — trend logic owns that decision", async () => {
     const fetchMock = makeFetch(200, { success: true, snapshots: [] });
     const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
@@ -753,6 +771,14 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(one.score_delta).toBe(5);
     expect(one.note).toBe("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.");
 
+    // Simulated as well: the note names every weekly re-audit that measured nothing, whatever else is true of it.
+    const simulated = await clientFor([
+      weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55),
+      { ...measuredNothing("2026-09-07T09:00:00Z", 70), is_simulated: true },
+    ]).getChanges({ domain: "example.com" });
+    expect(simulated.score_delta).toBe(5);
+    expect(simulated.note).toBe("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.");
+
     const two = await clientFor([
       weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55),
       unmeasured("2026-09-07T09:00:00Z"), unmeasured("2026-09-14T09:00:00Z"),
@@ -903,6 +929,14 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       .getChanges({ domain: "example.com" }));
     expect(none.message).toBe(
       `${refusal} 2 weekly re-audits measured nothing of the business, the newest on 2026-08-31, so they are not compared.`);
+
+    // A simulated snapshot is no measured one, however new, so a weekly re-audit that measured nothing before it is
+    // still named.
+    const simulated = await failure(clientFor([
+      measuredNothing("2026-09-07T09:00:00Z"), { ...byHand("2026-09-10T12:00:00Z", 40), is_simulated: true },
+    ]).getChanges({ domain: "example.com" }));
+    expect(simulated.message).toBe(
+      `${refusal} The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.`);
   });
 
   it("explains a re-baseline against the newest snapshot that recorded its question", async () => {
@@ -1459,6 +1493,25 @@ describe("WaApiClient.getChanges — snapshots without a usable score", () => {
     await expect(client.getChanges({ domain: "example.com" })).rejects.toMatchObject({
       code: "NOT_YET_AVAILABLE",
     });
+  });
+
+  it("compares a real score of zero rather than dropping it with them", async () => {
+    // Only a missing score is none. Dropped with them, the fall to 0 would go unreported and the rise before it would
+    // read as current.
+    const fetchImpl = makeFetch(200, {
+      snapshots: [
+        { captured_at: "2026-08-24T09:00:00Z", score: 50, by_engine: { chatgpt: 50 }, source: "scheduled", question: ASKED },
+        { captured_at: "2026-08-31T09:00:00Z", score: 55, by_engine: { chatgpt: 55 }, source: "scheduled", question: ASKED },
+        { captured_at: "2026-09-07T09:00:00Z", score: 0, by_engine: { chatgpt: 0 }, source: "scheduled", question: ASKED },
+      ],
+    });
+    const client = new WaApiClient(cfg, { fetch: fetchImpl as unknown as typeof fetch });
+    const changes = await client.getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(-55);
+    expect(changes.from_captured_at).toBe("2026-08-31T09:00:00Z");
+    expect(changes.to_captured_at).toBe("2026-09-07T09:00:00Z");
+    expect(changes.engine_changes).toEqual([{ engine: "chatgpt", from: 55, to: 0, delta: -55 }]);
+    expect(changes).not.toHaveProperty("note");
   });
 });
 

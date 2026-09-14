@@ -388,8 +388,9 @@ export interface MonitoringSnapshot {
 /**
  * Why monitoring-status returned the `previous` it did. `status` is the API's
  * value, read as a string like every upstream enum here: "baseline" (no earlier
- * scored snapshot), "compared", "rebaselined" (earlier snapshots exist and none
- * asked what `latest` asked) or "not_recorded" (`latest` does not record it).
+ * measured snapshot), "compared", "rebaselined" (earlier measured snapshots
+ * exist and none asked what `latest` asked) or "not_recorded" (`latest` does
+ * not record it).
  */
 export interface MonitoringComparison {
   status: string;

@@ -180,6 +180,26 @@ describe("get_ai_visibility trend", () => {
     }
   });
 
+  it("an audit that scored 0 stored a measured snapshot, and gets its trend", async () => {
+    // A zero is a score. Read as none, this audit would get the note for one that stored no measured snapshot.
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 20 * day).toISOString(), 40],
+      [new Date(now - 5 * day).toISOString(), 50],
+      [new Date(now - 1 * day).toISOString(), 0],
+    ]);
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => history) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend_note).toBeUndefined();
+    expect(res.data.trend!.change_7d!.score_delta).toBe(-50); // 0 vs 50
+    expect(res.data.trend!.change_30d!.score_delta).toBe(-40); // 0 vs 40
+  });
+
   it("the trend ends at this audit's snapshot, not a newer one", async () => {
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
