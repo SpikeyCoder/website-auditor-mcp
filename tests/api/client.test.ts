@@ -779,6 +779,13 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(simulated.score_delta).toBe(5);
     expect(simulated.note).toBe("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.");
 
+    // And one that scored 0: whatever it scored, a weekly re-audit that measured nothing is named.
+    const zero = await clientFor([
+      weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55), measuredNothing("2026-09-07T09:00:00Z", 0),
+    ]).getChanges({ domain: "example.com" });
+    expect(zero.score_delta).toBe(5);
+    expect(zero.note).toBe("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.");
+
     const two = await clientFor([
       weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55),
       unmeasured("2026-09-07T09:00:00Z"), unmeasured("2026-09-14T09:00:00Z"),

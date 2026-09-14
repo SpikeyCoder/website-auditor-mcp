@@ -209,6 +209,13 @@ describe("mapEngines: the monitoring path must not re-coerce", () => {
       .toEqual({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 });
   });
 
+  it("preserves a null for ChatGPT and Gemini too, the engines the test above leaves scored", () => {
+    // Above, ChatGPT and Gemini are scored, so coercing either one alone to
+    // zero would pass it.
+    expect(mapEngines({ chatgpt: null, perplexity: 50, claude: 55, gemini: null }))
+      .toEqual({ chatgpt: null, perplexity: 50, claude: 55, gemini: null });
+  });
+
   it("feeds computeChanges values it will actually skip", () => {
     const current = mapEngines({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 });
     const previous = mapEngines({ chatgpt: 60, perplexity: 50, claude: 55, gemini: 40 });
@@ -227,6 +234,19 @@ describe("computeChanges: an unmeasured engine is not a crash", () => {
       { score: 60, by_engine: { claude: 55, chatgpt: 60 } },
     );
     expect(changes.engine_changes).toEqual([]);
+  });
+
+  it("skips an engine that has no score on the earlier side, and reports one that rose from a real 0", () => {
+    // The earlier side of the same guard. `?? 0` there would publish {from: 0,
+    // to: 55, delta: 55} for an engine that snapshot never measured, and a test
+    // for a falsy score would drop a real rise from 0.
+    const changes = computeChanges(
+      { score: 55, by_engine: { claude: 55, chatgpt: 55 } },
+      { score: 0, by_engine: { claude: null, chatgpt: 0 } },
+    );
+    expect(changes.engine_changes).toEqual([
+      { engine: "chatgpt", from: 0, to: 55, delta: 55 },
+    ]);
   });
 
   it("still reports a real movement", () => {

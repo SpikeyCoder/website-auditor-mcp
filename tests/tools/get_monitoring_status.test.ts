@@ -352,3 +352,57 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
       + "change can be shown.");
   });
 });
+
+describe("get_monitoring_status: a score of 0 is a score", () => {
+  // A 0 here is a measurement: the assistants answered and none named the
+  // business. The API stores no score for a declined page, an invented name
+  // scoring 0, an unscannable host or a run no engine answered, and sends as
+  // latest and previous only snapshots that measured the business. Read as
+  // none, a latest 0 would be summarized as a snapshot with no score, a previous
+  // 0 would leave a like-for-like pair uncompared behind a note that it asked
+  // something else, and an engine's 0 would drop out of the change.
+  const site = (latest: unknown, previous: unknown) => ({
+    domain: "example.com",
+    cadence: "weekly",
+    active: true,
+    last_audited_at: "2026-09-08T09:00:00Z",
+    next_run_at: "2026-09-15T09:00:00Z",
+    snapshots_count: 2,
+    latest,
+    previous,
+    comparison: { status: "compared", skipped_snapshots: 0 },
+  });
+  const run = async (s: Record<string, unknown>) => {
+    const statusFn = vi.fn(async () => ({ limit: 5, used: 1, remaining: 4, sites: [s] }));
+    const res = await getMonitoringStatus({}, makeDeps({ tier: "pro", client: { getMonitoringStatus: statusFn } }));
+    if (!res.ok) throw new Error(`expected a result, got ${res.error.code}`);
+    return res.data.sites[0]!;
+  };
+  // snapshot() scores every engine as the whole, so every engine moves with it.
+  const everyEngine = (from: number, to: number) =>
+    ["chatgpt", "perplexity", "claude", "gemini"].map((engine) => ({ engine, from, to, delta: to - from }));
+
+  it("a latest snapshot that scored 0 has a score and a change, every engine's 0 included", async () => {
+    const out = await run(site(snapshot(0, "2026-09-08T09:00:00Z"), snapshot(55, "2026-09-01T09:00:00Z")));
+    expect(out.latest_score).toBe(0);
+    expect(out.summary).toBe("example.com: AI visibility 0/100 (down 55 since 2026-09-01).");
+    expect(out.change).not.toBeNull();
+    expect(out.change!.score_delta).toBe(-55);
+    expect(out.change!.engine_changes).toEqual(everyEngine(55, 0));
+    expect(out.change!.from_captured_at).toBe("2026-09-01T09:00:00Z");
+    expect(out.change!.to_captured_at).toBe("2026-09-08T09:00:00Z");
+    expect(out).not.toHaveProperty("note");
+  });
+
+  it("a previous snapshot that scored 0 is compared with, every engine's 0 included, and no note says otherwise", async () => {
+    const out = await run(site(snapshot(55, "2026-09-08T09:00:00Z"), snapshot(0, "2026-09-01T09:00:00Z")));
+    expect(out.latest_score).toBe(55);
+    expect(out.summary).toBe("example.com: AI visibility 55/100 (up 55 since 2026-09-01).");
+    expect(out.change).not.toBeNull();
+    expect(out.change!.score_delta).toBe(55);
+    expect(out.change!.engine_changes).toEqual(everyEngine(0, 55));
+    expect(out.change!.from_captured_at).toBe("2026-09-01T09:00:00Z");
+    expect(out.change!.to_captured_at).toBe("2026-09-08T09:00:00Z");
+    expect(out).not.toHaveProperty("note");
+  });
+});

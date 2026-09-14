@@ -339,8 +339,12 @@ export class WaApiClient implements WaApiClientLike {
    * defensively: a row without a timestamp, a null row among them, is dropped,
    * and a row without a usable score is kept with a null one.
    * getAiVisibilityHistory keeps the scored rows; getChanges compares only
-   * those, and names every weekly re-audit among all the rows that measured
-   * nothing of the business, scored or not.
+   * those. Of the weekly re-audits among all the rows that measured nothing of
+   * the business, scored or not, it names only those newer than the series'
+   * latest (with fewer than two measured snapshots, those newer than the newest
+   * measured snapshot, or every one when there is none). One older than the
+   * series' latest goes unnamed: a weekly 50, then a weekly re-audit that
+   * measured nothing, then a weekly 55, is up 5 with no note.
    */
   private async historyRows(params: { domain: string; since?: string }): Promise<HistoryRow[]> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/ai-visibility-history`);
@@ -791,7 +795,10 @@ function scored(row: HistoryRow): row is AiVisibilitySnapshot {
  * short: the first refusal below covers fewer than two measured snapshots, and
  * so fewer than two scored rows; `unmeasuredRuns` the history's weekly
  * re-audits that measured nothing of the business, scored or not, which are
- * only named; `since` is set exactly when the caller asked for a window.
+ * never compared and are named only when newer than the series' latest, or,
+ * with fewer than two measured snapshots, newer than the newest measured
+ * snapshot (every one, when there is none); `since` is set exactly when the
+ * caller asked for a window.
  */
 function changesInHistory(
   domain: string,

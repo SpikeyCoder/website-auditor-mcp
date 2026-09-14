@@ -184,7 +184,11 @@ export interface AiVisibilitySnapshot {
   by_engine: Record<string, number>;
   /** True when the snapshot was produced without live AI queries. */
   is_simulated: boolean;
-  /** The surface that wrote it: "scheduled", "scheduled_unmeasured", "extension", or null (an audit). */
+  /**
+   * The surface that wrote it: "scheduled", "scheduled_unmeasured", "extension", or null for an /api/audit run and
+   * for any row older than its surface's tag, weekly re-audits from before website-auditor-api #96 among them. The
+   * client (historyRows) also reads a source missing from an older API's rows, or one that is not a string, as null.
+   */
   source?: string | null;
   /** What it asked. Null or absent when the snapshot recorded nothing about it: it compares with nothing. */
   question?: SnapshotQuestion | null;
@@ -206,7 +210,7 @@ export interface TrendWindow {
   snapshots: number;
   /** When the snapshot this window compares against was captured. */
   from_captured_at?: string;
-  /** Snapshots inside the window that asked a different question, and so were not compared. */
+  /** Snapshots in the window that asked a different question or do not record what they asked, so were not compared. */
   skipped_snapshots?: number;
 }
 
@@ -394,7 +398,7 @@ export interface MonitoringSnapshot {
  */
 export interface MonitoringComparison {
   status: string;
-  /** "compared": snapshots between the two that asked something else. */
+  /** "compared": the measured snapshots between the two, which asked something else or do not record what they asked. */
   skipped_snapshots?: number;
   /**
    * "rebaselined": what `latest` changed from: the newest earlier snapshot in the
