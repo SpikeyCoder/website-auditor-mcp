@@ -178,6 +178,33 @@ describe("get_monitoring_status [Pro]", () => {
   });
 });
 
+describe("get_monitoring_status: a score older than the last scheduled run", () => {
+  it("names that run and the score's date, so the score is not read as current", async () => {
+    const site = (over: object) => ({
+      domain: "example.com", cadence: "weekly", active: true, next_run_at: "2026-09-14T09:00:00Z", snapshots_count: 3,
+      latest: snapshot(55, "2026-08-31T09:00:00Z"), previous: snapshot(50, "2026-08-24T09:00:00Z"),
+      comparison: { status: "compared", skipped_snapshots: 0 },
+      ...over,
+    });
+    const statusFn = vi.fn(async () => ({
+      limit: 5, used: 2, remaining: 3,
+      sites: [
+        site({ domain: "stale.com", last_audited_at: "2026-09-07T09:00:00Z" }),
+        site({ domain: "current.com", last_audited_at: "2026-08-31T09:00:00Z" }),
+      ],
+    }));
+    const res = await getMonitoringStatus({}, makeDeps({ tier: "pro", client: { getMonitoringStatus: statusFn } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const summary = Object.fromEntries(res.data.sites.map((s) => [s.domain, s.summary]));
+    expect(summary).toEqual({
+      "stale.com": "stale.com: AI visibility 55/100 (up 5 since 2026-08-24). That score is from 2026-08-31; "
+        + "the scheduled run on 2026-09-07 has stored no measured snapshot.",
+      "current.com": "current.com: AI visibility 55/100 (up 5 since 2026-08-24).",
+    });
+  });
+});
+
 describe("get_monitoring_status: a change only between snapshots that asked the same question", () => {
   const ELSEWHERE = {
     ...ASKED, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best example in Honolulu, HI"],

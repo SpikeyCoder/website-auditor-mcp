@@ -183,11 +183,23 @@ export async function getMonitoringStatus(
         return { ...base, change: null, summary };
       }
       const { change, label, note } = assess(s.latest, latestScore, s);
+      // A SCORE OLDER THAN THE LAST RUN. The scheduler stamps last_audited_at
+      // when it claims a run, before that run can store a snapshot, and a
+      // measured weekly re-audit always joins the series, so a latest score
+      // captured before the stamp means that run has stored no measured
+      // snapshot: it is still going, failed, was skipped, or measured nothing of
+      // the business. The score stays, with its date and that run named, rather
+      // than read as current.
+      const claimed = Date.parse(s.last_audited_at ?? "");
+      const captured = Date.parse(s.latest.captured_at);
+      const older = Number.isFinite(claimed) && Number.isFinite(captured) && claimed > captured
+        ? ` That score is from ${day(s.latest.captured_at)}; the scheduled run on ${day(s.last_audited_at)} has stored no measured snapshot.`
+        : "";
       return {
         ...base,
         change,
         ...(note ? { note } : {}),
-        summary: `${s.domain}: AI visibility ${latestScore}/100 (${label}).`,
+        summary: `${s.domain}: AI visibility ${latestScore}/100 (${label}).${older}`,
       };
     });
 

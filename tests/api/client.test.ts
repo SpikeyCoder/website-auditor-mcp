@@ -725,6 +725,48 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(moved.message).toMatch(/^AI visibility for example\.com re-baselined on 2026-09-15: /);
   });
 
+  it("joins both notes when snapshots were passed over and newer ones left out", async () => {
+    const changes = await clientFor([
+      weekly("2026-09-01T09:00:00Z", 50),
+      row("2026-09-05T09:00:00Z", 70, ELSEWHERE),
+      weekly("2026-09-08T09:00:00Z", 55),
+      row("2026-09-10T12:00:00Z", 20, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.skipped_snapshots).toBe(1);
+    expect(changes.note).toBe(
+      "Compared with 2026-09-01, the most recent snapshot that asked the same question; passed over in between: "
+      + "1 snapshot that asked a different question. Left out as not part of the weekly series: 1 snapshot that "
+      + "asked a different question, newer than 2026-09-08. The newest of them that records its question, on "
+      + '2026-09-10, asked about the market "Honolulu, HI" rather than none.');
+  });
+
+  it("names newer weekly re-audits that measured nothing, so an older change is not read as current", async () => {
+    const unmeasured = (at: string) => ({ ...weekly(at, 15), source: "scheduled_unmeasured" });
+    const one = await clientFor([
+      weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55), unmeasured("2026-09-07T09:00:00Z"),
+    ]).getChanges({ domain: "example.com" });
+    expect(one.score_delta).toBe(5);
+    expect(one.note).toBe("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.");
+
+    const two = await clientFor([
+      weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55),
+      unmeasured("2026-09-07T09:00:00Z"), unmeasured("2026-09-14T09:00:00Z"),
+    ]).getChanges({ domain: "example.com" });
+    expect(two.note).toBe(
+      "2 weekly re-audits newer than 2026-08-31 measured nothing of the business, the newest on 2026-09-14, "
+      + "so they are not compared.");
+
+    // With one measured snapshot, the refusal says why no second one came.
+    const refused = await failure(clientFor([row("2026-07-10T09:00:00Z", 40), unmeasured("2026-09-07T09:00:00Z")])
+      .getChanges({ domain: "example.com" }));
+    expect(refused.message).toContain("at least two measured snapshots are needed");
+    expect(refused.message.endsWith("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.")).toBe(true);
+
+    // And with a single snapshot, which measured nothing.
+    const single = await failure(clientFor([unmeasured("2026-09-07T09:00:00Z")]).getChanges({ domain: "example.com" }));
+    expect(single.message.endsWith("The weekly re-audit on 2026-09-07 measured nothing of the business, so it is not compared.")).toBe(true);
+  });
+
   it("explains a re-baseline against the newest snapshot that recorded its question", async () => {
     const error = await failure(clientFor([
       row("2026-09-01T09:00:00Z", 40),
@@ -868,14 +910,15 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       + 'question, on 2026-09-10, asked about the market "Honolulu, HI" rather than none.');
   });
 
-  it("skips a weekly re-audit that measured nothing of the business, whatever its score", async () => {
+  it("skips a weekly re-audit that measured nothing of the business, whatever its score, and names it", async () => {
     const changes = await clientFor([
       weekly("2026-09-07T09:00:00Z", 40),
       weekly("2026-09-14T09:00:00Z", 30),
       { ...row("2026-09-21T09:00:00Z", 25), source: "scheduled_unmeasured" },
     ]).getChanges({ domain: "example.com" });
     expect(changes.score_delta).toBe(-10);
-    expect(changes).not.toHaveProperty("note");
+    // Named, so the older change is not read as current (the cross-repo review, round nine).
+    expect(changes.note).toBe("The weekly re-audit on 2026-09-21 measured nothing of the business, so it is not compared.");
   });
 
   it("still gives the change before a latest snapshot that records nothing", async () => {

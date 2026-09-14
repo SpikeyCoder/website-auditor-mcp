@@ -676,6 +676,27 @@ export function laterNote<T extends { captured_at: string; score: number; questi
 }
 
 /**
+ * What to say about weekly re-audits newer than `latest` that measured nothing
+ * of the business ("scheduled_unmeasured"): no comparison uses them, so without
+ * a word a result reads as current when the newest weekly runs measured
+ * nothing. With no `latest`, every such re-audit counts. Empty when there are
+ * none; otherwise a sentence with a leading space.
+ */
+export function unmeasuredNote<T extends { captured_at: string; source?: string | null }>(
+  snapshots: T[],
+  latest: { captured_at: string } | null,
+): string {
+  const after = latest ? Date.parse(latest.captured_at) : Number.NEGATIVE_INFINITY;
+  const runs = snapshots.filter((s) => s.source === "scheduled_unmeasured" && Date.parse(s.captured_at) > after);
+  if (!runs.length) return "";
+  const newest = runs.reduce((a, b) => (Date.parse(b.captured_at) > Date.parse(a.captured_at) ? b : a));
+  return runs.length === 1
+    ? ` The weekly re-audit on ${day(newest.captured_at)} measured nothing of the business, so it is not compared.`
+    : ` ${runs.length} weekly re-audits${latest ? ` newer than ${day(latest.captured_at)}` : ""} measured nothing `
+      + `of the business, the newest on ${day(newest.captured_at)}, so they are not compared.`;
+}
+
+/**
  * Why the trend compared less than its windows span, or nothing at all, when
  * what the snapshots asked is the reason. `before` is every snapshot before
  * `latest`. Undefined when every snapshot in play asked the latest's question.

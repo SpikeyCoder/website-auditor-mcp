@@ -41,7 +41,7 @@ import type {
 import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
 import {
-  computeChanges, day, laterNote, measuredTheBusiness, movement, newestComparablePair, newestRecorded,
+  computeChanges, day, laterNote, measuredTheBusiness, movement, newestComparablePair, newestRecorded, unmeasuredNote,
   newestSameQuestion, notCompared, notComparedPhrase, oldestSameQuestion, questionDifference, seriesOf, toQuestion,
 } from "./mappers.js";
 import { normalizeDomain } from "./domain.js";
@@ -314,7 +314,7 @@ export class WaApiClient implements WaApiClientLike {
     if (snaps.length < 2) {
       throw new WaApiError(
         "NOT_YET_AVAILABLE",
-        `Not enough AI-visibility history for ${params.domain} yet — at least two snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).`,
+        `Not enough AI-visibility history for ${params.domain} yet — at least two snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).${unmeasuredNote(snaps, null)}`,
       );
     }
     return changesInHistory(params.domain, snaps, since);
@@ -772,7 +772,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
   if (rows.length < 2) {
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `Not enough AI-visibility history for ${domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).`,
+      `Not enough AI-visibility history for ${domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).${unmeasuredNote(snaps, rows[rows.length - 1] ?? null)}`,
     );
   }
 
@@ -785,6 +785,11 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
   const before = rows.slice(0, at);
   const earlier = series.slice(0, -1);
   const after = laterNote(rows.slice(at + 1), current);
+  // Weekly re-audits newer than the series' latest that measured nothing of the
+  // business: no comparison uses them, so they are named, and no result reads
+  // as current when the newest weekly runs measured nothing.
+  const unmeasured = unmeasuredNote(snaps, current);
+  const later = `${after}${unmeasured}`;
   const on = day(current.captured_at);
   const sinceAt = since === undefined ? undefined : Date.parse(since);
 
@@ -795,8 +800,8 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
       after
-        ? `No AI-visibility snapshot in the weekly series for ${domain} since ${dateOf(since)}: the series' latest is from ${on}, so the series has no change in that window.${after}`
-        : `No AI-visibility snapshot for ${domain} to compare since ${dateOf(since)}: the latest measured snapshot is from ${on}, so there is no change in that window.`,
+        ? `No AI-visibility snapshot in the weekly series for ${domain} since ${dateOf(since)}: the series' latest is from ${on}, so the series has no change in that window.${later}`
+        : `No AI-visibility snapshot for ${domain} to compare since ${dateOf(since)}: the latest measured snapshot is from ${on}, so there is no change in that window.${unmeasured}`,
     );
   }
   // What the window holds before the latest: every snapshot before it without
@@ -809,7 +814,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
     // and `after` names them.
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `Not enough history in the weekly series for ${domain} yet: its only measured re-audit so far, on ${on}, has no measured snapshot before it to compare with.${after}`,
+      `Not enough history in the weekly series for ${domain} yet: its only measured re-audit so far, on ${on}, has no measured snapshot before it to compare with.${later}`,
     );
   }
 
@@ -840,7 +845,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
       : `The latest AI-visibility snapshot for ${domain}, on ${on},`;
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `${which} does not record what it asked the assistants, so it can't be compared like for like.${priorChange}${after}`,
+      `${which} does not record what it asked the assistants, so it can't be compared like for like.${priorChange}${later}`,
       { details: { reason: "question_not_recorded", ...withPrevious } },
     );
   }
@@ -867,19 +872,19 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
       if (outside) {
         throw new WaApiError(
           "NOT_YET_AVAILABLE",
-          `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked; the most recent that did is from ${day(outside.captured_at)}, before the window, so there is no like-for-like change for it in the window.${priorChange}${after}`,
+          `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked; the most recent that did is from ${day(outside.captured_at)}, before the window, so there is no like-for-like change for it in the window.${priorChange}${later}`,
           { details: { reason: "not_in_window", since, ...withPrevious } },
         );
       }
       throw new WaApiError(
         "NOT_YET_AVAILABLE",
-        `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked (${asked ? `that one ${asked}` : unrecorded}), so there is no like-for-like change for it in that window.${priorChange}${after}`,
+        `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked (${asked ? `that one ${asked}` : unrecorded}), so there is no like-for-like change for it in that window.${priorChange}${later}`,
         { details: { reason, since, ...withPrevious } },
       );
     }
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `AI visibility for ${domain} re-baselined on ${on}: ${asked ? `that day's snapshot ${asked}, and no earlier snapshot asked the same question` : unrecorded}, so there is no like-for-like change for it yet.${priorChange}${after}`,
+      `AI visibility for ${domain} re-baselined on ${on}: ${asked ? `that day's snapshot ${asked}, and no earlier snapshot asked the same question` : unrecorded}, so there is no like-for-like change for it yet.${priorChange}${later}`,
       { details: { reason, rebaselined_at: current.captured_at, ...withPrevious } },
     );
   }
@@ -903,7 +908,7 @@ function changesInHistory(domain: string, snaps: AiVisibilitySnapshot[], since: 
       ? `Compared with ${day(base.captured_at)}, the earliest snapshot in the window that asked the same question as the one on ${on}; in the window but not compared: ${notComparedPhrase(passedOver)}.`
       : `Compared with ${day(base.captured_at)}, the most recent snapshot that asked the same question; passed over in between: ${notComparedPhrase(passedOver)}.`);
   }
-  if (after) notes.push(after.trim());
+  if (later) notes.push(later.trim());
   if (notes.length) result.note = notes.join(" ");
   return result;
 }

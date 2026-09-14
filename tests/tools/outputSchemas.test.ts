@@ -245,6 +245,16 @@ describe("declared output schemas", () => {
     }
   });
 
+  it("says when get_changes carries a note", async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const schema: any = tools.find((t) => t.name === "get_changes")!.outputSchema;
+    expect(schema.properties.note.description).toBe(
+      "Present when skipped_snapshots is above 0, when newer measured snapshots were left out of the series, or when "
+      + "newer weekly re-audits measured nothing of the business: which, and why, in words. Relay it.");
+  });
+
   it("every served tool declares one", () => {
     // The portal flags each tool that does not, so a new tool landing without
     // an entry in OUTPUT_SCHEMAS should fail here rather than in review.

@@ -328,7 +328,10 @@ export interface Changes {
   to_captured_at?: string;
   /** Snapshots passed over: they asked a different question, or do not record what they asked. */
   skipped_snapshots?: number;
-  /** Present when snapshots were passed over, or newer ones were left out of the series: what, in words. */
+  /**
+   * get_changes only; get_monitoring_status puts its note on the site. Present when snapshots were passed over,
+   * newer measured snapshots were left out of the series, or newer weekly re-audits measured nothing: what, in words.
+   */
   note?: string;
 }
 

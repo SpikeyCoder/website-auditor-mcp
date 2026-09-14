@@ -235,8 +235,8 @@ export const getChangesOutput: ZodRawShape = {
   resolved_issues: alwaysEmpty("audit issues"),
   ...comparedSpan,
   note: z.string().optional().describe(
-    "Present when snapshots were passed over, or newer snapshots were left out of the series: which, and why, in words. "
-    + "Relay it."),
+    "Present when skipped_snapshots is above 0, when newer measured snapshots were left out of the series, or when "
+    + "newer weekly re-audits measured nothing of the business: which, and why, in words. Relay it."),
 };
 
 export const compareCompetitorsOutput: ZodRawShape = {
@@ -300,8 +300,9 @@ export const listTrackedSitesOutput: ZodRawShape = {
     active: z.boolean().optional(),
     digest_enabled: z.boolean().optional(),
     last_audited_at: z.string().nullable().optional().describe(
-      "The date of the last scheduled run, stamped when the scheduler claims it and before the audit runs: "
-      + "that run may still be going, or may have failed or been skipped."),
+      "The date of the last scheduled run, stamped when the scheduler claims it and before the audit runs. It does "
+      + "not say how that run ended: it may still be going, or may have failed, been skipped or measured nothing of "
+      + "the business."),
     next_run_at: z.string().nullable().optional(),
     created_at: z.string().nullable().optional(),
   })),
@@ -322,8 +323,9 @@ export const getMonitoringStatusOutput: ZodRawShape = {
     active: z.boolean().optional(),
     latest_score: z.number().nullable(),
     last_audited_at: z.string().nullable().optional().describe(
-      "The date of the last scheduled run, stamped when the scheduler claims it and before the audit runs: "
-      + "that run may still be going, or may have failed or been skipped."),
+      "The date of the last scheduled run, stamped when the scheduler claims it and before the audit runs. It does "
+      + "not say how that run ended: it may still be going, or may have failed, been skipped or measured nothing of "
+      + "the business."),
     next_run_at: z.string().nullable().optional(),
     change: changes.nullable().describe(
       "The latest change against the most recent earlier snapshot that asked the same question; null when there "
