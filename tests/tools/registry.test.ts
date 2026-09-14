@@ -47,7 +47,9 @@ describe("tool registry", () => {
     });
     const tool = P0_TOOLS.find((t) => t.name === "get_changes")!;
     expect(tool.description).toContain("the change in the overall score and the per-engine score changes, for engines measured both times");
-    expect(tool.description.startsWith("Report what changed in a website's AI-visibility score since it was last checked.")).toBe(true);
+    expect(tool.description.startsWith("Report what changed in a website's AI-visibility score, only between two snapshots that asked the same question.")).toBe(true);
+    const monitoring = SERVED_TOOLS.find((t) => t.name === "get_monitoring_status")!;
+    expect(monitoring.description).toContain("a change carries competitor_changes, new_issues and resolved_issues, always empty");
     expect(tool.description).toContain("competitor_changes, new_issues and resolved_issues are always empty");
     expect(tool.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor (moves|changes)|(new|resolved) issues|overtake/i);
   });

@@ -234,7 +234,9 @@ export const getChangesOutput: ZodRawShape = {
   new_issues: alwaysEmpty("audit issues"),
   resolved_issues: alwaysEmpty("audit issues"),
   ...comparedSpan,
-  note: z.string().optional().describe("Present when snapshots were passed over: which, and why, in words. Relay it."),
+  note: z.string().optional().describe(
+    "Present when snapshots were passed over, or newer snapshots were left out of the series: which, and why, in words. "
+    + "Relay it."),
 };
 
 export const compareCompetitorsOutput: ZodRawShape = {

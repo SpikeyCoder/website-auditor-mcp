@@ -326,9 +326,9 @@ export interface Changes {
   from_captured_at?: string;
   /** When the later one was. */
   to_captured_at?: string;
-  /** Snapshots that asked a different question and were passed over. */
+  /** Snapshots passed over: they asked a different question, or do not record what they asked. */
   skipped_snapshots?: number;
-  /** Present when snapshots were passed over: what, in words. */
+  /** Present when snapshots were passed over, or newer ones were left out of the series: what, in words. */
   note?: string;
 }
 

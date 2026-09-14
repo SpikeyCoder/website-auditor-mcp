@@ -21,7 +21,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/mcp/server.js";
 import { SERVED_TOOLS } from "../../src/tools/registry.js";
-import { OUTPUT_SCHEMAS, getChangesOutput } from "../../src/tools/outputSchemas.js";
+import { OUTPUT_SCHEMAS } from "../../src/tools/outputSchemas.js";
 import { makeDeps, errorPayload } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
 import { PRICE } from "../../src/tools/upgrade.js";
@@ -38,8 +38,9 @@ const richClient = {
   getChanges: async () => ({
     score_delta: -4,
     engine_changes: [{ engine: "chatgpt", from: 61, to: 57, delta: -4 }],
+    // Always empty in every real result (outputSchemas.ts), so never populated here.
     competitor_changes: [],
-    new_issues: [{ name: "Missing FAQ schema" }],
+    new_issues: [],
     resolved_issues: [],
     // Every field a same-question comparison adds beside the delta.
     from_captured_at: "2026-08-13T09:00:00Z",
@@ -222,11 +223,25 @@ async function connect(deps = makeDeps({ tier: "pro", client: richClient })) {
 }
 
 describe("declared output schemas", () => {
-  it("says the competitor and issue lists of get_changes are always empty", () => {
+  it("says the competitor and issue lists are always empty, in both tools that publish them", async () => {
     // Every success returns them empty, and an empty new_issues read as "no new
     // issues": AI-visibility snapshots record neither competitors nor issues.
-    for (const key of ["competitor_changes", "new_issues", "resolved_issues"]) {
-      expect(getChangesOutput[key]!.description, key).toMatch(/^Always empty/);
+    // Read from the published schemas, so monitoring's `change` is held too.
+    const said: Record<string, string> = {
+      competitor_changes: "Always empty: AI-visibility snapshots record no competitors. Kept for clients that read it.",
+      new_issues: "Always empty: AI-visibility snapshots record no audit issues. Kept for clients that read it.",
+      resolved_issues: "Always empty: AI-visibility snapshots record no audit issues. Kept for clients that read it.",
+    };
+    const client = await connect();
+    const { tools } = await client.listTools();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const schema = (name: string): any => tools.find((t) => t.name === name)!.outputSchema;
+    const change = schema("get_monitoring_status").properties.sites.items.properties.change;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const monitored = (change.anyOf ?? [change]).find((branch: any) => branch.properties);
+    for (const [key, sentence] of Object.entries(said)) {
+      expect(schema("get_changes").properties[key].description, `get_changes ${key}`).toBe(sentence);
+      expect(monitored.properties[key].description, `get_monitoring_status ${key}`).toBe(sentence);
     }
   });
 
