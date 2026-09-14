@@ -121,6 +121,9 @@ describe("get_monitoring_status [Pro]", () => {
   });
 
   it("a domain with no latest score says why, calling no audited domain unaudited and no claimed run an audit", async () => {
+    // Claimed minutes ago, a run may still be going; three hours on it cannot be.
+    const recent = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const ended = new Date(Date.now() - 180 * 60 * 1000).toISOString();
     const site = (over: object) => ({
       domain: "example.com",
       cadence: "weekly",
@@ -140,6 +143,8 @@ describe("get_monitoring_status [Pro]", () => {
         site({ domain: "shoes.com", snapshots_count: 3 }),
         site({ domain: "boots.com", snapshots_count: 1 }),
         site({ domain: "stored-none.com" }),
+        site({ domain: "running.com", last_audited_at: recent }),
+        site({ domain: "ended.com", last_audited_at: ended }),
         site({ domain: "hand-only.com", snapshots_count: 2, last_audited_at: null }),
         site({
           domain: "older-api.com",
@@ -155,10 +160,12 @@ describe("get_monitoring_status [Pro]", () => {
     if (!res.ok) return;
     const summary = Object.fromEntries(res.data.sites.map((s) => [s.domain, s.summary]));
     expect(summary).toEqual({
-      "shoes.com": "shoes.com: audited, but none of its 3 snapshots measured the business, so there is no score yet.",
-      "boots.com": "boots.com: audited, but its one snapshot did not measure the business, so there is no score yet.",
-      "stored-none.com": "stored-none.com: its scheduled run on 2026-09-07 has stored no snapshot — it may still be running, or the audit failed, or the site cannot be scored — so there is no score.",
-      "hand-only.com": "hand-only.com: audited, but none of its 2 snapshots measured the business, so there is no score yet.",
+      "shoes.com": "shoes.com: audited, but none of its 3 snapshots measured the business, so there is no score.",
+      "boots.com": "boots.com: audited, but its one snapshot did not measure the business, so there is no score.",
+      "stored-none.com": "stored-none.com: its scheduled run on 2026-09-07 stored no snapshot — the audit failed, or the site cannot be scored — so there is no score.",
+      "running.com": `running.com: its scheduled run on ${recent.slice(0, 10)} has stored no snapshot — it may still be running, or the audit failed, or the site cannot be scored — so there is no score.`,
+      "ended.com": `ended.com: its scheduled run on ${ended.slice(0, 10)} stored no snapshot — the audit failed, or the site cannot be scored — so there is no score.`,
+      "hand-only.com": "hand-only.com: audited, but none of its 2 snapshots measured the business, so there is no score.",
       "older-api.com": "older-api.com: its latest snapshot, on 2026-08-31, has no score.",
     });
     expect(res.data.sites.every((s) => s.latest_score === null && s.change === null)).toBe(true);

@@ -291,7 +291,9 @@ export const listTrackedSitesOutput: ZodRawShape = {
     cadence: z.string().optional(),
     active: z.boolean().optional(),
     digest_enabled: z.boolean().optional(),
-    last_audited_at: z.string().nullable().optional(),
+    last_audited_at: z.string().nullable().optional().describe(
+      "The date of the last scheduled run, stamped when the scheduler claims it and before the audit runs: "
+      + "that run may still be going, or may have failed or been skipped."),
     next_run_at: z.string().nullable().optional(),
     created_at: z.string().nullable().optional(),
   })),
@@ -311,7 +313,9 @@ export const getMonitoringStatusOutput: ZodRawShape = {
     cadence: z.string().optional(),
     active: z.boolean().optional(),
     latest_score: z.number().nullable(),
-    last_audited_at: z.string().nullable().optional(),
+    last_audited_at: z.string().nullable().optional().describe(
+      "The date of the last scheduled run, stamped when the scheduler claims it and before the audit runs: "
+      + "that run may still be going, or may have failed or been skipped."),
     next_run_at: z.string().nullable().optional(),
     change: changes.nullable().describe(
       "The latest change against the most recent earlier snapshot that asked the same question; null when there "

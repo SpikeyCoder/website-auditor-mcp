@@ -2,8 +2,9 @@
  * get_monitoring_status [Pro]
  *
  * The end-user's in-client monitoring view (distinct from the ops dashboard):
- * for each tracked domain, its latest AI-visibility score, when it was last
- * audited and next runs, and the most recent like-for-like change: against the
+ * for each tracked domain, its latest AI-visibility score, the date of its last
+ * scheduled run (last_audited_at, stamped when the scheduler claims it) and when
+ * the next one runs, and the most recent like-for-like change: against the
  * latest earlier snapshot that asked the same question (sameQuestion in
  * mappers.ts), or, when there is none, a note or the summary saying why.
  * Read-only; reads the snapshots the scheduler writes. Compact, glanceable.
@@ -11,6 +12,14 @@
 import type { Changes, MonitoringSite, MonitoringSnapshot } from "../api/types.js";
 import { computeChanges, day, movement, questionDifference, sameQuestion, toQuestion } from "../api/mappers.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
+
+/**
+ * How long after its claim a scheduled run may still be going. Every domain in a
+ * batch is stamped with the tick's time, a batch holds at most 25, and each audit
+ * polls the engine for up to 180 s (the API's scheduler.js and auditRunner.js), so
+ * the last in a batch can finish about 75 minutes after its stamp.
+ */
+const RUN_MAY_BE_LIVE_MS = 2 * 60 * 60 * 1000;
 
 export interface MonitoringStatusSite {
   domain: string;
@@ -161,15 +170,19 @@ export async function getMonitoringStatus(
         // never audited sat beside the date of its last audit. Nor is every
         // claimed run an audit: the scheduler stamps last_audited_at when it
         // claims the domain, before the audit runs, fails, or is skipped for a
-        // site that cannot be scored, so that case names the run, not an audit.
+        // site that cannot be scored, so that case names the run, not an audit,
+        // and says it may still be going only within RUN_MAY_BE_LIVE_MS of it.
         const n = s.snapshots_count ?? 0;
         let summary: string;
         if (s.latest) {
           summary = `${s.domain}: its latest snapshot, on ${day(s.latest.captured_at)}, has no score.`;
         } else if (n > 0) {
-          summary = `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score yet.`;
+          summary = `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score.`;
         } else if (s.last_audited_at) {
-          summary = `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot — it may still be running, or the audit failed, or the site cannot be scored — so there is no score.`;
+          const claimed = Date.parse(s.last_audited_at);
+          summary = Number.isFinite(claimed) && Date.now() - claimed < RUN_MAY_BE_LIVE_MS
+            ? `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot — it may still be running, or the audit failed, or the site cannot be scored — so there is no score.`
+            : `${s.domain}: its scheduled run on ${day(s.last_audited_at)} stored no snapshot — the audit failed, or the site cannot be scored — so there is no score.`;
         } else {
           summary = `${s.domain}: not audited yet — the first scheduled run will set a baseline.`;
         }

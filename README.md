@@ -29,7 +29,7 @@ server just makes them available to agents.
 | `track_site` | **Pro** | Start (or stop) weekly monitoring of a site's AI visibility. Establishes the history `get_changes` reads from. |
 | `untrack_site` | **Pro** | Stop monitoring a site and free up a monitoring slot. Idempotent. |
 | `list_tracked_sites` | **Pro** | List the sites you're monitoring, with cadence, active state, and slots used/remaining. |
-| `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score of each site's series (the series `get_changes` reads), when each was last checked and next runs, and the most recent like-for-like change (or a note, or the summary, saying why there is none yet). |
+| `get_monitoring_status` | **Pro** | A glanceable dashboard across all tracked sites — latest score of each site's series (the series `get_changes` reads), the date of each one's last scheduled run and when the next runs, and the most recent like-for-like change (or a note, or the summary, saying why there is none yet). |
 | `check_upgrade_status` | Any valid key | Your own subscription standing — tier, status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms). Consumes no audit quota. |
 
 ## Prompts
