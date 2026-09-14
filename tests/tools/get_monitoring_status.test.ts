@@ -127,7 +127,7 @@ describe("get_monitoring_status [Pro]", () => {
     const weekOld = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
     const storedNone = (domain: string, at: string) =>
       `${domain}: its scheduled run on ${at.slice(0, 10)} has stored no snapshot, so there is no score. `
-      + "A run stores none while it is still going, if it fails, or if it is skipped, as it is for a site that cannot be scored.";
+      + "A run stores none while it is still going, if it fails, or if it is skipped.";
     const site = (over: object) => ({
       domain: "example.com",
       cadence: "weekly",
@@ -167,7 +167,7 @@ describe("get_monitoring_status [Pro]", () => {
     expect(summary).toEqual({
       "shoes.com": "shoes.com: audited, but none of its 3 snapshots measured the business, so there is no score.",
       "boots.com": "boots.com: audited, but its one snapshot did not measure the business, so there is no score.",
-      "stored-none.com": "stored-none.com: its scheduled run on 2026-09-07 has stored no snapshot, so there is no score. A run stores none while it is still going, if it fails, or if it is skipped, as it is for a site that cannot be scored.",
+      "stored-none.com": "stored-none.com: its scheduled run on 2026-09-07 has stored no snapshot, so there is no score. A run stores none while it is still going, if it fails, or if it is skipped.",
       "recent.com": storedNone("recent.com", recent),
       "week-old.com": storedNone("week-old.com", weekOld),
       "counted-recent.com": "counted-recent.com: audited, but none of its 3 snapshots measured the business, so there is no score.",

@@ -161,8 +161,9 @@ export async function getMonitoringStatus(
         // an older API sent a latest snapshot without a score. Calling either
         // never audited sat beside the date of its last audit. Nor is every
         // claimed run an audit: the scheduler stamps last_audited_at when it
-        // claims the domain, before the audit runs, fails, or is skipped for a
-        // site that cannot be scored, so that case names the run, not an audit.
+        // claims the domain, before the audit runs, fails, or is skipped (a
+        // login-gated per-account page, which enrollment now refuses, or a claim
+        // it could not confirm), so that case names the run, not an audit.
         // It says when a run stores no snapshot instead of guessing whether this
         // one is still going: nothing bounds how long a run takes after its stamp
         // (the batch size can be raised, and a batch goes on after its request
@@ -175,7 +176,7 @@ export async function getMonitoringStatus(
         } else if (n > 0) {
           summary = `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score.`;
         } else if (s.last_audited_at) {
-          summary = `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot, so there is no score. A run stores none while it is still going, if it fails, or if it is skipped, as it is for a site that cannot be scored.`;
+          summary = `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot, so there is no score. A run stores none while it is still going, if it fails, or if it is skipped.`;
         } else {
           summary = `${s.domain}: not audited yet — the first scheduled run will set a baseline.`;
         }

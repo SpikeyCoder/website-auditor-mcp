@@ -290,6 +290,7 @@ describe("published manifests stay in sync with the code", () => {
     // tests/tools/registry.test.ts.
     const listed = manifest.tools.find((t: { name: string }) => t.name === "get_changes");
     expect(listed.description).toContain("the change in the overall score and the per-engine score changes, for engines measured both times");
-    expect(listed.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor moves|resolved issues|overtake/i);
+    expect(listed.description).toContain("Report what changed in a website's AI-visibility score, only between two snapshots that asked the same question");
+    expect(listed.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor (moves|changes)|(new|resolved) issues|overtake/i);
   });
 });

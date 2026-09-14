@@ -169,12 +169,18 @@ const comparedSpan = {
     + "queries) or do not record what they asked."),
 };
 
+// Snapshots record neither competitors nor audit issues, so these lists are
+// always empty. They stay for clients that read them, and say so, since an
+// empty new_issues otherwise reads as "no new issues".
+const alwaysEmpty = (what: string) => z.array(z.unknown()).describe(
+  `Always empty: AI-visibility snapshots record no ${what}. Kept for clients that read it.`);
+
 const changes = open({
   score_delta: z.number(),
   engine_changes: z.array(engineChange),
-  competitor_changes: z.array(z.unknown()),
-  new_issues: z.array(z.unknown()),
-  resolved_issues: z.array(z.unknown()),
+  competitor_changes: alwaysEmpty("competitors"),
+  new_issues: alwaysEmpty("audit issues"),
+  resolved_issues: alwaysEmpty("audit issues"),
   ...comparedSpan,
 });
 
@@ -224,9 +230,9 @@ export const getChangesOutput: ZodRawShape = {
     + "re-baseline after the business name, market or queries changed, the tool returns NOT_YET_AVAILABLE "
     + "saying so, never a number."),
   engine_changes: z.array(engineChange),
-  competitor_changes: z.array(z.unknown()),
-  new_issues: z.array(z.unknown()),
-  resolved_issues: z.array(z.unknown()),
+  competitor_changes: alwaysEmpty("competitors"),
+  new_issues: alwaysEmpty("audit issues"),
+  resolved_issues: alwaysEmpty("audit issues"),
   ...comparedSpan,
   note: z.string().optional().describe("Present when snapshots were passed over: which, and why, in words. Relay it."),
 };

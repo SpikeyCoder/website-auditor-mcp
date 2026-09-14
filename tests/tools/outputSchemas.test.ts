@@ -21,7 +21,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/mcp/server.js";
 import { SERVED_TOOLS } from "../../src/tools/registry.js";
-import { OUTPUT_SCHEMAS } from "../../src/tools/outputSchemas.js";
+import { OUTPUT_SCHEMAS, getChangesOutput } from "../../src/tools/outputSchemas.js";
 import { makeDeps, errorPayload } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
 import { PRICE } from "../../src/tools/upgrade.js";
@@ -222,6 +222,14 @@ async function connect(deps = makeDeps({ tier: "pro", client: richClient })) {
 }
 
 describe("declared output schemas", () => {
+  it("says the competitor and issue lists of get_changes are always empty", () => {
+    // Every success returns them empty, and an empty new_issues read as "no new
+    // issues": AI-visibility snapshots record neither competitors nor issues.
+    for (const key of ["competitor_changes", "new_issues", "resolved_issues"]) {
+      expect(getChangesOutput[key]!.description, key).toMatch(/^Always empty/);
+    }
+  });
+
   it("every served tool declares one", () => {
     // The portal flags each tool that does not, so a new tool landing without
     // an entry in OUTPUT_SCHEMAS should fail here rather than in review.
