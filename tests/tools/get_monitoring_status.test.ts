@@ -120,7 +120,7 @@ describe("get_monitoring_status [Pro]", () => {
     expect(site.summary).toMatch(/not audited yet/i);
   });
 
-  it("a domain with no latest score says why, and never calls an audited domain unaudited", async () => {
+  it("a domain with no latest score says why, calling no audited domain unaudited and no claimed run an audit", async () => {
     const site = (over: object) => ({
       domain: "example.com",
       cadence: "weekly",
@@ -144,8 +144,9 @@ describe("get_monitoring_status [Pro]", () => {
         site({
           domain: "older-api.com",
           snapshots_count: 3,
-          latest: { score: null, by_engine: {}, captured_at: "2026-09-07T09:00:00Z", is_simulated: false },
-          previous: { score: 55, by_engine: {}, captured_at: "2026-08-31T09:00:00Z", is_simulated: false },
+          // Older than the last run, as when that run failed: the date is the snapshot's.
+          latest: { score: null, by_engine: {}, captured_at: "2026-08-31T09:00:00Z", is_simulated: false },
+          previous: { score: 55, by_engine: {}, captured_at: "2026-08-24T09:00:00Z", is_simulated: false },
         }),
       ],
     }));
@@ -156,9 +157,9 @@ describe("get_monitoring_status [Pro]", () => {
     expect(summary).toEqual({
       "shoes.com": "shoes.com: audited, but none of its 3 snapshots measured the business, so there is no score yet.",
       "boots.com": "boots.com: audited, but its one snapshot did not measure the business, so there is no score yet.",
-      "stored-none.com": "stored-none.com: audited on 2026-09-07, but no snapshot was stored, so there is no score yet.",
+      "stored-none.com": "stored-none.com: its scheduled run on 2026-09-07 has stored no snapshot — it may still be running, or the audit failed, or the site cannot be scored — so there is no score.",
       "hand-only.com": "hand-only.com: audited, but none of its 2 snapshots measured the business, so there is no score yet.",
-      "older-api.com": "older-api.com: its latest snapshot, on 2026-09-07, has no score.",
+      "older-api.com": "older-api.com: its latest snapshot, on 2026-08-31, has no score.",
     });
     expect(res.data.sites.every((s) => s.latest_score === null && s.change === null)).toBe(true);
   });

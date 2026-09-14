@@ -5,7 +5,7 @@
  * for each tracked domain, its latest AI-visibility score, when it was last
  * audited and next runs, and the most recent like-for-like change: against the
  * latest earlier snapshot that asked the same question (sameQuestion in
- * mappers.ts), or, when there is none, a note saying why.
+ * mappers.ts), or, when there is none, a note or the summary saying why.
  * Read-only; reads the snapshots the scheduler writes. Compact, glanceable.
  */
 import type { Changes, MonitoringSite, MonitoringSnapshot } from "../api/types.js";
@@ -140,9 +140,9 @@ export async function getMonitoringStatus(
     const sites: MonitoringStatusSite[] = status.sites.map((s) => {
       // `s.latest ? s.latest.score : null` was not enough: a latest snapshot
       // that carries no score yields UNDEFINED, not null, and the two are not
-      // interchangeable here. The summary reads a null score as "not audited
-      // yet", so undefined slipped past it into "AI visibility undefined/100",
-      // and the declared output schema — which types this as a number-or-null —
+      // interchangeable here. The summary says in words why a score is null,
+      // so undefined slipped past it into "AI visibility undefined/100", and
+      // the declared output schema — which types this as a number-or-null —
       // rejected the whole successful call.
       const latestScore = typeof s.latest?.score === "number" ? s.latest.score : null;
       const base = {
@@ -156,18 +156,20 @@ export async function getMonitoringStatus(
       if (!s.latest || latestScore === null) {
         // AUDITED IS NOT "NOT AUDITED". A domain with no latest score may have
         // been audited all the same: its snapshots all measured nothing of the
-        // business (weekly re-audits of a name invented from the hostname), a
-        // scheduled run stored none (an unscannable host, a failed audit), or an
-        // older API sent a latest snapshot without a score. Calling any of them
-        // never audited sat beside the date of its last audit.
+        // business (weekly re-audits of a name invented from the hostname), or
+        // an older API sent a latest snapshot without a score. Calling either
+        // never audited sat beside the date of its last audit. Nor is every
+        // claimed run an audit: the scheduler stamps last_audited_at when it
+        // claims the domain, before the audit runs, fails, or is skipped for a
+        // site that cannot be scored, so that case names the run, not an audit.
         const n = s.snapshots_count ?? 0;
         let summary: string;
         if (s.latest) {
-          summary = `${s.domain}: its latest snapshot, on ${String(s.latest.captured_at).slice(0, 10)}, has no score.`;
+          summary = `${s.domain}: its latest snapshot, on ${day(s.latest.captured_at)}, has no score.`;
         } else if (n > 0) {
           summary = `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score yet.`;
         } else if (s.last_audited_at) {
-          summary = `${s.domain}: audited on ${String(s.last_audited_at).slice(0, 10)}, but no snapshot was stored, so there is no score yet.`;
+          summary = `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot — it may still be running, or the audit failed, or the site cannot be scored — so there is no score.`;
         } else {
           summary = `${s.domain}: not audited yet — the first scheduled run will set a baseline.`;
         }
