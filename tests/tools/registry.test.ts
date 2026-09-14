@@ -46,7 +46,7 @@ describe("tool registry", () => {
       resolved_issues: [],
     });
     const tool = P0_TOOLS.find((t) => t.name === "get_changes")!;
-    expect(tool.description).toContain("the change in the overall score and in the score of each engine measured both times");
+    expect(tool.description).toContain("the change in the overall score and the per-engine score changes, for engines measured both times");
     expect(tool.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor moves|resolved issues|overtake/i);
   });
 
