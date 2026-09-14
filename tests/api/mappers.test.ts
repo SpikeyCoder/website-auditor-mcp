@@ -6,6 +6,7 @@ import {
   topCompetitor,
   computeChanges,
   computeTrend,
+  measuredRun,
 } from "../../src/api/mappers.js";
 import { isGap } from "../../src/tools/compareCompetitors.js";
 import { mapEngines } from "../../src/tools/getMonitoringStatus.js";
@@ -208,6 +209,13 @@ describe("mapEngines: the monitoring path must not re-coerce", () => {
       .toEqual({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 });
   });
 
+  it("preserves a null for ChatGPT and Gemini too, the engines the test above leaves scored", () => {
+    // Above, ChatGPT and Gemini are scored, so coercing either one alone to
+    // zero would pass it.
+    expect(mapEngines({ chatgpt: null, perplexity: 50, claude: 55, gemini: null }))
+      .toEqual({ chatgpt: null, perplexity: 50, claude: 55, gemini: null });
+  });
+
   it("feeds computeChanges values it will actually skip", () => {
     const current = mapEngines({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 });
     const previous = mapEngines({ chatgpt: 60, perplexity: 50, claude: 55, gemini: 40 });
@@ -226,6 +234,19 @@ describe("computeChanges: an unmeasured engine is not a crash", () => {
       { score: 60, by_engine: { claude: 55, chatgpt: 60 } },
     );
     expect(changes.engine_changes).toEqual([]);
+  });
+
+  it("skips an engine that has no score on the earlier side, and reports one that rose from a real 0", () => {
+    // The earlier side of the same guard. `?? 0` there would publish {from: 0,
+    // to: 55, delta: 55} for an engine that snapshot never measured, and a test
+    // for a falsy score would drop a real rise from 0.
+    const changes = computeChanges(
+      { score: 55, by_engine: { claude: 55, chatgpt: 55 } },
+      { score: 0, by_engine: { claude: null, chatgpt: 0 } },
+    );
+    expect(changes.engine_changes).toEqual([
+      { engine: "chatgpt", from: 0, to: 55, delta: 55 },
+    ]);
   });
 
   it("still reports a real movement", () => {
@@ -301,11 +322,18 @@ describe("computeChanges (delta logic, ready for the pending endpoint)", () => {
 describe("computeTrend — 7/30-day windows over a snapshot series", () => {
   const NOW = new Date("2026-07-26T12:00:00Z");
   const at = (daysAgo: number) => new Date(NOW.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
-  const snap = (daysAgo: number, score: number, is_simulated = false) => ({
+  // Every snapshot asks the same question unless a test says otherwise: a window
+  // only compares snapshots whose question keys match.
+  const ASKED = {
+    key: "q-widgets", business_name: "Example Co", name_source: "detected",
+    business_location: "", market_scope: "global", queries: ["best widget shop"],
+  };
+  const snap = (daysAgo: number, score: number, is_simulated = false, question: typeof ASKED | null = ASKED) => ({
     captured_at: at(daysAgo),
     score,
     by_engine: { chatgpt: score },
     is_simulated,
+    question,
   });
 
   it("fewer than two snapshots -> null (no fabricated trend)", () => {
@@ -334,8 +362,8 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
   });
 
   it("engine deltas cover only engines measured at BOTH window endpoints (no from-0 fabrication, no silent drops)", () => {
-    const oldest = { captured_at: at(5), score: 50, by_engine: { chatgpt: 50, perplexity: 45 }, is_simulated: false };
-    const latest = { captured_at: at(1), score: 60, by_engine: { chatgpt: 60, gemini: 60 }, is_simulated: false };
+    const oldest = { captured_at: at(5), score: 50, by_engine: { chatgpt: 50, perplexity: 45 }, is_simulated: false, question: ASKED };
+    const latest = { captured_at: at(1), score: 60, by_engine: { chatgpt: 60, gemini: 60 }, is_simulated: false, question: ASKED };
     const trend = computeTrend([oldest, latest], NOW)!;
     const engines = trend.change_7d!.engine_changes.map((c) => c.engine);
     // gemini was unmeasured at the start -> must NOT appear as a +60 gain;
@@ -344,9 +372,166 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     expect(trend.change_7d!.engine_changes[0]).toEqual({ engine: "chatgpt", from: 50, to: 60, delta: 10 });
   });
 
-  it("flags simulated data anywhere in the series", () => {
-    const trend = computeTrend([snap(5, 40, true), snap(1, 60)], NOW)!;
-    expect(trend.includes_simulated).toBe(true);
+  it("leaves simulated snapshots out: they measured nothing to move from", () => {
+    expect(computeTrend([snap(5, 40, true), snap(1, 60)], NOW)).toBeNull();
+    const trend = computeTrend([snap(10, 40), snap(5, 90, true), snap(1, 60)], NOW)!;
+    expect(trend.change_30d).toEqual(expect.objectContaining({ from_score: 40, to_score: 60, snapshots: 2 }));
+    expect(trend.snapshots_analyzed).toBe(2);
+    expect(trend.includes_simulated).toBe(false);
+  });
+
+  // ── only snapshots that asked the same question are compared ──────────
+  // A hand audit in another market, a name detection read differently, a
+  // change of category: each is a different question, and subtracting across
+  // one reports a change of subject as movement.
+  const ELSEWHERE = {
+    ...ASKED, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best widget shop in Honolulu, HI"],
+  };
+
+  it("a window compares with the OLDEST snapshot in it that asked the latest's question", () => {
+    const trend = computeTrend([snap(25, 40), snap(20, 90, false, ELSEWHERE), snap(10, 45), snap(1, 60)], NOW)!;
+    expect(trend.change_30d).toEqual(expect.objectContaining({
+      from_score: 40, to_score: 60, score_delta: 20, snapshots: 4, from_captured_at: at(25), skipped_snapshots: 1,
+    }));
+    expect(trend.question_note).toBe(
+      "Only snapshots that asked the same question as the latest are compared. Not compared, from the last 30 days: "
+      + "1 snapshot that asked a different question. The most recent that asked a different one, on "
+      + `${at(20).slice(0, 10)}, asked about the market "Honolulu, HI" rather than none.`);
+  });
+
+  it("a change of question has no window, and a note saying when and what", () => {
+    const trend = computeTrend([snap(20, 40), snap(6, 50), snap(1, 90, false, ELSEWHERE)], NOW)!;
+    expect(trend.change_7d).toBeNull();
+    expect(trend.change_30d).toBeNull();
+    expect(trend.question_note).toBe(
+      `No earlier snapshot asked the question the latest one, on ${at(1).slice(0, 10)}, asked. It asked about the `
+      + `market "Honolulu, HI" rather than none, compared with the snapshot on ${at(6).slice(0, 10)}, so there is `
+      + "no trend for it yet.");
+  });
+
+  it("a snapshot that recorded no question is compared with nothing, on either side", () => {
+    const unrecordedLatest = computeTrend([snap(6, 50), snap(1, 60, false, null)], NOW)!;
+    expect(unrecordedLatest.change_7d).toBeNull();
+    expect(unrecordedLatest.question_note).toMatch(/^The latest snapshot does not record what it asked/);
+
+    const unrecordedBefore = computeTrend([snap(6, 50, false, null), snap(1, 60)], NOW)!;
+    expect(unrecordedBefore.change_7d).toBeNull();
+    expect(unrecordedBefore.question_note)
+      .toMatch(/^The snapshots before the latest one, on \d{4}-\d{2}-\d{2}, do not record what they asked/);
+  });
+
+  it("says nothing about questions when every snapshot asked the same one", () => {
+    const trend = computeTrend([snap(20, 40), snap(6, 50), snap(1, 60)], NOW)!;
+    expect(trend).not.toHaveProperty("question_note");
+    expect(trend.change_7d!.skipped_snapshots).toBe(0);
+    expect(trend.change_7d!.from_captured_at).toBe(at(6));
+  });
+
+  it("a window whose first snapshot asked another question starts at the oldest that asked the latest's", () => {
+    const trend = computeTrend([snap(25, 90, false, ELSEWHERE), snap(20, 40), snap(1, 60)], NOW)!;
+    expect(trend.change_30d).toEqual(expect.objectContaining({
+      from_score: 40, to_score: 60, score_delta: 20, from_captured_at: at(20), skipped_snapshots: 1,
+    }));
+  });
+
+  it("does not mention a different question from before the 30 days", () => {
+    const trend = computeTrend([snap(40, 90, false, ELSEWHERE), snap(20, 40), snap(1, 60)], NOW)!;
+    expect(trend.change_30d!.score_delta).toBe(20);
+    expect(trend).not.toHaveProperty("question_note");
+  });
+
+  it("names a snapshot that recorded nothing as that, not as a different question", () => {
+    const trend = computeTrend([snap(20, 40), snap(10, 50, false, null), snap(1, 60)], NOW)!;
+    expect(trend.question_note).toBe(
+      "Only snapshots that asked the same question as the latest are compared. Not compared, from the last 30 days: "
+      + "1 snapshot that does not record what it asked.");
+  });
+
+  it("explains a re-baseline against the newest snapshot that recorded its question", () => {
+    const trend = computeTrend([snap(20, 40), snap(6, 50, false, null), snap(1, 90, false, ELSEWHERE)], NOW)!;
+    expect(trend.question_note).toContain(`rather than none, compared with the snapshot on ${at(20).slice(0, 10)},`);
+  });
+
+  it("follows the question the newest snapshot asked, whoever wrote it, as the audit it sits under", () => {
+    const weekly = (daysAgo: number, score: number, question: typeof ASKED = ASKED) =>
+      ({ ...snap(daysAgo, score, false, question), source: "scheduled" });
+    // The audit just run, in another market beside a weekly series: the trend is
+    // that market's, not the weekly re-audits' (get_changes reports those).
+    const byHand = computeTrend([
+      weekly(10, 50), weekly(3, 55),
+      { ...snap(2, 70, false, ELSEWHERE), source: null }, { ...snap(1, 80, false, ELSEWHERE), source: null },
+    ], NOW)!;
+    expect(byHand.latest_captured_at).toBe(at(1));
+    expect(byHand.change_7d).toEqual(
+      expect.objectContaining({ from_score: 70, to_score: 80, score_delta: 10, skipped_snapshots: 1 }));
+
+    // One that asked the weekly question is the newer measurement of it.
+    const sameAsked = computeTrend([weekly(20, 40), weekly(6, 50), snap(1, 80)], NOW)!;
+    expect(sameAsked.latest_captured_at).toBe(at(1));
+    expect(sameAsked.change_7d).toEqual(expect.objectContaining({ from_score: 50, to_score: 80 }));
+
+    // A weekly re-audit that measured nothing of the business is no part of it.
+    const unmeasured = computeTrend(
+      [weekly(20, 40), weekly(6, 50), { ...snap(1, 25), source: "scheduled_unmeasured" }], NOW)!;
+    expect(unmeasured.latest_captured_at).toBe(at(6));
+    expect(unmeasured).not.toHaveProperty("question_note");
+  });
+
+  it("counts only what it analyzed, leaving a simulated snapshot out", () => {
+    const weekly = (daysAgo: number, score: number, question: typeof ASKED = ASKED) =>
+      ({ ...snap(daysAgo, score, false, question), source: "scheduled" });
+    const trend = computeTrend(
+      [weekly(20, 40), weekly(6, 50), { ...snap(1, 90, true, ELSEWHERE), source: "extension" }], NOW)!;
+    expect(trend.snapshots_analyzed).toBe(2);
+    expect(trend.includes_simulated).toBe(false);
+  });
+
+  it("ends at the audit it sits under, named by its run", () => {
+    const run = (daysAgo: number, score: number, run_id: string, question: typeof ASKED = ASKED) =>
+      ({ ...snap(daysAgo, score, false, question), run_id });
+    const history = [run(20, 40, "a"), run(6, 50, "b"), run(3, 70, "audit"), run(1, 90, "later", ELSEWHERE)];
+    // A snapshot written after the audit, in another market, is not what the audit asked.
+    const trend = computeTrend(history, NOW, "audit")!;
+    expect(trend.latest_captured_at).toBe(at(3));
+    expect(trend.change_7d).toEqual(expect.objectContaining({ from_score: 50, to_score: 70 }));
+    expect(trend.snapshots_analyzed).toBe(3);
+    // Without a run, the newest measured snapshot.
+    expect(computeTrend(history, NOW)!.latest_captured_at).toBe(at(1));
+    // A run that left no measured snapshot has no trend to end at.
+    expect(computeTrend(history, NOW, "missing")).toBeNull();
+  });
+
+  it("says whether a run left a measured snapshot", () => {
+    const run = (run_id: string | null, over: object = {}) => ({ ...snap(1, 50), run_id, ...over });
+    expect(measuredRun([run("audit")], "audit")).toBe(true);
+    expect(measuredRun([run("other")], "audit")).toBe(false);
+    expect(measuredRun([run(null)], "audit")).toBe(false);
+    expect(measuredRun([run("audit", { is_simulated: true })], "audit")).toBe(false);
+    expect(measuredRun([run("audit", { source: "scheduled_unmeasured" })], "audit")).toBe(false);
+  });
+
+  it("ends at the audit in every part of the trend", () => {
+    const run = (daysAgo: number, score: number, run_id: string, question: typeof ASKED = ASKED, is_simulated = false) =>
+      ({ ...snap(daysAgo, score, is_simulated, question), run_id });
+    // A simulated snapshot before the audit does not move where the trend ends.
+    const simulatedFirst = computeTrend(
+      [run(20, 10, "sim", ASKED, true), run(10, 40, "a"), run(3, 70, "audit"), run(1, 90, "later")], NOW, "audit")!;
+    expect(simulatedFirst.latest_captured_at).toBe(at(3));
+    expect(simulatedFirst.snapshots_analyzed).toBe(2);
+    // Its windows end there: nothing else in the last 7 days asked its question before it.
+    const windows = computeTrend([run(20, 40, "a"), run(3, 70, "audit"), run(1, 90, "later")], NOW, "audit")!;
+    expect(windows.change_7d).toBeNull();
+    expect(windows.change_30d).toEqual(expect.objectContaining({ from_score: 40, to_score: 70, snapshots: 2 }));
+    // And so does its note: a newer snapshot of its question is no earlier one.
+    const note = computeTrend([run(20, 40, "a", ELSEWHERE), run(3, 70, "audit"), run(1, 90, "later")], NOW, "audit")!;
+    expect(note.question_note).toMatch(/^No earlier snapshot asked the question the latest one, on /);
+  });
+
+  it("finds an earlier snapshot of the latest's question from before the 30 days", () => {
+    const trend = computeTrend([snap(40, 40), snap(20, 90, false, ELSEWHERE), snap(1, 60)], NOW)!;
+    expect(trend.change_30d).toBeNull();
+    expect(trend.question_note).toMatch(
+      /^Only snapshots that asked the same question as the latest are compared\. Not compared, from the last 30 days: 1 snapshot that asked a different question\./);
   });
 });
 

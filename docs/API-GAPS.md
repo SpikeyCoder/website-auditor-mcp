@@ -50,19 +50,53 @@ unverified** (Pro tools then return `SUBSCRIPTION_UNVERIFIED`, not a false
 `[{ id, domain, base_url, started_at, finished_at, duration_s, status, overall_score,
 total_tests, passed, failed, warnings, errors }]`, **but**:
 - it's on website-auditor.io (Flask), not the API portal, and is **not API-key-authed**;
-- it returns audit-level scores, not the per-engine AI-visibility deltas the tool
-  promises (engine gained/lost, competitor moves).
+- it returns audit-level scores, not the per-engine AI-visibility scores the tool
+  compares.
 
 **RESOLVED:** the portal shipped API-key-authed (Pro-gated)
 `GET /api/ai-visibility-history?domain=&since=&limit=` returning oldest-first
 snapshots `{ captured_at, run_id, score, by_engine: {chatgpt, perplexity,
-claude, gemini}, is_simulated }` — one row per interactive audit plus one per
-weekly scheduled run for tracked domains.
+claude, gemini}, is_simulated, source, question }` — one row per interactive
+audit plus one per weekly scheduled run for tracked domains and one per
+extension scan. `source` (the writer) and `question` (what the run asked: the
+business name looked for and the queries, with `question.key` saying when two
+snapshots asked the same one) were added in 2026-09 (website-auditor-api
+migration 034); rows stored before then carry `question: null`.
 **MCP wiring (live):** `client.getChanges()` reads it and collapses to a delta
-via `computeChanges` (throws `NOT_YET_AVAILABLE` below two snapshots);
+via `computeChanges`, only between measured snapshots whose `question.key`s
+match (`sameQuestion` in `src/api/mappers.ts`), over the domain's series as
+`/api/monitoring-status` reads it (`seriesOf`: the measured weekly re-audits and
+whatever asked the same question as the newest recorded one, while the series has no gap longer than four weeks
+and a day from the newest weekly re-audit that recorded its question, through each
+later snapshot of the series, weekly re-audits included, to the newest measured
+snapshot), skipping simulated snapshots and weekly
+re-audits that measured nothing of the business. It reads the whole history and
+applies `since` itself, because which snapshots form the series depends on weekly
+re-audits older than any window. It throws `NOT_YET_AVAILABLE` below two
+measured snapshots, when the series is one measured re-audit with nothing
+measured before it, and when the series has nothing since `since` (no `details`
+on those three); when the series' latest records no question (`details.reason:
+"question_not_recorded"`); and when no earlier snapshot asked its question
+(`"question_changed"`, or `"earlier_not_recorded"` when no earlier snapshot
+records its question, with `rebaselined_at` unless `since` narrowed the window;
+`"not_in_window"` when one did, but only before the window). Those with a
+`reason` carry `previous_change` when there is one: the weekly series' most
+recent like-for-like change before the latest, or, when the series has none,
+the most recent among all earlier measured snapshots. A refusal that leaves
+newer snapshots out of the series names them, and the most recent like-for-like
+change among them. The result's `note` and every refusal also name the weekly
+re-audits newer than the series' latest that measured nothing of the business
+(`source: "scheduled_unmeasured"`), read from the same response whether or not
+they stored a score (a declined page, an invented name scoring 0 and a run no
+engine answered carry `score: null`): no comparison uses them, and unnamed, an
+older change reads as current. Below two measured snapshots, the refusal names
+those newer than the newest measured snapshot, or every one when there is none.
+A `since` that does not parse is `INVALID_INPUT`.
 `client.getAiVisibilityHistory()` (1.0.4) returns the raw series, which
-`get_ai_visibility` folds into 7/30-day `trend` windows for Pro callers
-(`computeTrend` in `src/api/mappers.ts`).
+`get_ai_visibility` folds into 7/30-day `trend` windows for Pro callers: for the
+question the audit just run asked, ending at its snapshot (matched by `run_id`),
+between measured snapshots that asked it (`computeTrend`); null, with a
+`trend_note`, when that audit stored no measured snapshot.
 
 ### 2b. Trial eligibility — live again (trial restored 2026-08-04)
 The 7-day trial returned on 2026-08-04 (removed 2026-07-27), and the
@@ -98,13 +132,13 @@ that endpoint, or a dedicated quota endpoint, would let the tool pre-flight.)
 
 ## Smaller mismatches (worked around, worth fixing)
 
-- **`/api/audit` requires `businessName` and `businessCity`** (naive
-  `if (!businessCity)` validation), but the MCP tools take only `domain` per the
-  listing doc. The engine re-detects name/sector/location from the site
-  (`BusinessIdentifier`), so these should be optional. **Workaround:** the client
-  derives `businessName` from the domain and sends a whitespace `businessCity`
-  sentinel (the engine `.strip()`s it, so detection still wins). See
-  `CITY_SENTINEL` in `src/api/client.ts`.
+- **`/api/audit` required `businessName` and `businessCity`** (a naive
+  `if (!businessCity)` check), so the client once derived a name from the domain
+  and sent a one-space city. **Resolved, and that workaround was harmful:** a
+  sent name replaces the one the engine detects and is trusted as confirmed. API
+  PR #42 made both optional, the client now sends each only when its caller
+  supplies one (`setIfProvided` in `src/api/client.ts`), and
+  website-auditor-api#100 ignores the name that builds before 1.0.14 made up.
 - **No dedicated SEO / security / performance 0–100 scores** in the report.
   `run_audit` derives them: `security`/`performance` from each module's pass-rate,
   and `seo` as an explicit **proxy** from `ai_visibility.site_signals` (structured

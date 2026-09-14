@@ -31,17 +31,3 @@ export function normalizeDomain(input: string): string {
   }
   return host;
 }
-
-/**
- * Derive a human-ish business name from a domain, used to satisfy the API's
- * required `businessName` param. The upstream audit re-detects the real name
- * from the site content, so this is only a fallback label.
- */
-export function deriveBusinessName(host: string): string {
-  const label = host.replace(/\.[a-z.]+$/i, ""); // drop TLD(s)
-  return label
-    .split(/[-_.]/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ") || host;
-}

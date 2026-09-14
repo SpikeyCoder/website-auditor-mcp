@@ -282,4 +282,24 @@ describe("published manifests stay in sync with the code", () => {
     expect(listed.description).toMatch(/null/);
     expect(listed.description).toMatch(/absent/);
   });
+
+  it("lists get_changes by what it computes, as the registry describes it", () => {
+    // The directory renders this copy, and it promised engines gained or lost,
+    // competitor moves and new or resolved issues, none of which get_changes
+    // computes. The registry's copy and computeChanges are pinned in
+    // tests/tools/registry.test.ts.
+    const listed = manifest.tools.find((t: { name: string }) => t.name === "get_changes");
+    expect(listed.description).toContain("the change in the overall score and the per-engine score changes, for engines measured both times");
+    expect(listed.description).toContain("Report what changed in a website's AI-visibility score, only between two snapshots that asked the same question");
+    expect(listed.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor (moves|changes)|(new|resolved) issues|overtake/i);
+  });
+
+  it("titles get_changes by what it reports, and opens its listing with that title", () => {
+    // "What changed since last check" promised a comparison with the caller's last look, and get_changes reports the
+    // latest like-for-like change. The directory shows the title, and the listing opens with it.
+    const spec = SERVED_TOOLS.find((t: { name: string }) => t.name === "get_changes")!;
+    const listed = manifest.tools.find((t: { name: string }) => t.name === "get_changes");
+    expect(spec.title).toBe("What changed in AI visibility");
+    expect(listed.description.startsWith(`${spec.title} [read-only]. `)).toBe(true);
+  });
 });

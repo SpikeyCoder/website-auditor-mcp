@@ -113,14 +113,25 @@ const trendWindow = open({
   score_delta: z.number(),
   engine_changes: z.array(engineChange),
   snapshots: z.number().describe("Snapshots that fell inside this window."),
+  from_captured_at: z.string().optional().describe("When the snapshot this window compares against was captured."),
+  skipped_snapshots: z.number().optional().describe(
+    "Snapshots in the window that were not compared: they asked a different question (another business name, "
+    + "market or queries), or do not record what they asked."),
 });
 
 const aiVisibilityTrend = open({
-  change_7d: trendWindow.nullable().describe("Null when fewer than two snapshots fall in the window."),
+  change_7d: trendWindow.nullable().describe(
+    "Null when the window holds no earlier snapshot that asked the same question as the latest."),
   change_30d: trendWindow.nullable(),
   snapshots_analyzed: z.number(),
   latest_captured_at: z.string(),
-  includes_simulated: z.boolean().describe("True if any analyzed snapshot was estimated rather than measured."),
+  includes_simulated: z.boolean().describe(
+    "Always false: simulated snapshots are left out of the trend. Kept for clients that read it."),
+  question_note: z.string().optional().describe(
+    "Present when what the snapshots asked shaped the trend: no earlier snapshot asked the latest one's "
+    + "question, snapshots from the last 30 days were not compared, or the latest snapshot does not record "
+    + "what it asked. Relay it — a difference between scores that answered different questions is not a "
+    + "change in visibility."),
 });
 
 const aiVisibilitySource = open({
@@ -147,12 +158,30 @@ const auditIssue = open({
   recommendation: z.string().optional(),
 });
 
+// Emitted beside a delta by get_changes, at its root, and by
+// get_monitoring_status, inside `change`: spread rather than nested for that
+// reason. The note is get_changes' alone; monitoring puts its note on the site.
+const comparedSpan = {
+  from_captured_at: z.string().optional().describe("When the earlier snapshot compared was captured."),
+  to_captured_at: z.string().optional().describe("When the later one was."),
+  skipped_snapshots: z.number().optional().describe(
+    "Snapshots passed over because they asked a different question (another business name, market or "
+    + "queries) or do not record what they asked."),
+};
+
+// Snapshots record neither competitors nor audit issues, so these lists are
+// always empty. They stay for clients that read them, and say so, since an
+// empty new_issues otherwise reads as "no new issues".
+const alwaysEmpty = (what: string) => z.array(z.unknown()).describe(
+  `Always empty: AI-visibility snapshots record no ${what}. Kept for clients that read it.`);
+
 const changes = open({
   score_delta: z.number(),
   engine_changes: z.array(engineChange),
-  competitor_changes: z.array(z.unknown()),
-  new_issues: z.array(z.unknown()),
-  resolved_issues: z.array(z.unknown()),
+  competitor_changes: alwaysEmpty("competitors"),
+  new_issues: alwaysEmpty("audit issues"),
+  resolved_issues: alwaysEmpty("audit issues"),
+  ...comparedSpan,
 });
 
 // ─── per-tool output schemas ───────────────────────────────────────────────
@@ -196,11 +225,18 @@ export const runAuditOutput: ZodRawShape = {
 };
 
 export const getChangesOutput: ZodRawShape = {
-  score_delta: z.number(),
+  score_delta: z.number().describe(
+    "Only ever between two snapshots that asked the same question. When there is no such pair, including a "
+    + "re-baseline after the business name, market or queries changed, the tool returns NOT_YET_AVAILABLE "
+    + "saying so, never a number."),
   engine_changes: z.array(engineChange),
-  competitor_changes: z.array(z.unknown()),
-  new_issues: z.array(z.unknown()),
-  resolved_issues: z.array(z.unknown()),
+  competitor_changes: alwaysEmpty("competitors"),
+  new_issues: alwaysEmpty("audit issues"),
+  resolved_issues: alwaysEmpty("audit issues"),
+  ...comparedSpan,
+  note: z.string().optional().describe(
+    "Present when skipped_snapshots is above 0, when newer measured snapshots were left out of the series, or when "
+    + "newer weekly re-audits measured nothing of the business: which, and why, in words. Relay it."),
 };
 
 export const compareCompetitorsOutput: ZodRawShape = {
@@ -263,7 +299,10 @@ export const listTrackedSitesOutput: ZodRawShape = {
     cadence: z.string().optional(),
     active: z.boolean().optional(),
     digest_enabled: z.boolean().optional(),
-    last_audited_at: z.string().nullable().optional(),
+    last_audited_at: z.string().nullable().optional().describe(
+      "The date of the last scheduled run, stamped when the scheduler claims it and before the audit runs. It does "
+      + "not say how that run ended: it may still be going, or may have failed, been skipped or measured nothing of "
+      + "the business."),
     next_run_at: z.string().nullable().optional(),
     created_at: z.string().nullable().optional(),
   })),
@@ -283,9 +322,18 @@ export const getMonitoringStatusOutput: ZodRawShape = {
     cadence: z.string().optional(),
     active: z.boolean().optional(),
     latest_score: z.number().nullable(),
-    last_audited_at: z.string().nullable().optional(),
+    last_audited_at: z.string().nullable().optional().describe(
+      "The date of the last scheduled run, stamped when the scheduler claims it and before the audit runs. It does "
+      + "not say how that run ended: it may still be going, or may have failed, been skipped or measured nothing of "
+      + "the business."),
     next_run_at: z.string().nullable().optional(),
-    change: changes.nullable().describe("Latest vs previous snapshot; null if fewer than two."),
+    change: changes.nullable().describe(
+      "The latest change against the most recent earlier snapshot that asked the same question; null when there "
+      + "is none — no scored latest snapshot (the summary says why), a first snapshot, a re-baseline, or snapshots "
+      + "that do not record what they asked."),
+    note: z.string().optional().describe(
+      "Present when there is no like-for-like change because of a re-baseline or snapshots that do not record "
+      + "what they asked, or when snapshots were passed over: why, in words. Relay it."),
     summary: z.string(),
   })),
   summary: z.string(),

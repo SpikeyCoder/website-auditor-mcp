@@ -26,22 +26,62 @@ import { makeDeps, errorPayload } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
 import { PRICE } from "../../src/tools/upgrade.js";
 
+/** The run richClient's runAudit returns, so the snapshot get_ai_visibility's trend ends at. */
+const AUDITED_RUN = "abc123def456";
+
 /**
  * Overrides for the endpoints whose defaults are empty or throw.
  *
  * Empty is the enemy here: `list_tracked_sites` defaulting to `tracked: []`
  * would validate against a schema describing entirely the wrong element, so
- * every list gets at least one row and every nullable field is exercised in
- * both states across the suite.
+ * every list gets at least one row.
+ *
+ * Not every nullable field is sent both ways. Of those in the
+ * get_ai_visibility and get_monitoring_status schemas, the payloads this file
+ * validates carry both null and a value only in get_ai_visibility's `trend`,
+ * `trend.change_7d`, `trend.change_30d` and `sources[].url`, and in
+ * get_monitoring_status's `sites[].latest_score` and `sites[].change`. Every
+ * other one carries only a value: the four `by_engine` scores, the four
+ * `appears_by_engine` flags, `top_competitor` and `sources`, and
+ * `sites[].last_audited_at` and `sites[].next_run_at`, which sparseClient's
+ * minimal payload leaves out rather than sending as null.
  */
 const richClient = {
   getChanges: async () => ({
     score_delta: -4,
     engine_changes: [{ engine: "chatgpt", from: 61, to: 57, delta: -4 }],
+    // Always empty in every real result (outputSchemas.ts), so never populated here.
     competitor_changes: [],
-    new_issues: [{ name: "Missing FAQ schema" }],
+    new_issues: [],
     resolved_issues: [],
+    // Every field a same-question comparison adds beside the delta.
+    from_captured_at: "2026-08-13T09:00:00Z",
+    to_captured_at: "2026-08-20T09:00:00Z",
+    skipped_snapshots: 1,
+    note: "Compared with 2026-08-13, the most recent snapshot that asked the same question; passed over in between: 1 snapshot that asked a different question.",
   }),
+  // A series whose trend fills both windows, the 30-day one passing over an
+  // audit in another market, and carries a question note, so get_ai_visibility's
+  // `trend` is validated populated. The trend ends at the snapshot of the run the
+  // audit returned, so every row carries its run's id, as the real history does,
+  // and the newest is AUDITED_RUN's: without that, the trend is null, and a null
+  // is all the schema is shown. The test after the loop below holds this true.
+  getAiVisibilityHistory: async () => {
+    const asked = {
+      key: "q-example", business_name: "Example", name_source: "detected",
+      business_location: "", market_scope: "global", queries: ["best example"],
+    };
+    const elsewhere = { ...asked, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best example in Honolulu, HI"] };
+    const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = (n: number, run_id: string, score: number, source: string | null, question: typeof asked) =>
+      ({ captured_at: daysAgo(n), run_id, score, by_engine: { chatgpt: score }, is_simulated: false, source, question });
+    return [
+      snapshot(20, "weekly-run-1", 40, "scheduled", asked),
+      snapshot(10, "honolulu-audit-run", 90, null, elsewhere),
+      snapshot(4, "weekly-run-2", 50, "scheduled", asked),
+      snapshot(1, AUDITED_RUN, 57, null, asked),
+    ];
+  },
   compareCompetitors: async () => ({
     ranking: [
       { domain: "example.com", score: 57 },
@@ -73,19 +113,38 @@ const richClient = {
       created_at: null,
     }],
   }),
-  getMonitoringStatus: async () => ({
-    limit: 5,
-    used: 1,
-    remaining: 4,
-    sites: [{
-      domain: "example.com",
-      cadence: "weekly",
-      active: true,
-      latest_score: 57,
-      last_audited_at: "2026-08-20T00:00:00Z",
-      next_run_at: "2026-08-27T00:00:00Z",
-    }],
-  }),
+  // A site whose change passed over a snapshot, so get_monitoring_status's
+  // `change` span and `note` are validated populated.
+  getMonitoringStatus: async () => {
+    const asked = {
+      key: "q-example", business_name: "Example", name_source: "detected",
+      business_location: "", market_scope: "global", queries: ["best example"],
+    };
+    const snapshot = (score: number, captured_at: string) => ({
+      score,
+      by_engine: { chatgpt: score, perplexity: null, claude: score, gemini: score },
+      captured_at,
+      is_simulated: false,
+      source: "scheduled",
+      question: asked,
+    });
+    return {
+      limit: 5,
+      used: 1,
+      remaining: 4,
+      sites: [{
+        domain: "example.com",
+        cadence: "weekly",
+        active: true,
+        last_audited_at: "2026-08-20T00:00:00Z",
+        next_run_at: "2026-08-27T00:00:00Z",
+        snapshots_count: 3,
+        latest: snapshot(57, "2026-08-20T09:00:00Z"),
+        previous: snapshot(61, "2026-08-13T09:00:00Z"),
+        comparison: { status: "compared", skipped_snapshots: 1 },
+      }],
+    };
+  },
   getRecommendations: async () => ({
     recommendations: [
       { action: "Add FAQ schema", why: "Assistants quote FAQ blocks.", expected_impact: "high", effort: "low" },
@@ -142,7 +201,7 @@ const richClient = {
     ],
   }),
   getSubscription: async () => ({ tier: "pro" as const, status: "active" }),
-  runAudit: async () => ({ runId: "abc123def456", report: reachableReport(), raw: {} }),
+  runAudit: async () => ({ runId: AUDITED_RUN, report: reachableReport(), raw: {} }),
 };
 
 /** The arguments each tool needs to reach a SUCCESS result. */
@@ -183,6 +242,38 @@ async function connect(deps = makeDeps({ tier: "pro", client: richClient })) {
 }
 
 describe("declared output schemas", () => {
+  it("says the competitor and issue lists are always empty, in both tools that publish them", async () => {
+    // Every success returns them empty, and an empty new_issues read as "no new
+    // issues": AI-visibility snapshots record neither competitors nor issues.
+    // Read from the published schemas, so monitoring's `change` is held too.
+    const said: Record<string, string> = {
+      competitor_changes: "Always empty: AI-visibility snapshots record no competitors. Kept for clients that read it.",
+      new_issues: "Always empty: AI-visibility snapshots record no audit issues. Kept for clients that read it.",
+      resolved_issues: "Always empty: AI-visibility snapshots record no audit issues. Kept for clients that read it.",
+    };
+    const client = await connect();
+    const { tools } = await client.listTools();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const schema = (name: string): any => tools.find((t) => t.name === name)!.outputSchema;
+    const change = schema("get_monitoring_status").properties.sites.items.properties.change;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const monitored = (change.anyOf ?? [change]).find((branch: any) => branch.properties);
+    for (const [key, sentence] of Object.entries(said)) {
+      expect(schema("get_changes").properties[key].description, `get_changes ${key}`).toBe(sentence);
+      expect(monitored.properties[key].description, `get_monitoring_status ${key}`).toBe(sentence);
+    }
+  });
+
+  it("says when get_changes carries a note", async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const schema: any = tools.find((t) => t.name === "get_changes")!.outputSchema;
+    expect(schema.properties.note.description).toBe(
+      "Present when skipped_snapshots is above 0, when newer measured snapshots were left out of the series, or when "
+      + "newer weekly re-audits measured nothing of the business: which, and why, in words. Relay it.");
+  });
+
   it("every served tool declares one", () => {
     // The portal flags each tool that does not, so a new tool landing without
     // an entry in OUTPUT_SCHEMAS should fail here rather than in review.
@@ -224,6 +315,128 @@ describe("declared output schemas", () => {
       ).toBeNull();
     });
   }
+
+  /**
+   * The trend that loop validates for get_ai_visibility is a filled-in one.
+   *
+   * A null trend satisfies its nullable schema and proves nothing about the
+   * shape behind it, and a null is what the loop validated while richClient's
+   * history carried no run id for the trend to end at. This holds the comment
+   * on richClient's history to what it says.
+   */
+  it("get_ai_visibility's trend reaches the caller filled in, both windows and its question note included", async () => {
+    const client = await connect();
+    const result = await client.callTool({ name: "get_ai_visibility", arguments: ARGS.get_ai_visibility });
+    expect(result.isError, JSON.stringify(result).slice(0, 300)).toBeFalsy();
+    const content = result.structuredContent as {
+      trend: { change_7d: unknown; change_30d: unknown; question_note?: unknown } | null;
+      trend_note?: string;
+    };
+    expect(content.trend_note).toBeUndefined();
+    expect(content.trend).not.toBeNull();
+    expect(content.trend!.change_7d).toMatchObject({ skipped_snapshots: 0 });
+    // The 30-day window passes over the audit in another market.
+    expect(content.trend!.change_30d).toMatchObject({ skipped_snapshots: 1 });
+    expect(content.trend!.question_note).toEqual(expect.any(String));
+  });
+
+  /**
+   * A trend window that starts or ends at 0, through the same armed path.
+   *
+   * from_score and to_score are declared numbers, so a 0 published as null
+   * fails the declared schema, and the successful call arrives as an
+   * "Output validation error" instead. richClient cannot show that: none of
+   * its scores is 0.
+   */
+  it("get_ai_visibility's trend window at 0, at either end, passes its own schema", async () => {
+    const asked = {
+      key: "q-example", business_name: "Example", name_source: "detected",
+      business_location: "", market_scope: "global", queries: ["best example"],
+    };
+    const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+    // The newest is AUDITED_RUN's snapshot, the run richClient's runAudit returns, so the trend ends at it. That is
+    // an /api/audit run, which the API stores with a null source; the earlier one is a weekly re-audit.
+    const snapshot = (n: number, score: number, run_id: string, source: string | null) => ({
+      captured_at: daysAgo(n), run_id, score, by_engine: { chatgpt: score }, is_simulated: false, source,
+      question: asked,
+    });
+    for (const [from, to] of [[0, 55], [55, 0]] as const) {
+      const client = await connect(makeDeps({
+        tier: "pro",
+        client: {
+          ...richClient,
+          getAiVisibilityHistory: async () => [
+            snapshot(5, from, "an-earlier-run", "scheduled"),
+            snapshot(1, to, AUDITED_RUN, null),
+          ],
+        },
+      }));
+      const result = await client.callTool({ name: "get_ai_visibility", arguments: ARGS.get_ai_visibility });
+      const text = JSON.stringify(result);
+      expect(text, `${from} to ${to} failed output validation`).not.toContain("Output validation error");
+      expect(result.isError, `${from} to ${to}: ${text.slice(0, 300)}`).toBeFalsy();
+      const trend = (result.structuredContent as { trend: { change_7d: unknown } | null }).trend;
+      expect(trend?.change_7d, `${from} to ${to}`).toMatchObject({ from_score: from, to_score: to, score_delta: to - from });
+    }
+  });
+
+  /**
+   * A trend window with nothing to compare, through the same armed path.
+   *
+   * A window is null when it holds no earlier snapshot that asked the latest
+   * one's question: for an audit whose newest like-for-like snapshot before it
+   * is more than 7 days old, change_7d is null, and past 30 days both are.
+   * richClient cannot show that, since its history fills both windows, and
+   * neither can the test above. Before this test, a window that lost
+   * `.nullable()` passed the whole suite, and every such call would then have
+   * reached the caller as an "Output validation error", after its audit had run.
+   */
+  it("get_ai_visibility's trend with an empty window, or two, passes its own schema", async () => {
+    const asked = {
+      key: "q-example", business_name: "Example", name_source: "detected",
+      business_location: "", market_scope: "global", queries: ["best example"],
+    };
+    const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+    // Each history ends at AUDITED_RUN's snapshot, an /api/audit run and so stored with a null source, after weekly
+    // re-audits that asked the same question.
+    const snapshot = (n: number, run_id: string, score: number, source: string | null) => ({
+      captured_at: daysAgo(n), run_id, score, by_engine: { chatgpt: score }, is_simulated: false, source,
+      question: asked,
+    });
+    const weekEmpty = [
+      snapshot(20, "weekly-run-1", 40, "scheduled"),
+      snapshot(10, "weekly-run-2", 50, "scheduled"),
+      snapshot(1, AUDITED_RUN, 57, null),
+    ];
+    const bothEmpty = [snapshot(45, "weekly-run-1", 40, "scheduled"), snapshot(1, AUDITED_RUN, 57, null)];
+    const cases = [
+      {
+        label: "the 7-day window empty beside a filled 30-day one",
+        history: weekEmpty,
+        change_7d: null,
+        change_30d: {
+          window_days: 30, from_score: 40, to_score: 57, score_delta: 17,
+          engine_changes: [{ engine: "chatgpt", from: 40, to: 57, delta: 17 }],
+          snapshots: 3, from_captured_at: weekEmpty[0]!.captured_at, skipped_snapshots: 0,
+        },
+      },
+      { label: "both windows empty", history: bothEmpty, change_7d: null, change_30d: null },
+    ];
+    for (const { label, history, change_7d, change_30d } of cases) {
+      const client = await connect(makeDeps({
+        tier: "pro",
+        client: { ...richClient, getAiVisibilityHistory: async () => history },
+      }));
+      const result = await client.callTool({ name: "get_ai_visibility", arguments: ARGS.get_ai_visibility });
+      const text = JSON.stringify(result);
+      expect(text, `${label} failed output validation`).not.toContain("Output validation error");
+      expect(result.isError, `${label}: ${text.slice(0, 300)}`).toBeFalsy();
+      const trend = (result.structuredContent as { trend: { change_7d: unknown; change_30d: unknown } | null }).trend;
+      expect(trend, `${label}: the trend itself`).not.toBeNull();
+      expect(trend!.change_7d, `${label}: change_7d`).toEqual(change_7d);
+      expect(trend!.change_30d, `${label}: change_30d`).toEqual(change_30d);
+    }
+  });
 
   /**
    * The cards reach the wire, under a validator that is armed.

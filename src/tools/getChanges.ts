@@ -1,14 +1,16 @@
 /**
  * get_changes [Pro]
  *
- * Pro-gated. The delta/history data source is not yet available in
- * website-auditor-api (PRD open question #2). The tool is fully wired against
- * `client.getChanges`: once that endpoint ships and the client method returns
- * real deltas, this tool returns them with no further change. Until then a Pro
- * caller gets a clearly-flagged NOT_YET_AVAILABLE — never a fabricated delta.
+ * Pro-gated. Reports the latest like-for-like change in a domain's AI
+ * visibility from its stored snapshot history, through `client.getChanges`
+ * (GET /api/ai-visibility-history). Only between snapshots that asked the same
+ * question: the same business name looked for, and the same queries, which
+ * carry the market and the category. When there is no such pair, including a
+ * re-baseline after the question changed, a Pro caller gets a clearly-flagged
+ * NOT_YET_AVAILABLE saying why — never a fabricated delta.
  *
- * The delta *computation* itself lives in `computeChanges` (mappers.ts) and is
- * unit-tested, so the client can wire it over a history endpoint when ready.
+ * The delta *computation* lives in `computeChanges` and the pairing rule in
+ * `sameQuestion` (mappers.ts), both unit-tested.
  */
 import type { Changes } from "../api/types.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";

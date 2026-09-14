@@ -88,7 +88,7 @@
     },
     {
       "name": "get_changes",
-      "description": "What changed since last check [read-only]. Report what changed in a website's AI visibility and audit since it was last checked. Requires the domain to be tracked. Returns deltas: score movement, engines gained/lost, competitors that moved, and new or resolved issues."
+      "description": "What changed in AI visibility [read-only]. Report what changed in a website's AI-visibility score, only between two snapshots that asked the same question (the same business name and queries), and otherwise why there is no change to report. Requires the domain to be tracked. Returns the change in the overall score and the per-engine score changes, for engines measured both times."
     },
     {
       "name": "compare_competitors",
@@ -108,7 +108,7 @@
     },
     {
       "name": "get_monitoring_status",
-      "description": "Monitoring status summary [read-only]. Get a glanceable summary of monitoring status across all tracked websites — latest AI-visibility score, when each was last audited and next runs, and the most recent change since the prior check."
+      "description": "Monitoring status summary [read-only]. Get a glanceable summary of monitoring status across all tracked websites — the latest AI-visibility score of each site's series, the date of its last scheduled run and when the next one runs, and its most recent change against the last snapshot that asked the same question, or why there is none."
     },
     {
       "name": "get_benchmark",

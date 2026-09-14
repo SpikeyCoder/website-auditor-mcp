@@ -11,6 +11,7 @@ import type {
   AiVisibilitySource,
   AiVisibilitySnapshot,
   AiVisibilityTrend,
+  SnapshotQuestion,
   TrendWindow,
   AuditSummary,
   AuditIssue,
@@ -394,33 +395,377 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
 }
 
 /**
- * Compute AI-visibility deltas between two snapshots. This is the delta logic
- * for `get_changes`, kept pure and tested so the tool is ready the moment
- * website-auditor-api exposes a history/delta endpoint (PRD open question #2).
+ * THE SAME QUESTION, OR NO DELTA.
+ *
+ * A score answers a question: the queries put to the assistants, which carry
+ * the market and the business category in their text, and the business name
+ * looked for in their answers. Subtract two scores that answered different
+ * questions and the difference is a change of subject, not of visibility, and
+ * every delta here used to publish exactly that. The weekly re-audit asked
+ * about a name guessed from the domain until website-auditor-api #96, a hand
+ * audit in one market sat beside weekly re-audits in another until #94, and
+ * detection can move a name or a category from one week to the next.
+ *
+ * The API records what each snapshot asked, and `question.key` is its verdict
+ * on sameness (website-auditor-api src/services/snapshotQuestion.js). Nothing
+ * here decides sameness; this only refuses to subtract across two keys that
+ * differ, or that are missing.
+ *
+ * MISSING IS NOT THE SAME. A snapshot stored before the API recorded questions,
+ * or served by an API that does not send them, has no key and compares with
+ * nothing. Reading "cannot tell" as "the same" is the bug itself, so an API
+ * that stops sending the key turns deltas off rather than back into
+ * fabrications.
  */
+export function sameQuestion(
+  a: { question?: SnapshotQuestion | null } | null | undefined,
+  b: { question?: SnapshotQuestion | null } | null | undefined,
+): boolean {
+  const key = a?.question?.key;
+  return typeof key === "string" && key !== "" && key === b?.question?.key;
+}
+
+/**
+ * The snapshot a change is measured from: the NEWEST of `earlier` (oldest
+ * first) that asked what `current` asked, and how many after it asked something
+ * else and were passed over. Passed over, not a break: a hand audit in another
+ * market between two weekly re-audits leaves the weekly pair either side of it
+ * a like-for-like change. `skipped` is 0 when there is no base.
+ */
+export function newestSameQuestion<T extends { question?: SnapshotQuestion | null }>(
+  earlier: T[],
+  current: T,
+): { base: T | null; skipped: number } {
+  for (let i = earlier.length - 1; i >= 0; i -= 1) {
+    const candidate = earlier[i]!;
+    if (sameQuestion(candidate, current)) return { base: candidate, skipped: earlier.length - 1 - i };
+  }
+  return { base: null, skipped: 0 };
+}
+
+/**
+ * For a window: the OLDEST of `earlier` that asked what `current` asked, so the
+ * change spans as much of the window as a like-for-like comparison can, and how
+ * many of `earlier` were left out, having asked something else or recorded
+ * nothing. `skipped` is 0 when there is no base.
+ */
+export function oldestSameQuestion<T extends { question?: SnapshotQuestion | null }>(
+  earlier: T[],
+  current: T,
+): { base: T | null; skipped: number } {
+  const base = earlier.find((s) => sameQuestion(s, current)) ?? null;
+  return { base, skipped: base ? earlier.filter((s) => !sameQuestion(s, current)).length : 0 };
+}
+
+/**
+ * Why each of `snapshots` does not compare with `current`: it asked a different
+ * question, or it recorded none. Two different facts, and saying the first
+ * about the second tells a caller something nobody knows. For weeks after the
+ * API began recording questions, most snapshots in any window are the second.
+ */
+export function notCompared<T extends { question?: SnapshotQuestion | null }>(
+  snapshots: T[],
+  current: T,
+): { different: number; unrecorded: number } {
+  let different = 0;
+  let unrecorded = 0;
+  for (const s of snapshots) {
+    if (sameQuestion(s, current)) continue;
+    if (s.question?.key) different += 1;
+    else unrecorded += 1;
+  }
+  return { different, unrecorded };
+}
+
+/** `1 snapshot that asked a different question and 2 snapshots that do not record what they asked`. */
+export function notComparedPhrase({ different, unrecorded }: { different: number; unrecorded: number }): string {
+  const parts: string[] = [];
+  if (different > 0) {
+    parts.push(`${different} ${different === 1 ? "snapshot" : "snapshots"} that asked a different question`);
+  }
+  if (unrecorded > 0) {
+    parts.push(unrecorded === 1
+      ? "1 snapshot that does not record what it asked"
+      : `${unrecorded} snapshots that do not record what they asked`);
+  }
+  return listOf(parts);
+}
+
+/** The newest of `snapshots` (oldest first) that recorded its question, or null. */
+export function newestRecorded<T extends { question?: SnapshotQuestion | null }>(snapshots: T[]): T | null {
+  for (let i = snapshots.length - 1; i >= 0; i -= 1) {
+    const candidate = snapshots[i]!;
+    if (candidate.question?.key) return candidate;
+  }
+  return null;
+}
+
+/**
+ * The most recent like-for-like pair within `snapshots` (oldest first): the
+ * newest snapshot that an earlier one asked the same question as, and the newest
+ * such earlier one. Null when no two of them asked the same question.
+ */
+export function newestComparablePair<T extends { question?: SnapshotQuestion | null }>(
+  snapshots: T[],
+): { from: T; to: T } | null {
+  for (let i = snapshots.length - 1; i > 0; i -= 1) {
+    const to = snapshots[i]!;
+    const { base } = newestSameQuestion(snapshots.slice(0, i), to);
+    if (base) return { from: base, to };
+  }
+  return null;
+}
+
+/** `up 5`, `down 3` or `unchanged`. */
+export function movement(delta: number): string {
+  return delta > 0 ? `up ${delta}` : delta < 0 ? `down ${Math.abs(delta)}` : "unchanged";
+}
+
+/** A question off the wire, read defensively: anything malformed is absent, never guessed. */
+export function toQuestion(raw: unknown): SnapshotQuestion | null {
+  if (!isRecord(raw)) return null;
+  const text = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  return {
+    key: typeof raw.key === "string" && raw.key !== "" ? raw.key : null,
+    business_name: text(raw.business_name),
+    name_source: text(raw.name_source),
+    business_location: text(raw.business_location),
+    market_scope: text(raw.market_scope),
+    queries: isStringArray(raw.queries) ? raw.queries : null,
+  };
+}
+
+// A name as the engine's matcher starts from it (`name.lower().strip()`) and as
+// the API keys it: names that differ in more than case are different questions.
+const nameOf = (name: string | null): string => (name ?? "").trim().toLowerCase();
+const spaced = (text: string | null): string => (text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+const quoted = (text: string | null): string | null => (text?.trim() ? `"${text.trim()}"` : null);
+
+/** `the market "Honolulu, HI" rather than "Austin, TX"`, with an empty side said plainly. */
+function contrast(label: string, other: string | null, reference: string | null): string {
+  const was = quoted(reference) ?? "none";
+  const now = quoted(other);
+  return now ? `the ${label} ${now} rather than ${was}` : `no ${label} rather than ${was}`;
+}
+
+/**
+ * How one recorded question differs from another, in words a caller can relay:
+ * the name, the market, or, when neither, the queries themselves (another
+ * business category, or a change in how the engine asks).
+ *
+ * DISPLAY ONLY. Whether two snapshots compare is `question.key`'s decision,
+ * never this function's; it folds names and markets only as far as the API
+ * does, so that "Acme" and "ACME" are not described as a new name.
+ */
+export function questionDifference(other: SnapshotQuestion, reference: SnapshotQuestion): string {
+  const parts: string[] = [];
+  if (nameOf(other.business_name) !== nameOf(reference.business_name)) {
+    parts.push(contrast("business name", other.business_name, reference.business_name));
+  }
+  if (spaced(other.business_location) !== spaced(reference.business_location)) {
+    parts.push(contrast("market", other.business_location, reference.business_location));
+  }
+  return parts.length
+    ? listOf(parts)
+    : "different queries (another business category, or a change in how Website Auditor asks)";
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The date part of a timestamp, or a plain phrase for anything that is not one. */
+export function day(iso: unknown): string {
+  return typeof iso === "string" && iso.length >= 10 ? iso.slice(0, 10) : "an unknown date";
+}
+
+/**
+ * Whether a snapshot measured the business: not a weekly re-audit the scheduler
+ * marked as measuring nothing of it ("scheduled_unmeasured"). That mark covers a
+ * name invented from the hostname, whose score the API keeps when it has one, so
+ * a score alone does not make a row a measurement.
+ */
+export function measuredTheBusiness(s: { source?: string | null }): boolean {
+  return s.source !== "scheduled_unmeasured";
+}
+
+/**
+ * THE DOMAIN'S SERIES, as /api/monitoring-status reads it: every snapshot given
+ * (oldest first) until one is a weekly re-audit ("scheduled") that recorded its
+ * question, and from then on the weekly re-audits together with every other
+ * snapshot that asked what the newest such re-audit asked. That question
+ * anchors the series only while the series has no gap longer than four weekly
+ * cadences and a day, the span across which the weekly digest still compares
+ * one re-audit with another, between that re-audit, each later snapshot of the
+ * series (weekly re-audits included, recorded or not), and the newest snapshot
+ * given. After a gap (the domain untracked or paused, or its re-audits
+ * unmeasured, while an audit asked something else), the series is every
+ * snapshot again, until another weekly re-audit records its question. A gap is a
+ * step between snapshots, so time alone opens none: with nothing newer, the
+ * series' last snapshot stays its latest.
+ *
+ * The weekly re-audits, because they are what monitors a tracked domain: an
+ * audit run by hand in another market, or an extension scan, asks a question of
+ * its own, and read as the latest it announced a re-baseline that never
+ * happened to the weekly re-audits, or had to be talked around. With what asked
+ * their question, because such an audit is a newer measurement of the same
+ * thing.
+ *
+ * Every snapshot that asked the series' latest question is in the series. So the
+ * like-for-like base found among all earlier snapshots is the one in the series,
+ * this client and the API pick the same one, and "no earlier snapshot asked the
+ * same question" is true of every snapshot, not only of the series.
+ */
+export const SERIES_ANCHOR_REACH_MS = (4 * 7 + 1) * DAY_MS;
+
+export function seriesOf<T extends { source?: string | null; question?: SnapshotQuestion | null; captured_at?: string }>(
+  rows: T[],
+): T[] {
+  // Anchored on the newest weekly re-audit that recorded its question. One that
+  // recorded nothing matches nothing, and as the anchor it hid every newer
+  // audit that asked the weekly question.
+  const anchors = rows.filter((s) => s.source === "scheduled" && Boolean(s.question?.key));
+  if (!anchors.length) return rows;
+  const newest = anchors[anchors.length - 1]!;
+  const anchored = rows.filter((s) => s.source === "scheduled" || sameQuestion(s, newest));
+  // Only while the anchored series has no gap: from that re-audit, through each
+  // later snapshot of it, to the newest snapshot given, no step is longer than
+  // the reach. With no limit, an
+  // untracked domain's audits in another market months later never became its latest. Judged
+  // by the re-audit alone, one audit in another market a month after it hid a
+  // like-for-like change measured days before; judged by the series' newest
+  // snapshot alone, one audit of a question last re-audited a year before
+  // brought it back.
+  const steps = [...anchored.slice(anchored.indexOf(newest)), rows[rows.length - 1]!];
+  for (let i = 1; i < steps.length; i += 1) {
+    const step = Date.parse(steps[i]!.captured_at ?? "") - Date.parse(steps[i - 1]!.captured_at ?? "");
+    if (step > SERIES_ANCHOR_REACH_MS) return rows;
+  }
+  return anchored;
+}
+
+/**
+ * What to say about snapshots newer than the series' latest, which the series
+ * leaves out: they asked something the weekly re-audits do not ask, or recorded
+ * nothing. When two of them asked the same question it names the most recent
+ * such change: a refusal about the series is not "nothing changed" about them.
+ * Empty when there are none; otherwise sentences with a leading space.
+ */
+export function laterNote<T extends { captured_at: string; score: number; question?: SnapshotQuestion | null }>(
+  later: T[],
+  latest: T,
+): string {
+  if (!later.length) return "";
+  const pair = newestComparablePair(later);
+  const change = pair
+    ? ` The most recent like-for-like change among them was ${movement(pair.to.score - pair.from.score)}, `
+      + `from ${day(pair.from.captured_at)} to ${day(pair.to.captured_at)}.`
+    : "";
+  if (!latest.question?.key) {
+    // Nothing is known about what the latest asked, so nothing is said about
+    // what these asked beside it.
+    const n = later.length;
+    return ` Left out as not part of the weekly series: ${n === 1 ? "1 newer snapshot" : `${n} newer snapshots`}, `
+      + `${n === 1 ? "on" : "the newest on"} ${day(later[n - 1]!.captured_at)}.${change}`;
+  }
+  const newest = newestRecorded(later);
+  const what = newest?.question && latest.question?.key
+    ? ` The newest of them that records its question, on ${day(newest.captured_at)}, asked about `
+      + `${questionDifference(newest.question, latest.question)}.`
+    : "";
+  return ` Left out as not part of the weekly series: ${notComparedPhrase(notCompared(later, latest))}, `
+    + `newer than ${day(latest.captured_at)}.${what}${change}`;
+}
+
+/**
+ * What to say about weekly re-audits newer than `latest` that measured nothing
+ * of the business ("scheduled_unmeasured"): no comparison uses them, so without
+ * a word a result reads as current when the newest weekly runs measured
+ * nothing. With no `latest`, every such re-audit counts. Empty when there are
+ * none; otherwise a sentence with a leading space.
+ */
+export function unmeasuredNote<T extends { captured_at: string; source?: string | null }>(
+  snapshots: T[],
+  latest: { captured_at: string } | null,
+): string {
+  const after = latest ? Date.parse(latest.captured_at) : Number.NEGATIVE_INFINITY;
+  const runs = snapshots.filter((s) => s.source === "scheduled_unmeasured" && Date.parse(s.captured_at) > after);
+  if (!runs.length) return "";
+  const newest = runs.reduce((a, b) => (Date.parse(b.captured_at) > Date.parse(a.captured_at) ? b : a));
+  return runs.length === 1
+    ? ` The weekly re-audit on ${day(newest.captured_at)} measured nothing of the business, so it is not compared.`
+    : ` ${runs.length} weekly re-audits${latest ? ` newer than ${day(latest.captured_at)}` : ""} measured nothing `
+      + `of the business, the newest on ${day(newest.captured_at)}, so they are not compared.`;
+}
+
+/**
+ * Why the trend compared less than its windows span, or nothing at all, when
+ * what the snapshots asked is the reason. `before` is every snapshot before
+ * `latest`. Undefined when every snapshot in play asked the latest's question.
+ */
+function trendQuestionNote(latest: AiVisibilitySnapshot, before: AiVisibilitySnapshot[], now: Date): string | undefined {
+  const on = day(latest.captured_at);
+  if (!latest.question?.key) {
+    return "The latest snapshot does not record what it asked the assistants, so no trend is computed through it.";
+  }
+  if (!newestSameQuestion(before, latest).base) {
+    const prior = newestRecorded(before);
+    return prior?.question
+      ? `No earlier snapshot asked the question the latest one, on ${on}, asked. It asked about `
+        + `${questionDifference(latest.question, prior.question)}, compared with the snapshot on `
+        + `${day(prior.captured_at)}, so there is no trend for it yet.`
+      : `The snapshots before the latest one, on ${on}, do not record what they asked, so there is no trend for it yet.`;
+  }
+  const cutoff = now.getTime() - 30 * DAY_MS;
+  const inWindow = before.filter((s) => Date.parse(s.captured_at) >= cutoff);
+  const left = notCompared(inWindow, latest);
+  if (left.different + left.unrecorded === 0) return undefined;
+  let lastDifferent: AiVisibilitySnapshot | undefined;
+  for (const s of inWindow) if (s.question?.key && !sameQuestion(s, latest)) lastDifferent = s;
+  const how = lastDifferent?.question
+    ? ` The most recent that asked a different one, on ${day(lastDifferent.captured_at)}, asked about `
+      + `${questionDifference(lastDifferent.question, latest.question)}.`
+    : "";
+  return "Only snapshots that asked the same question as the latest are compared. Not compared, from the last "
+    + `30 days: ${notComparedPhrase(left)}.${how}`;
+}
+
 /**
  * Fold a raw snapshot series (oldest first) into 7- and 30-day trend windows.
- * A window compares the newest snapshot against the OLDEST snapshot inside the
- * window, and is null when fewer than two snapshots fall inside it — snapshot
- * cadence is irregular (one per audit + one per weekly scheduled run), so
- * windows describe "movement within the last N days", not fixed daily points.
- * Returns null when the series has fewer than two usable snapshots at all.
+ * The trend sits under an audit, so it follows the question that audit asked:
+ * it ends at the snapshot of the run `runId` names (without one, at the newest
+ * measured snapshot), and a window compares that snapshot against the OLDEST
+ * snapshot inside the window that asked the same question (see sameQuestion),
+ * and is null when it holds none. get_changes and get_monitoring_status report
+ * the domain's weekly series instead (seriesOf). Simulated snapshots, and
+ * weekly re-audits that measured nothing of the business, are no point to
+ * measure movement from and are left out. Snapshot cadence is irregular (one
+ * per audit + one per weekly scheduled run), so windows describe "movement
+ * within the last N days", not fixed daily points. Returns null when fewer than
+ * two measured snapshots remain, or when `runId` names no measured snapshot
+ * (measuredRun says which).
  *
  * `now` is injectable for deterministic tests; callers default it.
  */
 export function computeTrend(
   snapshots: AiVisibilitySnapshot[],
   now: Date = new Date(),
+  runId?: string,
 ): AiVisibilityTrend | null {
-  if (snapshots.length < 2) return null;
+  const measured = snapshots.filter((s) => !s.is_simulated && measuredTheBusiness(s));
+  // Ending at the audit's own snapshot: the newest measured snapshot is another
+  // audit's whenever this one stored no score or a simulated one, and the trend
+  // then followed a question this audit never asked.
+  const end = runId === undefined ? measured.length : measured.findIndex((s) => s.run_id === runId) + 1;
+  const rows = measured.slice(0, end);
+  if (rows.length < 2) return null;
 
-  const latest = snapshots[snapshots.length - 1]!;
+  const latest = rows[rows.length - 1]!;
 
   const windowOf = (days: number): TrendWindow | null => {
-    const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000;
-    const inWindow = snapshots.filter((s) => Date.parse(s.captured_at) >= cutoff);
+    const cutoff = now.getTime() - days * DAY_MS;
+    const inWindow = rows.filter((s) => Date.parse(s.captured_at) >= cutoff);
     if (inWindow.length < 2) return null;
-    const oldest = inWindow[0]!;
+    const { base: oldest, skipped } = oldestSameQuestion(inWindow.slice(0, -1), latest);
+    if (!oldest) return null;
     // Engine deltas compare ONLY engines measured at BOTH endpoints. Engines
     // roll out incrementally (null = not measured, stripped by the client), so
     // an engine absent from one endpoint must not become a fabricated from-0
@@ -439,16 +784,25 @@ export function computeTrend(
       score_delta: changes.score_delta,
       engine_changes: changes.engine_changes,
       snapshots: inWindow.length,
+      from_captured_at: oldest.captured_at,
+      skipped_snapshots: skipped,
     };
   };
 
+  const question_note = trendQuestionNote(latest, rows.slice(0, -1), now);
   return {
     change_7d: windowOf(7),
     change_30d: windowOf(30),
-    snapshots_analyzed: snapshots.length,
+    snapshots_analyzed: rows.length,
     latest_captured_at: latest.captured_at,
-    includes_simulated: snapshots.some((s) => s.is_simulated),
+    includes_simulated: rows.some((s) => s.is_simulated),
+    ...(question_note ? { question_note } : {}),
   };
+}
+
+/** Whether the run `runId` left a measured snapshot in `snapshots` for a trend to end at. */
+export function measuredRun(snapshots: AiVisibilitySnapshot[], runId: string): boolean {
+  return snapshots.some((s) => s.run_id === runId && !s.is_simulated && measuredTheBusiness(s));
 }
 
 export function computeChanges(

@@ -4,7 +4,8 @@
  * Implemented today (maps to a live endpoint):
  *   - runAudit           → GET  /api/audit?businessUrl=&businessName=&businessCity=
  *   - getSubscription    → GET  /api/subscription           (API-key-authed tier/status)
- *   - getChanges         → GET  /api/ai-visibility-history?domain=&since= (+ computeChanges)
+ *   - getChanges         → GET  /api/ai-visibility-history?domain= (+ computeChanges)
+ *                          the whole history: `since` is applied here, not sent
  *   - trackSite          → POST /api/tracked-domains        (enroll for weekly monitoring)
  *   - listTrackedDomains → GET  /api/tracked-domains
  *   - untrackSite        → DELETE /api/tracked-domains
@@ -40,12 +41,15 @@ import type {
 } from "./types.js";
 import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
-import { computeChanges } from "./mappers.js";
-import { normalizeDomain, deriveBusinessName } from "./domain.js";
+import {
+  computeChanges, day, laterNote, measuredTheBusiness, movement, newestComparablePair, newestRecorded, unmeasuredNote,
+  newestSameQuestion, notCompared, notComparedPhrase, oldestSameQuestion, questionDifference, seriesOf, toQuestion,
+} from "./mappers.js";
+import { normalizeDomain } from "./domain.js";
 
 export interface AuditParams {
   domain: string;
-  /** Optional override; defaults to a name derived from the domain. */
+  /** Optional. Omitted, the engine identifies the business; supplied, the engine takes it as the answer. */
   businessName?: string;
   /** Optional location hint; the upstream audit auto-detects when omitted. */
   businessCity?: string;
@@ -149,8 +153,9 @@ const GROWTH_PLAN_TIMEOUT_MS = 270_000;
  * and normalises a blank to absent, so the workaround is gone.
  *
  * WHAT IT USED TO DO, AND WHY IT HAD TO GO. The old upstream check was a naive
- * `if (!businessCity)`, so this client sent `" "` to satisfy it and
- * `deriveBusinessName(host)` for the name. Both were actively harmful:
+ * `if (!businessCity)`, so this client sent `" "` to satisfy it and a name
+ * derived from the host (`deriveBusinessName`, since deleted) for the name.
+ * Both were actively harmful:
  *
  *   * A supplied business_name OVERRIDES detection upstream and is stamped
  *     `user_supplied` — the most trusted provenance there is — so a hostname
@@ -264,76 +269,114 @@ export class WaApiClient implements WaApiClientLike {
   }
 
   /**
-   * Read the domain's AI-visibility history and compute deltas. The snapshots
-   * are exactly what the server-side scheduler writes (and what a manual audit
-   * writes) into ai_visibility_snapshots, so get_changes reflects the scheduled
-   * weekly re-audits — the "value when nobody's watching" loop.
+   * Read the domain's AI-visibility history and report its latest like-for-like
+   * change. The snapshots are exactly what the server-side scheduler writes (and
+   * what a manual audit or an extension scan writes) into
+   * ai_visibility_snapshots, so get_changes reflects the scheduled weekly
+   * re-audits — the "value when nobody's watching" loop.
    *
-   * Needs at least two snapshots to compute a delta; with fewer it throws
-   * NOT_YET_AVAILABLE with a clear message rather than fabricating a change.
-   * When `since` is an ISO cursor, the delta spans that window (first vs last in
-   * range); otherwise it's the most recent move (previous vs latest).
+   * ONLY BETWEEN SNAPSHOTS THAT ASKED THE SAME QUESTION (sameQuestion in
+   * mappers.ts), over the domain's series (seriesOf). Without a `since` cursor
+   * the series' latest snapshot is compared with the most recent earlier one
+   * that asked what it asked, passing over any that asked something else; with
+   * one, with the earliest such snapshot captured since then. The result names
+   * both dates and says what was passed over or left out.
+   *
+   * It throws NOT_YET_AVAILABLE with a clear message rather than fabricating a
+   * change when there is nothing like for like to compare: fewer than two
+   * measured snapshots; a weekly series that is one measured re-audit, the
+   * oldest measured snapshot, with every newer one asking something else or
+   * recording nothing; nothing in the series since `since`; a latest snapshot
+   * that does not record what it asked; or no earlier snapshot that asked its
+   * question, reported as a re-baseline with the date and what changed, or, with
+   * `since`, as nothing like for like for it in the window. Each says what it is
+   * about, the series or the latest's question. The last two, which carry a
+   * `reason`, also give the weekly series' most recent like-for-like change
+   * before the latest, failing that the most recent among all earlier
+   * snapshots; and a refusal that leaves newer snapshots out of the series names
+   * the most recent like-for-like change among them. A `since` that does not
+   * parse is INVALID_INPUT.
+   *
+   * The result's note and every refusal also name the weekly re-audits newer
+   * than the series' latest that measured nothing of the business, whether or
+   * not they stored a score (unmeasuredNote): no comparison uses them, and
+   * unnamed, an older change reads as current. With fewer than two measured
+   * snapshots there is no series, and the refusal names those newer than the
+   * newest measured snapshot, or every one when there is none.
    */
   async getChanges(params: GetChangesParams): Promise<Changes> {
-    const url = new URL(`${this.cfg.apiBaseUrl}/api/ai-visibility-history`);
-    url.searchParams.set("domain", params.domain);
-    const windowed = Boolean(params.since && params.since !== "last_check");
-    if (windowed) url.searchParams.set("since", params.since as string);
-
-    const body = (await this.requestJson("GET", url)) as {
-      snapshots?: Array<{ score: number; by_engine: Record<string, number> }>;
-      insufficient_history?: boolean;
-    };
-
-    // Same filter its sibling getAiVisibilityHistory applies to this very
-    // endpoint, and for the reason stated there: a row with no usable score
-    // poisons the delta. Here it did worse than invent a zero — subtracting an
-    // absent score yields NaN, which JSON.stringify writes as `null` in the
-    // text content and which fails the declared output schema outright, so a
-    // successful call came back as an error naming neither.
-    const snaps = (body.snapshots ?? []).filter((s) => typeof s?.score === "number");
-    if (snaps.length < 2) {
-      throw new WaApiError(
-        "NOT_YET_AVAILABLE",
-        `Not enough AI-visibility history for ${params.domain} yet — at least two snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).`,
-      );
+    const since = params.since && params.since !== "last_check" ? params.since : undefined;
+    if (since !== undefined && Number.isNaN(Date.parse(since))) {
+      throw new WaApiError("INVALID_INPUT", 'since must be an ISO-8601 date or timestamp, or "last_check".');
     }
-
-    const current = snaps[snaps.length - 1]!;
-    // Windowed: compare against the first snapshot in range; otherwise the
-    // immediately-previous one.
-    const previous = windowed ? snaps[0]! : snaps[snaps.length - 2]!;
-    return computeChanges(
-      { score: current.score, by_engine: current.by_engine },
-      { score: previous.score, by_engine: previous.by_engine },
-    );
+    // THE WHOLE HISTORY, with the window applied below. Which snapshots form the
+    // series depends on weekly re-audits older than any window, and a history
+    // the API had already cut to the window built a different series from the
+    // one /api/monitoring-status reads.
+    //
+    // ONE READ, TWO LISTS. What is compared is the trend's rows: a row with no
+    // usable score poisons a delta. Subtracting an absent score yields NaN, which
+    // JSON.stringify writes as `null` in the text content and which fails the
+    // declared output schema outright, so a successful call came back as an error
+    // naming neither. What is named is every weekly re-audit that measured
+    // nothing, scored or not: a declined page, an invented name scoring 0 and a
+    // run no engine answered store no score, and dropped with the other unscored
+    // rows, they went unnamed and an older change read as current.
+    const history = await this.historyRows({ domain: params.domain });
+    const snaps = history.filter(scored);
+    const unmeasuredRuns = history.filter((s) => !measuredTheBusiness(s));
+    return changesInHistory(params.domain, snaps, unmeasuredRuns, since);
   }
 
   async getAiVisibilityHistory(params: { domain: string; since?: string }): Promise<AiVisibilitySnapshot[]> {
+    // Only the rows with a usable score, rather than invented zeros that would
+    // poison deltas.
+    return (await this.historyRows(params)).filter(scored);
+  }
+
+  /**
+   * The history endpoint's rows, oldest first as the server returns them, read
+   * defensively: a row without a timestamp, a null row among them, is dropped,
+   * and a row without a usable score is kept with a null one.
+   * getAiVisibilityHistory keeps the scored rows; getChanges compares only
+   * those. Of the weekly re-audits among all the rows that measured nothing of
+   * the business, scored or not, it names only those newer than the series'
+   * latest (with fewer than two measured snapshots, those newer than the newest
+   * measured snapshot, or every one when there is none). One older than the
+   * series' latest goes unnamed: a weekly 50, then a weekly re-audit that
+   * measured nothing, then a weekly 55, is up 5 with no note.
+   */
+  private async historyRows(params: { domain: string; since?: string }): Promise<HistoryRow[]> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/ai-visibility-history`);
     url.searchParams.set("domain", params.domain);
     if (params.since) url.searchParams.set("since", params.since);
 
-    const body = (await this.requestJson("GET", url)) as {
-      snapshots?: Array<{
-        captured_at?: string;
-        score?: number | null;
-        by_engine?: Record<string, number | null>;
-        is_simulated?: boolean | null;
-      }>;
+    type WireSnapshot = {
+      captured_at?: string;
+      run_id?: unknown;
+      score?: number | null;
+      by_engine?: Record<string, number | null> | null;
+      is_simulated?: boolean | null;
+      source?: unknown;
+      question?: unknown;
     };
+    const body = (await this.requestJson("GET", url)) as { snapshots?: Array<WireSnapshot | null> };
 
-    // Server returns oldest-first; drop rows without a usable score or
-    // timestamp rather than inventing zeros that would poison deltas.
     return (body.snapshots ?? [])
-      .filter((s) => typeof s.score === "number" && typeof s.captured_at === "string")
+      .filter((s): s is WireSnapshot & { captured_at: string } => typeof s?.captured_at === "string")
       .map((s) => ({
-        captured_at: s.captured_at as string,
-        score: s.score as number,
+        captured_at: s.captured_at,
+        // Which audit wrote it: how the trend finds the audit it sits under.
+        run_id: typeof s.run_id === "string" ? s.run_id : null,
+        score: typeof s.score === "number" ? s.score : null,
         by_engine: Object.fromEntries(
           Object.entries(s.by_engine ?? {}).filter(([, v]) => typeof v === "number"),
         ) as Record<string, number>,
         is_simulated: s.is_simulated === true,
+        source: typeof s.source === "string" ? s.source : null,
+        // Absent from an API that predates it, and then null: no key, so the
+        // snapshot compares with nothing rather than with everything.
+        question: toQuestion(s.question),
       }));
   }
 
@@ -730,6 +773,185 @@ function quotaResetsAt(rateLimit: unknown): string | null {
   if (typeof r.resets_at === "string") return r.resets_at;
   if (typeof r.reset === "string") return r.reset;
   return null;
+}
+
+/** A caller's `since` as a date where it parses; the API accepts anything Date.parse does. */
+function dateOf(since: string): string {
+  const t = Date.parse(since);
+  return Number.isNaN(t) ? since : new Date(t).toISOString().slice(0, 10);
+}
+
+/** A history row as the endpoint sends it: a snapshot whose score is null when the run stored none. */
+type HistoryRow = Omit<AiVisibilitySnapshot, "score"> & { score: number | null };
+
+/** Whether a history row has a usable score: only those are compared, or read by a trend. */
+function scored(row: HistoryRow): row is AiVisibilitySnapshot {
+  return row.score !== null;
+}
+
+/**
+ * The like-for-like change get_changes reports, or why there is none — see
+ * WaApiClient.getChanges. `snaps` is the scored history, oldest first, however
+ * short: the first refusal below covers fewer than two measured snapshots, and
+ * so fewer than two scored rows; `unmeasuredRuns` the history's weekly
+ * re-audits that measured nothing of the business, scored or not, which are
+ * never compared and are named only when newer than the series' latest, or,
+ * with fewer than two measured snapshots, newer than the newest measured
+ * snapshot (every one, when there is none); `since` is set exactly when the
+ * caller asked for a window.
+ */
+function changesInHistory(
+  domain: string,
+  snaps: AiVisibilitySnapshot[],
+  unmeasuredRuns: HistoryRow[],
+  since: string | undefined,
+): Changes {
+  // A simulated snapshot, or a weekly re-audit that measured nothing of the
+  // business, is no comparison point: the rule get_monitoring_status and the
+  // weekly digest already apply.
+  const rows = snaps.filter((s) => !s.is_simulated && measuredTheBusiness(s));
+  if (rows.length < 2) {
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      `Not enough AI-visibility history for ${domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).${unmeasuredNote(unmeasuredRuns, rows[rows.length - 1] ?? null)}`,
+    );
+  }
+
+  // The series' latest (seriesOf): the newest snapshot, unless newer ones asked
+  // something the weekly re-audits do not ask. /api/monitoring-status reads the
+  // same one, so the two report the same change.
+  const series = seriesOf(rows);
+  const current = series[series.length - 1]!;
+  const at = rows.indexOf(current);
+  const before = rows.slice(0, at);
+  const earlier = series.slice(0, -1);
+  const after = laterNote(rows.slice(at + 1), current);
+  // Weekly re-audits newer than the series' latest that measured nothing of the
+  // business: no comparison uses them, so they are named, and no result reads
+  // as current when the newest weekly runs measured nothing.
+  const unmeasured = unmeasuredNote(unmeasuredRuns, current);
+  const later = `${after}${unmeasured}`;
+  const on = day(current.captured_at);
+  const sinceAt = since === undefined ? undefined : Date.parse(since);
+
+  if (since !== undefined && sinceAt !== undefined && Date.parse(current.captured_at) < sinceAt) {
+    // About the series, which is all this compares: newer snapshots outside it
+    // can sit in the window, a like-for-like pair among them, and `after`
+    // names them and that change.
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      after
+        ? `No AI-visibility snapshot in the weekly series for ${domain} since ${dateOf(since)}: the series' latest is from ${on}, so the series has no change in that window.${later}`
+        : `No AI-visibility snapshot for ${domain} to compare since ${dateOf(since)}: the latest measured snapshot is from ${on}, so there is no change in that window.${unmeasured}`,
+    );
+  }
+  // What the window holds before the latest: every snapshot before it without
+  // one.
+  const inWindow = sinceAt === undefined ? before : before.filter((s) => Date.parse(s.captured_at) >= sinceAt);
+
+  if (!before.length) {
+    // Only a weekly series that is one measured re-audit, the oldest measured
+    // snapshot, gets here (seriesOf): every newer snapshot is left out of it,
+    // and `after` names them.
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      `Not enough history in the weekly series for ${domain} yet: its only measured re-audit so far, on ${on}, has no measured snapshot before it to compare with.${later}`,
+    );
+  }
+
+  // THE CHANGE THAT STILL EXISTS, for every refusal below: a caller asking what
+  // changed wants the last like-for-like change even when the latest has none.
+  // Looked for in the series first, where the weekly re-audits are.
+  const seriesPair = newestComparablePair(earlier);
+  const pair = seriesPair ?? newestComparablePair(before);
+  const previous_change = pair
+    ? {
+      from_captured_at: pair.from.captured_at,
+      to_captured_at: pair.to.captured_at,
+      score_delta: pair.to.score - pair.from.score,
+    }
+    : null;
+  // The series' pair is the most recent only among the series once snapshots
+  // outside it came before the latest too, so it is named as the series'.
+  const whose = seriesPair && before.length > earlier.length ? "The weekly series' most recent" : "The most recent";
+  const priorChange = previous_change
+    ? ` ${whose} like-for-like change before it was ${movement(previous_change.score_delta)}, `
+      + `from ${day(previous_change.from_captured_at)} to ${day(previous_change.to_captured_at)}.`
+    : "";
+  const withPrevious = previous_change ? { previous_change } : {};
+
+  if (!current.question?.key) {
+    const which = after
+      ? `The newest AI-visibility snapshot in the weekly series for ${domain}, on ${on},`
+      : `The latest AI-visibility snapshot for ${domain}, on ${on},`;
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      `${which} does not record what it asked the assistants, so it can't be compared like for like.${priorChange}${later}`,
+      { details: { reason: "question_not_recorded", ...withPrevious } },
+    );
+  }
+
+  const { base } = since ? oldestSameQuestion(inWindow, current) : newestSameQuestion(before, current);
+  if (!base) {
+    // Explained against the newest snapshot in the series that recorded its
+    // question: an audit beside the series asked something else, and the one
+    // just before may have recorded nothing. Only when none did, any that did.
+    const prior = newestRecorded(earlier) ?? newestRecorded(before);
+    const asked = prior?.question
+      ? `asked about ${questionDifference(current.question, prior.question)}, compared with the snapshot on `
+        + day(prior.captured_at)
+      : null;
+    const unrecorded = "the snapshots before it do not record what they asked";
+    // A first recorded question is no change of question: nothing earlier says
+    // what it asked.
+    const reason = asked ? "question_changed" : "earlier_not_recorded";
+    // A window can hold no match while an older snapshot outside it does, so
+    // only the unwindowed read may call this a re-baseline. When that older one
+    // exists, the refusal names it rather than a difference that is not there.
+    if (since) {
+      const outside = newestSameQuestion(before, current).base;
+      if (outside) {
+        throw new WaApiError(
+          "NOT_YET_AVAILABLE",
+          `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked; the most recent that did is from ${day(outside.captured_at)}, before the window, so there is no like-for-like change for it in the window.${priorChange}${later}`,
+          { details: { reason: "not_in_window", since, ...withPrevious } },
+        );
+      }
+      throw new WaApiError(
+        "NOT_YET_AVAILABLE",
+        `No earlier AI-visibility snapshot for ${domain} since ${dateOf(since)} asked the question the one on ${on} asked (${asked ? `that one ${asked}` : unrecorded}), so there is no like-for-like change for it in that window.${priorChange}${later}`,
+        { details: { reason, since, ...withPrevious } },
+      );
+    }
+    throw new WaApiError(
+      "NOT_YET_AVAILABLE",
+      `AI visibility for ${domain} re-baselined on ${on}: ${asked ? `that day's snapshot ${asked}, and no earlier snapshot asked the same question` : unrecorded}, so there is no like-for-like change for it yet.${priorChange}${later}`,
+      { details: { reason, rebaselined_at: current.captured_at, ...withPrevious } },
+    );
+  }
+
+  // Every snapshot between the base and the latest, or in the window before the
+  // latest: by construction none of them asked the latest's question.
+  const passedOver = notCompared(since ? inWindow : before.slice(before.indexOf(base) + 1), current);
+  const skipped = passedOver.different + passedOver.unrecorded;
+  const result: Changes = {
+    ...computeChanges(
+      { score: current.score, by_engine: current.by_engine },
+      { score: base.score, by_engine: base.by_engine },
+    ),
+    from_captured_at: base.captured_at,
+    to_captured_at: current.captured_at,
+    skipped_snapshots: skipped,
+  };
+  const notes: string[] = [];
+  if (skipped > 0) {
+    notes.push(since
+      ? `Compared with ${day(base.captured_at)}, the earliest snapshot in the window that asked the same question as the one on ${on}; in the window but not compared: ${notComparedPhrase(passedOver)}.`
+      : `Compared with ${day(base.captured_at)}, the most recent snapshot that asked the same question; passed over in between: ${notComparedPhrase(passedOver)}.`);
+  }
+  if (later) notes.push(later.trim());
+  if (notes.length) result.note = notes.join(" ");
+  return result;
 }
 
 /** Coerce a value to a finite number, defaulting to 0 (used for numeric fields). */

@@ -68,12 +68,22 @@ describe("get_ai_visibility [Subscription]", () => {
 
 describe("get_ai_visibility trend", () => {
   const snaps = (specs: Array<[string, number]>) =>
-    specs.map(([captured_at, score]) => ({
+    specs.map(([captured_at, score], i) => ({
       captured_at,
+      // The newest is the audit just run (runAudit's mock run): the trend ends at its snapshot.
+      run_id: i === specs.length - 1 ? "abc123def456" : `earlier-${i}`,
       score,
       by_engine: { chatgpt: score, perplexity: score, claude: score, gemini: score },
       is_simulated: false,
+      // One question throughout: the trend compares only snapshots that asked the same one.
+      question: {
+        key: "q-example", business_name: "Example", name_source: "detected",
+        business_location: "", market_scope: "global", queries: ["best example"],
+      },
     }));
+  // snaps() scores every engine as the whole, so every engine moves with it.
+  const everyEngine = (from: number, to: number) =>
+    ["chatgpt", "perplexity", "claude", "gemini"].map((engine) => ({ engine, from, to, delta: to - from }));
 
   it("subscriber with history -> trend windows computed, audit result untouched", async () => {
     const now = Date.now();
@@ -109,7 +119,28 @@ describe("get_ai_visibility trend", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.trend).toBeNull();
-    expect(res.data.trend_note).toContain("at least two snapshots");
+    expect(res.data.trend_note).toContain("at least two measured snapshots");
+  });
+
+  it("a change of question leaves no trend, and the note says when and what", async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const [before, after] = snaps([
+      [new Date(now - 6 * day).toISOString(), 40],
+      [new Date(now - day).toISOString(), 90],
+    ]);
+    const renamed = { ...after!, question: { ...after!.question, key: "q-roasters", business_name: "Example Roasters" } };
+    const getAiVisibilityHistory = vi.fn(async () => [before!, renamed]);
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend!.change_7d).toBeNull();
+    expect(res.data.trend!.change_30d).toBeNull();
+    expect(res.data.trend!.question_note).toMatch(
+      /^No earlier snapshot asked the question the latest one, on \d{4}-\d{2}-\d{2}, asked\. It asked about the business name "Example Roasters" rather than "Example"/);
   });
 
   it("history endpoint failure never fails the tool -> trend null + soft note", async () => {
@@ -125,6 +156,126 @@ describe("get_ai_visibility trend", () => {
     expect(res.data.score).toBe(62);
     expect(res.data.trend).toBeNull();
     expect(res.data.trend_note).toContain("could not be loaded");
+  });
+
+  it("an audit that stored no measured snapshot gets no trend, however much history there is", async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 20 * day).toISOString(), 40],
+      [new Date(now - 5 * day).toISOString(), 50],
+      [new Date(now - 1 * day).toISOString(), 60],
+    ]);
+    const last = history.length - 1;
+    // No score stored: the client drops the audit's row, so the newest is another audit's.
+    const unscored = history.map((s, i) => (i === last ? { ...s, run_id: "another-audit" } : s));
+    // Simulated: the row is there, and measured nothing.
+    const simulated = history.map((s, i) => (i === last ? { ...s, is_simulated: true } : s));
+    for (const snapshots of [unscored, simulated]) {
+      const res = await getAiVisibility(
+        { domain: "example.com" },
+        makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => snapshots) } }),
+      );
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.data.trend).toBeNull();
+      expect(res.data.trend_note).toMatch(/^No trend for this audit: it stored no measured AI-visibility snapshot/);
+    }
+  });
+
+  it("an audit that scored 0 stored a measured snapshot, and gets its trend", async () => {
+    // A zero is a score. Read as none, this audit would get the note for one that stored no measured snapshot,
+    // and a window would drop each engine's 0 from its change, or publish the 0 it ends at as null, which the
+    // declared output schema refuses.
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 20 * day).toISOString(), 40],
+      [new Date(now - 5 * day).toISOString(), 50],
+      [new Date(now - 1 * day).toISOString(), 0],
+    ]);
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => history) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend_note).toBeUndefined();
+    expect(res.data.trend!.change_7d!.score_delta).toBe(-50); // 0 vs 50
+    expect(res.data.trend!.change_7d!.from_score).toBe(50);
+    expect(res.data.trend!.change_7d!.to_score).toBe(0);
+    expect(res.data.trend!.change_7d!.engine_changes).toEqual(everyEngine(50, 0));
+    expect(res.data.trend!.change_30d!.score_delta).toBe(-40); // 0 vs 40
+    expect(res.data.trend!.change_30d!.from_score).toBe(40);
+    expect(res.data.trend!.change_30d!.to_score).toBe(0);
+  });
+
+  it("a window that starts at a snapshot that scored 0 reports the rise from it, every engine's included", async () => {
+    // The other end of a window. Read as none, an engine's 0 at the oldest snapshot would drop it from the change,
+    // and the 0 the window starts at would be published as null.
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 20 * day).toISOString(), 40],
+      [new Date(now - 5 * day).toISOString(), 0],
+      [new Date(now - 1 * day).toISOString(), 50],
+    ]);
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => history) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend!.change_7d!.score_delta).toBe(50); // 50 vs 0
+    expect(res.data.trend!.change_7d!.from_score).toBe(0);
+    expect(res.data.trend!.change_7d!.to_score).toBe(50);
+    expect(res.data.trend!.change_7d!.engine_changes).toEqual(everyEngine(0, 50));
+  });
+
+  it("an earlier snapshot that scored 0 is one of the two measured snapshots a trend needs", async () => {
+    // An earlier audit that scored 0, then this one. Counted as fewer than two measured snapshots, the rise from the
+    // 0 would get the note for a domain without enough history.
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 5 * day).toISOString(), 0],
+      [new Date(now - 1 * day).toISOString(), 55],
+    ]);
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => history) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend_note).toBeUndefined();
+    expect(res.data.trend!.snapshots_analyzed).toBe(2);
+    expect(res.data.trend!.change_7d!.score_delta).toBe(55); // 55 vs 0
+    expect(res.data.trend!.change_7d!.from_score).toBe(0);
+    expect(res.data.trend!.change_7d!.to_score).toBe(55);
+    expect(res.data.trend!.change_7d!.engine_changes).toEqual(everyEngine(0, 55));
+    expect(res.data.trend!.change_30d!.score_delta).toBe(55);
+  });
+
+  it("the trend ends at this audit's snapshot, not a newer one", async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 20 * day).toISOString(), 40],
+      [new Date(now - 5 * day).toISOString(), 50],
+      [new Date(now - 2 * day).toISOString(), 60],
+    ]);
+    const newer = {
+      ...history[1]!, run_id: "a-weekly-re-audit", captured_at: new Date(now - day).toISOString(), score: 99,
+      by_engine: { chatgpt: 99, perplexity: 99, claude: 99, gemini: 99 },
+    };
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => [...history, newer]) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend!.latest_captured_at).toBe(history[2]!.captured_at);
+    expect(res.data.trend!.change_7d!.score_delta).toBe(10);
   });
 });
 
