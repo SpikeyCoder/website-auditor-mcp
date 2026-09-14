@@ -185,7 +185,8 @@ describe("get_ai_visibility trend", () => {
 
   it("an audit that scored 0 stored a measured snapshot, and gets its trend", async () => {
     // A zero is a score. Read as none, this audit would get the note for one that stored no measured snapshot,
-    // and a window would drop each engine's 0 from its change.
+    // and a window would drop each engine's 0 from its change, or publish the 0 it ends at as null, which the
+    // declared output schema refuses.
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
     const history = snaps([
@@ -201,12 +202,17 @@ describe("get_ai_visibility trend", () => {
     if (!res.ok) return;
     expect(res.data.trend_note).toBeUndefined();
     expect(res.data.trend!.change_7d!.score_delta).toBe(-50); // 0 vs 50
+    expect(res.data.trend!.change_7d!.from_score).toBe(50);
+    expect(res.data.trend!.change_7d!.to_score).toBe(0);
     expect(res.data.trend!.change_7d!.engine_changes).toEqual(everyEngine(50, 0));
     expect(res.data.trend!.change_30d!.score_delta).toBe(-40); // 0 vs 40
+    expect(res.data.trend!.change_30d!.from_score).toBe(40);
+    expect(res.data.trend!.change_30d!.to_score).toBe(0);
   });
 
   it("a window that starts at a snapshot that scored 0 reports the rise from it, every engine's included", async () => {
-    // The other end of a window. Read as none, an engine's 0 at the oldest snapshot would drop it from the change.
+    // The other end of a window. Read as none, an engine's 0 at the oldest snapshot would drop it from the change,
+    // and the 0 the window starts at would be published as null.
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
     const history = snaps([
@@ -221,7 +227,33 @@ describe("get_ai_visibility trend", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.trend!.change_7d!.score_delta).toBe(50); // 50 vs 0
+    expect(res.data.trend!.change_7d!.from_score).toBe(0);
+    expect(res.data.trend!.change_7d!.to_score).toBe(50);
     expect(res.data.trend!.change_7d!.engine_changes).toEqual(everyEngine(0, 50));
+  });
+
+  it("an earlier snapshot that scored 0 is one of the two measured snapshots a trend needs", async () => {
+    // An earlier audit that scored 0, then this one. Counted as fewer than two measured snapshots, the rise from the
+    // 0 would get the note for a domain without enough history.
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const history = snaps([
+      [new Date(now - 5 * day).toISOString(), 0],
+      [new Date(now - 1 * day).toISOString(), 55],
+    ]);
+    const res = await getAiVisibility(
+      { domain: "example.com" },
+      makeDeps({ tier: "pro", client: { getAiVisibilityHistory: vi.fn(async () => history) } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.trend_note).toBeUndefined();
+    expect(res.data.trend!.snapshots_analyzed).toBe(2);
+    expect(res.data.trend!.change_7d!.score_delta).toBe(55); // 55 vs 0
+    expect(res.data.trend!.change_7d!.from_score).toBe(0);
+    expect(res.data.trend!.change_7d!.to_score).toBe(55);
+    expect(res.data.trend!.change_7d!.engine_changes).toEqual(everyEngine(0, 55));
+    expect(res.data.trend!.change_30d!.score_delta).toBe(55);
   });
 
   it("the trend ends at this audit's snapshot, not a newer one", async () => {

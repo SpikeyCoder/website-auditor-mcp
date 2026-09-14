@@ -737,6 +737,17 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
         + '"Honolulu, HI" rather than none.');
     }
 
+    // Two of them that asked the same question and scored the same: the change among them is still named, as unchanged.
+    const unchanged = await clientFor([
+      weekly("2026-08-24T09:00:00Z", 50), weekly("2026-08-31T09:00:00Z", 55),
+      byHand("2026-09-02T12:00:00Z", 70, ELSEWHERE), byHand("2026-09-03T12:00:00Z", 70, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" });
+    expect(unchanged.score_delta).toBe(5);
+    expect(unchanged.note).toBe(
+      "Left out as not part of the weekly series: 2 snapshots that asked a different question, newer than 2026-08-31. "
+      + 'The newest of them that records its question, on 2026-09-03, asked about the market "Honolulu, HI" rather '
+      + "than none. The most recent like-for-like change among them was unchanged, from 2026-09-02 to 2026-09-03.");
+
     // The weekly re-audit itself asking something new does start the series again.
     const moved = await failure(clientFor([...series, weekly("2026-09-15T09:00:00Z", 20, ELSEWHERE)])
       .getChanges({ domain: "example.com" }));
@@ -1112,6 +1123,24 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       "The latest AI-visibility snapshot for example.com, on 2026-09-15, does not record what it asked the "
       + "assistants, so it can't be compared like for like. The most recent like-for-like change before it was "
       + "down 10, from 2026-09-01 to 2026-09-08.");
+  });
+
+  it("gives a like-for-like change of 0 before a re-baseline as unchanged, in the message and in details", async () => {
+    // A change of 0 is a change. Read as none, the refusal would say nothing of the weekly re-audits' last comparison,
+    // and its details would drop it.
+    const error = await failure(clientFor([
+      weekly("2026-08-24T09:00:00Z", 40), weekly("2026-08-31T09:00:00Z", 40), weekly("2026-09-07T09:00:00Z", 55, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error.details).toEqual({
+      reason: "question_changed",
+      rebaselined_at: "2026-09-07T09:00:00Z",
+      previous_change: { from_captured_at: "2026-08-24T09:00:00Z", to_captured_at: "2026-08-31T09:00:00Z", score_delta: 0 },
+    });
+    expect(error.message).toBe(
+      "AI visibility for example.com re-baselined on 2026-09-07: that day's snapshot asked about the market "
+      + '"Honolulu, HI" rather than none, compared with the snapshot on 2026-08-31, and no earlier snapshot asked the '
+      + "same question, so there is no like-for-like change for it yet. The most recent like-for-like change before "
+      + "it was unchanged, from 2026-08-24 to 2026-08-31.");
   });
 
   it("takes a later audit of the weekly question past a weekly re-audit that recorded nothing", async () => {
@@ -1518,6 +1547,27 @@ describe("WaApiClient.getChanges — snapshots without a usable score", () => {
     expect(changes.from_captured_at).toBe("2026-08-31T09:00:00Z");
     expect(changes.to_captured_at).toBe("2026-09-07T09:00:00Z");
     expect(changes.engine_changes).toEqual([{ engine: "chatgpt", from: 55, to: 0, delta: -55 }]);
+    expect(changes).not.toHaveProperty("note");
+  });
+
+  it("compares from an earlier real score of zero, every engine's rise from it included", async () => {
+    // The other side of a change. Read as none, the 0 would leave too few measured snapshots to compare, or be passed
+    // over as the base, and the rise from it would go unreported.
+    const fetchImpl = makeFetch(200, {
+      snapshots: [
+        { captured_at: "2026-08-24T09:00:00Z", score: 0, by_engine: { chatgpt: 0, claude: 0 }, source: "scheduled", question: ASKED },
+        { captured_at: "2026-08-31T09:00:00Z", score: 55, by_engine: { chatgpt: 55, claude: 55 }, source: "scheduled", question: ASKED },
+      ],
+    });
+    const client = new WaApiClient(cfg, { fetch: fetchImpl as unknown as typeof fetch });
+    const changes = await client.getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(55);
+    expect(changes.from_captured_at).toBe("2026-08-24T09:00:00Z");
+    expect(changes.to_captured_at).toBe("2026-08-31T09:00:00Z");
+    expect(changes.engine_changes).toEqual([
+      { engine: "chatgpt", from: 0, to: 55, delta: 55 },
+      { engine: "claude", from: 0, to: 55, delta: 55 },
+    ]);
     expect(changes).not.toHaveProperty("note");
   });
 });

@@ -26,6 +26,9 @@ import { makeDeps, errorPayload } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
 import { PRICE } from "../../src/tools/upgrade.js";
 
+/** The run richClient's runAudit returns, so the snapshot get_ai_visibility's trend ends at. */
+const AUDITED_RUN = "abc123def456";
+
 /**
  * Overrides for the endpoints whose defaults are empty or throw.
  *
@@ -48,8 +51,12 @@ const richClient = {
     skipped_snapshots: 1,
     note: "Compared with 2026-08-13, the most recent snapshot that asked the same question; passed over in between: 1 snapshot that asked a different question.",
   }),
-  // A series whose trend carries the same-question fields in a window and a
-  // question note, so get_ai_visibility's `trend` is validated populated.
+  // A series whose trend fills both windows, the 30-day one passing over an
+  // audit in another market, and carries a question note, so get_ai_visibility's
+  // `trend` is validated populated. The trend ends at the snapshot of the run the
+  // audit returned, so every row carries its run's id, as the real history does,
+  // and the newest is AUDITED_RUN's: without that, the trend is null, and a null
+  // is all the schema is shown. The test after the loop below holds this true.
   getAiVisibilityHistory: async () => {
     const asked = {
       key: "q-example", business_name: "Example", name_source: "detected",
@@ -57,10 +64,13 @@ const richClient = {
     };
     const elsewhere = { ...asked, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best example in Honolulu, HI"] };
     const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = (n: number, run_id: string, score: number, source: string | null, question: typeof asked) =>
+      ({ captured_at: daysAgo(n), run_id, score, by_engine: { chatgpt: score }, is_simulated: false, source, question });
     return [
-      { captured_at: daysAgo(20), score: 40, by_engine: { chatgpt: 40 }, is_simulated: false, source: "scheduled", question: asked },
-      { captured_at: daysAgo(10), score: 90, by_engine: { chatgpt: 90 }, is_simulated: false, source: null, question: elsewhere },
-      { captured_at: daysAgo(1), score: 57, by_engine: { chatgpt: 57 }, is_simulated: false, source: "scheduled", question: asked },
+      snapshot(20, "weekly-run-1", 40, "scheduled", asked),
+      snapshot(10, "honolulu-audit-run", 90, null, elsewhere),
+      snapshot(4, "weekly-run-2", 50, "scheduled", asked),
+      snapshot(1, AUDITED_RUN, 57, null, asked),
     ];
   },
   compareCompetitors: async () => ({
@@ -182,7 +192,7 @@ const richClient = {
     ],
   }),
   getSubscription: async () => ({ tier: "pro" as const, status: "active" }),
-  runAudit: async () => ({ runId: "abc123def456", report: reachableReport(), raw: {} }),
+  runAudit: async () => ({ runId: AUDITED_RUN, report: reachableReport(), raw: {} }),
 };
 
 /** The arguments each tool needs to reach a SUCCESS result. */
@@ -296,6 +306,66 @@ describe("declared output schemas", () => {
       ).toBeNull();
     });
   }
+
+  /**
+   * The trend that loop validates for get_ai_visibility is a filled-in one.
+   *
+   * A null trend satisfies its nullable schema and proves nothing about the
+   * shape behind it, and a null is what the loop validated while richClient's
+   * history carried no run id for the trend to end at. This holds the comment
+   * on richClient's history to what it says.
+   */
+  it("get_ai_visibility's trend reaches the caller filled in, both windows and its question note included", async () => {
+    const client = await connect();
+    const result = await client.callTool({ name: "get_ai_visibility", arguments: ARGS.get_ai_visibility });
+    expect(result.isError, JSON.stringify(result).slice(0, 300)).toBeFalsy();
+    const content = result.structuredContent as {
+      trend: { change_7d: unknown; change_30d: unknown; question_note?: unknown } | null;
+      trend_note?: string;
+    };
+    expect(content.trend_note).toBeUndefined();
+    expect(content.trend).not.toBeNull();
+    expect(content.trend!.change_7d).toMatchObject({ skipped_snapshots: 0 });
+    // The 30-day window passes over the audit in another market.
+    expect(content.trend!.change_30d).toMatchObject({ skipped_snapshots: 1 });
+    expect(content.trend!.question_note).toEqual(expect.any(String));
+  });
+
+  /**
+   * A trend window that starts or ends at 0, through the same armed path.
+   *
+   * from_score and to_score are declared numbers, so a 0 published as null
+   * fails the declared schema, and the successful call arrives as an
+   * "Output validation error" instead. richClient cannot show that: none of
+   * its scores is 0.
+   */
+  it("get_ai_visibility's trend window at 0, at either end, passes its own schema", async () => {
+    const asked = {
+      key: "q-example", business_name: "Example", name_source: "detected",
+      business_location: "", market_scope: "global", queries: ["best example"],
+    };
+    const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+    // The newest is AUDITED_RUN's snapshot, the run richClient's runAudit returns, so the trend ends at it.
+    const snapshot = (n: number, score: number, run_id: string) => ({
+      captured_at: daysAgo(n), run_id, score, by_engine: { chatgpt: score }, is_simulated: false, source: "scheduled",
+      question: asked,
+    });
+    for (const [from, to] of [[0, 55], [55, 0]] as const) {
+      const client = await connect(makeDeps({
+        tier: "pro",
+        client: {
+          ...richClient,
+          getAiVisibilityHistory: async () => [snapshot(5, from, "an-earlier-run"), snapshot(1, to, AUDITED_RUN)],
+        },
+      }));
+      const result = await client.callTool({ name: "get_ai_visibility", arguments: ARGS.get_ai_visibility });
+      const text = JSON.stringify(result);
+      expect(text, `${from} to ${to} failed output validation`).not.toContain("Output validation error");
+      expect(result.isError, `${from} to ${to}: ${text.slice(0, 300)}`).toBeFalsy();
+      const trend = (result.structuredContent as { trend: { change_7d: unknown } | null }).trend;
+      expect(trend?.change_7d, `${from} to ${to}`).toMatchObject({ from_score: from, to_score: to, score_delta: to - from });
+    }
+  });
 
   /**
    * The cards reach the wire, under a validator that is armed.
