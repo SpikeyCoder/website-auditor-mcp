@@ -61,6 +61,20 @@ describe("tool registry", () => {
     expect(tool.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor (moves|changes)|(new|resolved) issues|overtake/i);
   });
 
+  it("does not tell an agent that get_changes requires the domain to be tracked", () => {
+    // The endpoint behind this tool (website-auditor-api's getAiVisibilityHistory)
+    // reads the caller's own snapshots for the domain — keyed by user and domain
+    // only, with no tracked-domains check — and snapshots accrue from any audit,
+    // so two audits of an untracked domain already answer a change question.
+    // A description that demanded tracking would either suppress that answer or
+    // make an agent spend one of only five monitoring slots (track_site) to get
+    // it, neither of which the API asks for.
+    const tool = P0_TOOLS.find((t) => t.name === "get_changes")!;
+    expect(tool.description).not.toMatch(/requires? the domain to be tracked/i);
+    expect(tool.description).toContain("The domain need not be tracked");
+    expect(tool.description).toContain("do not track a site just to answer a change question");
+  });
+
   it("keeps the verbatim compare_competitors copy but appends quota guidance for agents", () => {
     const compare = P0_TOOLS.find((t) => t.name === "compare_competitors")!;
     // Original listing-doc opening is preserved (agents still match on it)...
