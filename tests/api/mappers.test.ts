@@ -319,6 +319,77 @@ describe("computeChanges (delta logic, ready for the pending endpoint)", () => {
   });
 });
 
+describe("computeChanges: the overall only compares like with like", () => {
+  // The digest's rule (website-auditor-api src/services/digest.js,
+  // detectMeaningfulChange): an overall is averaged over the engines that
+  // answered, so when an engine goes silent or rolls out the denominator
+  // changes and the overall moves with nothing else moving. The pull
+  // surfaces used to subtract it regardless — a ChatGPT outage week read as
+  // "down 15" with no engine line to explain it.
+  it("refuses the overall when a different set of engines answered, and names them", () => {
+    const changes = computeChanges(
+      { score: 45, by_engine: { chatgpt: 45, perplexity: 45, claude: null, gemini: 45 } },
+      { score: 60, by_engine: { chatgpt: 60, perplexity: 60, claude: 60, gemini: 60 } },
+    );
+    expect(changes.score_delta).toBeNull();
+    expect(changes.overall_note).toBe(
+      "The overall score is not compared: ChatGPT, Perplexity, Claude and Gemini answered the earlier snapshot and "
+      + "ChatGPT, Perplexity and Gemini the later one, so the two scores were each computed over a different set of "
+      + "engines. Engines that answered both are still compared one by one.");
+  });
+
+  it("reports the engine deltas beside a refused overall: that is where the real signal is", () => {
+    const changes = computeChanges(
+      { score: 45, by_engine: { chatgpt: 55, perplexity: 45, claude: null, gemini: 45 } },
+      { score: 60, by_engine: { chatgpt: 60, perplexity: 60, claude: 60, gemini: 45 } },
+    );
+    expect(changes.score_delta).toBeNull();
+    expect(changes.engine_changes).toEqual([
+      { engine: "chatgpt", from: 60, to: 55, delta: -5 },
+      { engine: "perplexity", from: 60, to: 45, delta: -15 },
+    ]);
+  });
+
+  it("an engine missing as a key is the same silence: the history read drops unanswered engines", () => {
+    const changes = computeChanges(
+      { score: 45, by_engine: { chatgpt: 45, perplexity: 45, gemini: 45 } },
+      { score: 60, by_engine: { chatgpt: 60, perplexity: 60, claude: 60, gemini: 60 } },
+    );
+    expect(changes.score_delta).toBeNull();
+    expect(changes.overall_note).toContain("Perplexity, Claude and Gemini answered the earlier snapshot");
+    expect(changes.overall_note).toContain("ChatGPT, Perplexity and Gemini the later one");
+  });
+
+  it("an engine that rolled out is a different set too, in the other direction", () => {
+    const changes = computeChanges(
+      { score: 45, by_engine: { chatgpt: 45, perplexity: 45, claude: 45, gemini: 45 } },
+      { score: 50, by_engine: { chatgpt: 50, perplexity: 50, claude: 50 } },
+    );
+    expect(changes.score_delta).toBeNull();
+    expect(changes.overall_note).toContain(
+      "ChatGPT, Perplexity and Claude answered the earlier snapshot and ChatGPT, Perplexity, Claude and Gemini the later one",
+    );
+  });
+
+  it("the same engines answered -> the overall is subtracted and no note is present", () => {
+    // Claude null on BOTH sides is one answering set, not a change of it.
+    const changes = computeChanges(
+      { score: 45, by_engine: { chatgpt: 45, perplexity: 45, claude: null, gemini: 45 } },
+      { score: 60, by_engine: { chatgpt: 60, perplexity: 60, claude: null, gemini: 60 } },
+    );
+    expect(changes.score_delta).toBe(-15);
+    expect(changes).not.toHaveProperty("overall_note");
+  });
+
+  it("two snapshots no engine answered still compare, as in the digest", () => {
+    // Legacy rows can carry a score with no engine scores at all. The digest
+    // compares the empty set with the empty set; so does this.
+    const changes = computeChanges({ score: 60, by_engine: {} }, { score: 50, by_engine: {} });
+    expect(changes.score_delta).toBe(10);
+    expect(changes).not.toHaveProperty("overall_note");
+  });
+});
+
 describe("computeTrend — 7/30-day windows over a snapshot series", () => {
   const NOW = new Date("2026-07-26T12:00:00Z");
   const at = (daysAgo: number) => new Date(NOW.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
@@ -370,6 +441,34 @@ describe("computeTrend — 7/30-day windows over a snapshot series", () => {
     // perplexity became unmeasured -> must not fabricate a drop either.
     expect(engines).toEqual(["chatgpt"]);
     expect(trend.change_7d!.engine_changes[0]).toEqual({ engine: "chatgpt", from: 50, to: 60, delta: 10 });
+  });
+
+  it("a window whose endpoints different engines answered has no overall, and says which engines answered", () => {
+    // The endpoints of the test above, read on the overall: perplexity
+    // answered the earlier snapshot and gemini the later one, so 60 - 50 = 10
+    // would have reported a rollout as a rise. The window used to intersect
+    // the engine maps before subtracting, which made the sets LOOK equal and
+    // kept the overall delta in place.
+    const oldest = { captured_at: at(5), score: 50, by_engine: { chatgpt: 50, perplexity: 45 }, is_simulated: false, question: ASKED };
+    const latest = { captured_at: at(1), score: 60, by_engine: { chatgpt: 60, gemini: 60 }, is_simulated: false, question: ASKED };
+    const trend = computeTrend([oldest, latest], NOW)!;
+    expect(trend.change_7d!.score_delta).toBeNull();
+    expect(trend.change_7d!.overall_note).toBe(
+      "The overall score is not compared: ChatGPT and Perplexity answered the earlier snapshot and ChatGPT and Gemini "
+      + "the later one, so the two scores were each computed over a different set of engines. Engines that answered both "
+      + "are still compared one by one.");
+    // The scores the window spans still stand, and so do the shared engines' deltas.
+    expect(trend.change_7d!.from_score).toBe(50);
+    expect(trend.change_7d!.to_score).toBe(60);
+    expect(trend.change_7d!.engine_changes).toEqual([{ engine: "chatgpt", from: 50, to: 60, delta: 10 }]);
+  });
+
+  it("a window whose endpoints the same engines answered keeps its overall and no note", () => {
+    const oldest = { captured_at: at(5), score: 50, by_engine: { chatgpt: 50 }, is_simulated: false, question: ASKED };
+    const latest = { captured_at: at(1), score: 60, by_engine: { chatgpt: 60 }, is_simulated: false, question: ASKED };
+    const trend = computeTrend([oldest, latest], NOW)!;
+    expect(trend.change_7d!.score_delta).toBe(10);
+    expect(trend.change_7d).not.toHaveProperty("overall_note");
   });
 
   it("leaves simulated snapshots out: they measured nothing to move from", () => {

@@ -270,8 +270,41 @@ describe("declared output schemas", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const schema: any = tools.find((t) => t.name === "get_changes")!.outputSchema;
     expect(schema.properties.note.description).toBe(
-      "Present when skipped_snapshots is above 0, when newer measured snapshots were left out of the series, or when "
-      + "newer weekly re-audits measured nothing of the business: which, and why, in words. Relay it.");
+      "Present when skipped_snapshots is above 0, when the two snapshots compared were answered by different "
+      + "engines, when newer measured snapshots were left out of the series, or when newer weekly re-audits measured "
+      + "nothing of the business: which, and why, in words. Relay it.");
+  });
+
+  it("accepts a change different engines answered: null overall, engine deltas, and the note that says why", async () => {
+    // The rule's whole output shape, validated against the published schemas:
+    // a null score_delta, an overall_note beside it, and the engine changes
+    // that are the real signal. A schema that still required a number would
+    // turn every engine-set refusal into an output-validation error.
+    const changes = {
+      score_delta: null,
+      engine_changes: [{ engine: "chatgpt", from: 40, to: 50, delta: 10 }],
+      competitor_changes: [],
+      new_issues: [],
+      resolved_issues: [],
+      from_captured_at: "2026-09-01T09:00:00Z",
+      to_captured_at: "2026-09-08T09:00:00Z",
+      overall_note: "The overall score is not compared: ChatGPT and Claude answered the earlier snapshot and ChatGPT "
+        + "the later one, so the two scores were each computed over a different set of engines. Engines that answered "
+        + "both are still compared one by one.",
+    };
+    expect(z.object(OUTPUT_SCHEMAS.get_changes).safeParse(changes).success).toBe(true);
+
+    // A trend window carries the same shape; its schema is not exported on its
+    // own, so it is reached through the tool's own trend schema.
+    const trend = z.object(OUTPUT_SCHEMAS.get_ai_visibility).shape.trend;
+    const window = trend.unwrap().shape.change_7d.unwrap();
+    expect(window.safeParse({
+      ...changes,
+      window_days: 7,
+      from_score: 40,
+      to_score: 50,
+      snapshots: 2,
+    }).success).toBe(true);
   });
 
   it("every served tool declares one", () => {

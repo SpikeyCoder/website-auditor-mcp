@@ -353,6 +353,88 @@ describe("get_monitoring_status: a change only between snapshots that asked the 
   });
 });
 
+describe("get_monitoring_status: a change whose snapshots different engines answered", () => {
+  // The digest refuses the overall for this (digest.js detectMeaningfulChange);
+  // the status pull used to render it anyway, as "up 20" from an overall the
+  // denominator of which changed. A snapshot here is the shared helper's but
+  // with a claude-less week: nulls are how the monitoring path marks silence.
+  const site = (over: Record<string, unknown>) => ({
+    domain: "example.com",
+    cadence: "weekly",
+    active: true,
+    last_audited_at: "2026-09-08T09:00:00Z",
+    next_run_at: "2026-09-15T09:00:00Z",
+    snapshots_count: 3,
+    ...over,
+  });
+  const run = async (s: Record<string, unknown>) => {
+    const statusFn = vi.fn(async () => ({ limit: 5, used: 1, remaining: 4, sites: [s] }));
+    const res = await getMonitoringStatus({}, makeDeps({ tier: "pro", client: { getMonitoringStatus: statusFn } }));
+    if (!res.ok) throw new Error(`expected a result, got ${res.error.code}`);
+    return res.data.sites[0]!;
+  };
+
+  it("shows the per-engine changes only, and says which engines answered each snapshot", async () => {
+    const out = await run(site({
+      latest: {
+        score: 70, by_engine: { chatgpt: 70, perplexity: 70, claude: null, gemini: 70 },
+        captured_at: "2026-09-08T09:00:00Z", is_simulated: false, question: ASKED,
+      },
+      previous: snapshot(50, "2026-09-01T09:00:00Z"),
+    }));
+    expect(out.change!.score_delta).toBeNull(); // not 20: claude answered only the earlier snapshot
+    expect(out.change!.from_captured_at).toBe("2026-09-01T09:00:00Z");
+    expect(out.change!.to_captured_at).toBe("2026-09-08T09:00:00Z");
+    expect(out.change!.overall_note).toBe(
+      "The overall score is not compared: ChatGPT, Perplexity, Claude and Gemini answered the earlier snapshot and "
+      + "ChatGPT, Perplexity and Gemini the later one, so the two scores were each computed over a different set of "
+      + "engines. Engines that answered both are still compared one by one.");
+    expect(out.change!.engine_changes).toEqual([
+      { engine: "chatgpt", from: 50, to: 70, delta: 20 },
+      { engine: "perplexity", from: 50, to: 70, delta: 20 },
+      { engine: "gemini", from: 50, to: 70, delta: 20 },
+    ]);
+    expect(out.summary).toBe("example.com: AI visibility 70/100 (per-engine changes only since 2026-09-01).");
+    expect(out.note).toBe(out.change!.overall_note);
+  });
+
+  it("joins the engine difference with what it passed over, when both apply", async () => {
+    const out = await run(site({
+      latest: {
+        score: 70, by_engine: { chatgpt: 70, perplexity: 70, claude: null, gemini: 70 },
+        captured_at: "2026-09-08T09:00:00Z", is_simulated: false, question: ASKED,
+      },
+      previous: snapshot(50, "2026-09-01T09:00:00Z"),
+      comparison: { status: "compared", skipped_snapshots: 1 },
+    }));
+    expect(out.change!.score_delta).toBeNull();
+    expect(out.change!.skipped_snapshots).toBe(1);
+    expect(out.note).toBe(
+      "The overall score is not compared: ChatGPT, Perplexity, Claude and Gemini answered the earlier snapshot and "
+      + "ChatGPT, Perplexity and Gemini the later one, so the two scores were each computed over a different set of "
+      + "engines. Engines that answered both are still compared one by one. "
+      + "Compared with 2026-09-01, the most recent snapshot that asked the same question; passed over in between: "
+      + "1 snapshot that asked a different question or did not record what was asked.");
+  });
+
+  it("an engine silent on both sides is not a change of engines, and the overall stands", async () => {
+    const out = await run(site({
+      latest: {
+        score: 70, by_engine: { chatgpt: 70, perplexity: 70, claude: null, gemini: 70 },
+        captured_at: "2026-09-08T09:00:00Z", is_simulated: false, question: ASKED,
+      },
+      previous: {
+        score: 50, by_engine: { chatgpt: 50, perplexity: 50, claude: null, gemini: 50 },
+        captured_at: "2026-09-01T09:00:00Z", is_simulated: false, question: ASKED,
+      },
+    }));
+    expect(out.change!.score_delta).toBe(20);
+    expect(out.change).not.toHaveProperty("overall_note");
+    expect(out.summary).toBe("example.com: AI visibility 70/100 (up 20 since 2026-09-01).");
+    expect(out.note).toBeUndefined();
+  });
+});
+
 describe("get_monitoring_status: a score of 0 is a score", () => {
   // A 0 here is a measurement: the assistants answered and none named the
   // business. The API stores no score for a declined page, an invented name
