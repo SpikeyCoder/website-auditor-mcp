@@ -31,7 +31,8 @@ describe("tool registry", () => {
   });
 
   it("describes get_changes by what it computes", () => {
-    // computeChanges skips an engine measured on one side only and fills no
+    // computeChanges skips an engine measured on one side only, refuses the
+    // overall when different engines answered the two snapshots, and fills no
     // competitor or issue list, so the description promises none of them, and
     // sends no question about competitors here: compare_competitors answers it.
     const changes = computeChanges(
@@ -39,17 +40,23 @@ describe("tool registry", () => {
       { score: 40, by_engine: { chatgpt: 50, claude: 30 } },
     );
     expect(changes).toEqual({
-      score_delta: 10,
+      score_delta: null,
       engine_changes: [{ engine: "chatgpt", from: 50, to: 60, delta: 10 }],
       competitor_changes: [],
       new_issues: [],
       resolved_issues: [],
+      overall_note:
+        "The overall score is not compared: ChatGPT and Claude answered the earlier snapshot and ChatGPT the later one, "
+        + "so the two scores were each computed over a different set of engines. Engines that answered both are still "
+        + "compared one by one.",
     });
     const tool = P0_TOOLS.find((t) => t.name === "get_changes")!;
     expect(tool.description).toContain("the change in the overall score and the per-engine score changes, for engines measured both times");
+    expect(tool.description).toContain("the overall only when the same engines answered both snapshots");
     expect(tool.description.startsWith("Report what changed in a website's AI-visibility score, only between two snapshots that asked the same question.")).toBe(true);
     const monitoring = SERVED_TOOLS.find((t) => t.name === "get_monitoring_status")!;
     expect(monitoring.description).toContain("a change carries competitor_changes, new_issues and resolved_issues, always empty");
+    expect(monitoring.description).toContain("when different engines answered the two snapshots");
     expect(tool.description).toContain("competitor_changes, new_issues and resolved_issues are always empty");
     expect(tool.description).not.toMatch(/\bgained\b|\blost\b|competitors? (that )?moved|competitor (moves|changes)|(new|resolved) issues|overtake/i);
   });

@@ -402,4 +402,27 @@ describe("the series: the weekly re-audits, and whatever asked their question", 
       " Left out as not part of the weekly series: 3 newer snapshots, the newest on 2026-09-11. The most recent "
       + "like-for-like change among them was up 70, from 2026-09-09 to 2026-09-11.");
   });
+
+  it("names a like-for-like change different engines answered as having no overall", () => {
+    // The digest refuses the overall when a different set of engines answered
+    // the two snapshots; what it leaves out is named by that same rule, or a
+    // re-baseline-week's engine switch would read as a swing among the leftovers.
+    const latest = { captured_at: "2026-09-08T09:00:00Z", score: 50, question: asked as SnapshotQuestion | null };
+    const later = [
+      { captured_at: "2026-09-09T09:00:00Z", score: 20, question: elsewhere, by_engine: { chatgpt: 20, claude: 20 } },
+      { captured_at: "2026-09-10T09:00:00Z", score: 35, question: elsewhere, by_engine: { chatgpt: 35 } },
+    ];
+    expect(laterNote(later, latest)).toBe(
+      " Left out as not part of the weekly series: 2 snapshots that asked a different question, newer than 2026-09-08. "
+      + "The newest of them that records its question, on 2026-09-10, asked about no market rather than "
+      + '"Austin, TX". The most recent like-for-like change among them was from 2026-09-09 to 2026-09-10, with '
+      + "different engines answering, so it has no overall.");
+    // And a pair the same engines answered still gets its movement named.
+    const sameEngines = [
+      { captured_at: "2026-09-09T09:00:00Z", score: 20, question: elsewhere, by_engine: { chatgpt: 20 } },
+      { captured_at: "2026-09-10T09:00:00Z", score: 35, question: elsewhere, by_engine: { chatgpt: 35 } },
+    ];
+    expect(laterNote(sameEngines, latest)).toContain(
+      "The most recent like-for-like change among them was up 15, from 2026-09-09 to 2026-09-10.");
+  });
 });

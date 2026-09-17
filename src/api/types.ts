@@ -204,7 +204,10 @@ export interface TrendWindow {
   window_days: number;
   from_score: number;
   to_score: number;
-  score_delta: number;
+  /** The overall move, or null when the two endpoints were answered by
+   *  different engines — an overall over a different set of engines is a
+   *  different quantity. `overall_note` says which engines answered each. */
+  score_delta: number | null;
   engine_changes: EngineChange[];
   /** Snapshots that fell inside this window. */
   snapshots: number;
@@ -212,6 +215,10 @@ export interface TrendWindow {
   from_captured_at?: string;
   /** Snapshots in the window that asked a different question or do not record what they asked, so were not compared. */
   skipped_snapshots?: number;
+  /** Present exactly when `score_delta` is null: which engines answered each
+   *  endpoint, in words. A null window delta for this reason must not read
+   *  like a null for want of history. */
+  overall_note?: string;
 }
 
 /**
@@ -321,7 +328,12 @@ export interface EngineChange {
 }
 
 export interface Changes {
-  score_delta: number;
+  /** The overall move, or NULL when the two snapshots were answered by
+   *  different engines: the engine computes the overall over the answers it
+   * observed, so an overall averaged over a different set of engines is a
+   *  different quantity and is not subtracted. `overall_note` names the
+   *  engines. The digest's rule (website-auditor-api digest.js). */
+  score_delta: number | null;
   engine_changes: EngineChange[];
   competitor_changes: unknown[];
   new_issues: unknown[];
@@ -333,8 +345,14 @@ export interface Changes {
   /** Snapshots passed over: they asked a different question, or do not record what they asked. */
   skipped_snapshots?: number;
   /**
+   * Present exactly when `score_delta` is null: the two snapshots were answered by different engines, and which
+   * answered each. Relay it — a null delta for this reason must not read like a null for want of history.
+   */
+  overall_note?: string;
+  /**
    * get_changes only; get_monitoring_status puts its note on the site. Present when snapshots were passed over,
-   * newer measured snapshots were left out of the series, or newer weekly re-audits measured nothing: what, in words.
+   * the two snapshots were answered by different engines, newer measured snapshots were left out of the series, or
+   * newer weekly re-audits measured nothing: what, in words.
    */
   note?: string;
 }

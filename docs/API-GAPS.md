@@ -64,7 +64,15 @@ snapshots asked the same one) were added in 2026-09 (website-auditor-api
 migration 034); rows stored before then carry `question: null`.
 **MCP wiring (live):** `client.getChanges()` reads it and collapses to a delta
 via `computeChanges`, only between measured snapshots whose `question.key`s
-match (`sameQuestion` in `src/api/mappers.ts`), over the domain's series as
+match (`sameQuestion` in `src/api/mappers.ts`) and whose answering engine sets
+match (`sameEngines` there, the weekly digest's own rule in
+website-auditor-api `src/services/digest.js`: an overall is averaged over the
+engines that answered, so a different answering set is a different quantity —
+the API's pull surfaces hand raw snapshots and pairs without deciding this,
+only the digest does, server-side, so the MCP re-checks from `by_engine`,
+nulls and missing keys both reading as silence, and returns `score_delta:
+null` with an `overall_note` naming which engines answered each snapshot,
+the per-engine changes still reported), over the domain's series as
 `/api/monitoring-status` reads it (`seriesOf`: the measured weekly re-audits and
 whatever asked the same question as the newest recorded one, while the series has no gap longer than four weeks
 and a day from the newest weekly re-audit that recorded its question, through each

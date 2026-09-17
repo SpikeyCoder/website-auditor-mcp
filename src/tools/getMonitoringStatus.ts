@@ -77,17 +77,25 @@ function assess(
     const skipped = comparison?.status === "compared" && typeof comparison.skipped_snapshots === "number"
       ? comparison.skipped_snapshots
       : 0;
-    const label = `${movement(change.score_delta)} since ${day(previous.captured_at)}`;
-    if (skipped <= 0) return { change, label };
-    change.skipped_snapshots = skipped;
-    return {
-      change,
-      label,
+    // NO OVERALL TO NAME when different engines answered the two snapshots
+    // (computeChanges' same-engines rule): `movement(null)` reads null as
+    // 0 and would publish "unchanged since 2026-09-03" beside a change
+    // object whose engine deltas are the real signal. The label says what is
+    // shown instead, and the note below says why, naming the engines.
+    const label = change.score_delta === null
+      ? `per-engine changes only since ${day(previous.captured_at)}`
+      : `${movement(change.score_delta)} since ${day(previous.captured_at)}`;
+    const notes: string[] = [];
+    if (change.score_delta === null) notes.push(change.overall_note!);
+    if (skipped > 0) {
+      change.skipped_snapshots = skipped;
       // The API sends how many were passed over, not why, so both reasons are named.
-      note: `Compared with ${day(previous.captured_at)}, the most recent snapshot that asked the same question; `
+      notes.push(`Compared with ${day(previous.captured_at)}, the most recent snapshot that asked the same question; `
         + `passed over in between: ${skipped} ${skipped === 1 ? "snapshot" : "snapshots"} that asked a different `
-        + "question or did not record what was asked.",
-    };
+        + "question or did not record what was asked.");
+    }
+    if (!notes.length) return { change, label };
+    return { change, label, note: notes.join(" ") };
   }
 
   // Only a latest snapshot that recorded its question can start a series again;

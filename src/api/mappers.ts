@@ -649,16 +649,22 @@ export function seriesOf<T extends { source?: string | null; question?: Snapshot
  * such change: a refusal about the series is not "nothing changed" about them.
  * Empty when there are none; otherwise sentences with a leading space.
  */
-export function laterNote<T extends { captured_at: string; score: number; question?: SnapshotQuestion | null }>(
+export function laterNote<T extends { captured_at: string; score: number; by_engine?: Record<string, number>; question?: SnapshotQuestion | null }>(
   later: T[],
   latest: T,
 ): string {
   if (!later.length) return "";
   const pair = newestComparablePair(later);
-  const change = pair
-    ? ` The most recent like-for-like change among them was ${movement(pair.to.score - pair.from.score)}, `
-      + `from ${day(pair.from.captured_at)} to ${day(pair.to.captured_at)}.`
+  // The overall of that pair is named only when the same engines answered it
+  // (sameEngines): a change of denominator is not a change of visibility, and
+  // this sentence exists so a refusal about the series is not read as
+  // "nothing changed" about what it leaves out.
+  const move = pair
+    ? sameEngines(pair.from.by_engine, pair.to.by_engine)
+      ? `was ${movement(pair.to.score - pair.from.score)}, from ${day(pair.from.captured_at)} to ${day(pair.to.captured_at)}`
+      : `was from ${day(pair.from.captured_at)} to ${day(pair.to.captured_at)}, with different engines answering, so it has no overall`
     : "";
+  const change = pair ? ` The most recent like-for-like change among them ${move}.` : "";
   if (!latest.question?.key) {
     // Nothing is known about what the latest asked, so nothing is said about
     // what these asked beside it.
@@ -694,6 +700,52 @@ export function unmeasuredNote<T extends { captured_at: string; source?: string 
     ? ` The weekly re-audit on ${day(newest.captured_at)} measured nothing of the business, so it is not compared.`
     : ` ${runs.length} weekly re-audits${latest ? ` newer than ${day(latest.captured_at)}` : ""} measured nothing `
       + `of the business, the newest on ${day(newest.captured_at)}, so they are not compared.`;
+}
+
+/**
+ * THE OVERALL ONLY COMPARES LIKE WITH LIKE.
+ *
+ * An overall AI-visibility score is computed over the engines that answered
+ * (the engine computes it over the answers it observed, in the digest's own
+ * words), so when an engine goes silent or rolls out the denominator changes
+ * and the overall moves with nothing else moving — a ChatGPT outage week read
+ * as "down 15" with no engine line to explain it. The weekly digest has
+ * refused that subtraction since it gained per-engine scores
+ * (website-auditor-api src/services/digest.js, detectMeaningfulChange:
+ * the overall is compared only when the same engines answered both times,
+ * engines that answered both times are still compared one by one); the pull
+ * surfaces subtract the overall regardless, so every one of them reported the
+ * change of a denominator as a change of visibility.
+ *
+ * An engine ANSWERED a snapshot when its `by_engine` value is a finite number.
+ * Not a null (the monitoring path, which keeps all four keys), and not a
+ * missing key (the history path, which drops unanswered engines at the read).
+ * A MISSING MAP reads as no engines — `by_engine || {}`, the digest's own
+ * defensive read — and never throws: laterNote's snapshots come from callers
+ * that may carry none. Two snapshots were answered by the same engines
+ * exactly when both sets of answering engines are equal — the empty set equal
+ * to the empty set included, as in the digest: two snapshots no engine
+ * answered still compare.
+ */
+function answeredEngines(by: Record<string, number | null> | undefined): string[] {
+  // KNOWN ENGINES FIRST, IN THE DIGEST'S ORDER, then any other key that
+  // carries a score: the digest decides over the four it knows, and an unknown
+  // key that answered one side only changes the overall's denominator just as
+  // well, so it is refused rather than ignored.
+  const known = Object.keys(ENGINE_LABELS).filter((k) => numeric(by?.[k]) !== undefined);
+  const unknown = Object.keys(by ?? {})
+    .filter((k) => !(k in ENGINE_LABELS) && numeric(by?.[k]) !== undefined).sort();
+  return [...known, ...unknown];
+}
+
+const sameEngines = (
+  a: Record<string, number | null> | undefined,
+  b: Record<string, number | null> | undefined,
+): boolean => answeredEngines(a).join(",") === answeredEngines(b).join(",");
+
+/** The engines' display names for a note, or "no engine" when none answered. */
+function engineNames(by: Record<string, number | null> | undefined): string {
+  return listOf(answeredEngines(by).map((k) => ENGINE_LABELS[k] ?? k)) || "no engine";
 }
 
 /**
@@ -766,16 +818,18 @@ export function computeTrend(
     if (inWindow.length < 2) return null;
     const { base: oldest, skipped } = oldestSameQuestion(inWindow.slice(0, -1), latest);
     if (!oldest) return null;
-    // Engine deltas compare ONLY engines measured at BOTH endpoints. Engines
-    // roll out incrementally (null = not measured, stripped by the client), so
-    // an engine absent from one endpoint must not become a fabricated from-0
-    // gain via computeChanges' `?? 0`, nor silently vanish on a drop.
-    const shared = Object.keys(latest.by_engine).filter((k) => k in oldest.by_engine);
-    const pickShared = (m: Record<string, number>): Record<string, number> =>
-      Object.fromEntries(shared.map((k) => [k, m[k]!]));
+    // THE FULL ENGINE MAPS, not the engines shared by both endpoints. The old
+    // intersection made the engine deltas safe (an engine absent from one
+    // endpoint must not become a fabricated from-0 gain, which computeChanges
+    // now skips on its own) but it also handed computeChanges two maps of the
+    // SAME key set, so the same-engines rule never saw that the endpoints were
+    // answered by different engines — and the window kept reporting an overall
+    // delta over a denominator that had changed. computeChanges skips an
+    // engine unmeasured on either side; what it needs from here is the truth
+    // about who answered.
     const changes = computeChanges(
-      { score: latest.score, by_engine: pickShared(latest.by_engine) },
-      { score: oldest.score, by_engine: pickShared(oldest.by_engine) },
+      { score: latest.score, by_engine: latest.by_engine },
+      { score: oldest.score, by_engine: oldest.by_engine },
     );
     return {
       window_days: days,
@@ -786,6 +840,7 @@ export function computeTrend(
       snapshots: inWindow.length,
       from_captured_at: oldest.captured_at,
       skipped_snapshots: skipped,
+      ...(changes.overall_note ? { overall_note: changes.overall_note } : {}),
     };
   };
 
@@ -805,6 +860,15 @@ export function measuredRun(snapshots: AiVisibilitySnapshot[], runId: string): b
   return snapshots.some((s) => s.run_id === runId && !s.is_simulated && measuredTheBusiness(s));
 }
 
+/**
+ * The deltas between two snapshots: the overall move, and every engine's move
+ * for engines that answered BOTH sides. The engine deltas skip an engine
+ * unmeasured on either side (below); the OVERALL is compared only when the
+ * same engines answered both sides — the digest's rule — and is null with an
+ * `overall_note` naming the engines when they did not. The two scores each
+ * stand: only the subtraction is refused, because an overall averaged over a
+ * different set of engines is a different quantity.
+ */
 export function computeChanges(
   current: { score: number; by_engine: Record<string, number | null> },
   previous: { score: number; by_engine: Record<string, number | null> },
@@ -821,11 +885,24 @@ export function computeChanges(
     if (typeof to !== "number" || typeof from !== "number") continue;
     if (to !== from) engine_changes.push({ engine, from, to, delta: to - from });
   }
+  // SKIPPED, not summed. The same outage read on the overall is a delta no
+  // engine moved: the previous snapshot's 60 was averaged over four engines
+  // and this one's 45 over three, and "down 15" reported the denominator.
+  // `sameEngines` decides; the note only puts the difference into words.
+  const comparable = sameEngines(current.by_engine, previous.by_engine);
   return {
-    score_delta: current.score - previous.score,
+    score_delta: comparable ? current.score - previous.score : null,
     engine_changes,
     competitor_changes: [],
     new_issues: [],
     resolved_issues: [],
+    ...(!comparable
+      ? {
+        overall_note:
+          `The overall score is not compared: ${engineNames(previous.by_engine)} answered the earlier snapshot and `
+          + `${engineNames(current.by_engine)} the later one, so the two scores were each computed over a different `
+          + "set of engines. Engines that answered both are still compared one by one.",
+      }
+      : {}),
   };
 }

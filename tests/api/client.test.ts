@@ -1293,6 +1293,86 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
   });
 });
 
+describe("WaApiClient.getChanges — the overall only between snapshots the same engines answered", () => {
+  // Every snapshot here asks the same question: the question rule is the
+  // other describe's, and what is under test here is the digest's second rule
+  // (website-auditor-api src/services/digest.js, detectMeaningfulChange) —
+  // an overall averaged over the engines that answered, so a different
+  // answering set is a different quantity. The MCP's own computeChanges
+  // subtracted it regardless before this rule; it re-checks from `by_engine`,
+  // as it re-checks the question.
+  const ELSEWHERE = {
+    ...ASKED, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best example in Honolulu, HI"],
+  };
+  const row = (captured_at: string, score: number, engines: Record<string, number>, question: unknown = ASKED) => ({
+    captured_at, score, by_engine: engines, is_simulated: false, question,
+  });
+  const clientFor = (snapshots: unknown[]) =>
+    new WaApiClient(baseCfg, { fetch: makeFetch(200, { success: true, snapshots }) as unknown as typeof fetch });
+  const failure = (pending: Promise<unknown>) => pending.then(
+    () => { throw new Error("expected get_changes to refuse"); },
+    (e: unknown) => e as WaApiError,
+  );
+
+  it("refuses the overall across an engine rollout, and still reports the engines that answered both", async () => {
+    const changes = await clientFor([
+      row("2026-09-01T09:00:00Z", 40, { chatgpt: 40, claude: 40 }),
+      row("2026-09-08T09:00:00Z", 50, { chatgpt: 50, claude: 30, gemini: 60 }),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBeNull(); // not 10: gemini answered only the later snapshot
+    expect(changes.from_captured_at).toBe("2026-09-01T09:00:00Z");
+    expect(changes.to_captured_at).toBe("2026-09-08T09:00:00Z");
+    expect(changes.overall_note).toBe(
+      "The overall score is not compared: ChatGPT and Claude answered the earlier snapshot and ChatGPT, Claude and "
+      + "Gemini the later one, so the two scores were each computed over a different set of engines. Engines that "
+      + "answered both are still compared one by one.");
+    expect(changes.engine_changes).toEqual([
+      { engine: "chatgpt", from: 40, to: 50, delta: 10 },
+      { engine: "claude", from: 40, to: 30, delta: -10 },
+    ]);
+    // The note carries the reason: a null delta with no word beside it would
+    // read as "no change" rather than "no comparison".
+    expect(changes.note).toBe(changes.overall_note);
+  });
+
+  it("refuses the overall across an engine going silent, in the other direction", async () => {
+    const changes = await clientFor([
+      row("2026-09-01T09:00:00Z", 40, { chatgpt: 40, claude: 40, gemini: 40 }),
+      row("2026-09-08T09:00:00Z", 50, { chatgpt: 50, claude: 50 }),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBeNull(); // not 10: gemini answered only the earlier snapshot
+    expect(changes.overall_note).toContain("Gemini answered the earlier snapshot");
+  });
+
+  it("the same engines answered -> the overall is subtracted and no note is present", async () => {
+    const changes = await clientFor([
+      row("2026-09-01T09:00:00Z", 40, { chatgpt: 40, claude: 40 }),
+      row("2026-09-08T09:00:00Z", 50, { chatgpt: 50, claude: 50 }),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.score_delta).toBe(10);
+    expect(changes).not.toHaveProperty("overall_note");
+    expect(changes).not.toHaveProperty("note");
+  });
+
+  it("names a previous change engines differed over as having no overall, in a refusal", async () => {
+    // The refusal names the change that still exists; a pair different
+    // engines answered is named by its dates and its lack, not as a swing.
+    const error = await failure(clientFor([
+      row("2026-09-01T09:00:00Z", 40, { chatgpt: 40, claude: 40 }),
+      row("2026-09-08T09:00:00Z", 50, { chatgpt: 50, claude: 30, gemini: 60 }),
+      row("2026-09-10T09:00:00Z", 20, { chatgpt: 20, claude: 20 }, ELSEWHERE),
+    ]).getChanges({ domain: "example.com" }));
+    expect(error.details).toEqual({
+      reason: "question_changed",
+      rebaselined_at: "2026-09-10T09:00:00Z",
+      previous_change: { from_captured_at: "2026-09-01T09:00:00Z", to_captured_at: "2026-09-08T09:00:00Z", score_delta: null },
+    });
+    expect(error.message).toContain(
+      " The most recent like-for-like change before it was from 2026-09-01 to 2026-09-08, with different engines "
+      + "answering, so it has no overall.");
+  });
+});
+
 describe("WaApiClient.getAiVisibilityHistory — what each snapshot asked", () => {
   it("maps source and question, and reads a malformed question as unrecorded", async () => {
     const fetchMock = makeFetch(200, {

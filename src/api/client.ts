@@ -861,22 +861,34 @@ function changesInHistory(
 
   // THE CHANGE THAT STILL EXISTS, for every refusal below: a caller asking what
   // changed wants the last like-for-like change even when the latest has none.
-  // Looked for in the series first, where the weekly re-audits are.
+  // Looked for in the series first, where the weekly re-audits are. Its overall
+  // goes through computeChanges like every other subtraction: when different
+  // engines answered the pair, the dates are named and no overall is.
   const seriesPair = newestComparablePair(earlier);
   const pair = seriesPair ?? newestComparablePair(before);
+  const pairChanges = pair
+    ? computeChanges(
+      { score: pair.to.score, by_engine: pair.to.by_engine },
+      { score: pair.from.score, by_engine: pair.from.by_engine },
+    )
+    : null;
   const previous_change = pair
     ? {
       from_captured_at: pair.from.captured_at,
       to_captured_at: pair.to.captured_at,
-      score_delta: pair.to.score - pair.from.score,
+      score_delta: pairChanges!.score_delta,
     }
     : null;
   // The series' pair is the most recent only among the series once snapshots
   // outside it came before the latest too, so it is named as the series'.
   const whose = seriesPair && before.length > earlier.length ? "The weekly series' most recent" : "The most recent";
   const priorChange = previous_change
-    ? ` ${whose} like-for-like change before it was ${movement(previous_change.score_delta)}, `
-      + `from ${day(previous_change.from_captured_at)} to ${day(previous_change.to_captured_at)}.`
+    ? previous_change.score_delta !== null
+      ? ` ${whose} like-for-like change before it was ${movement(previous_change.score_delta)}, `
+        + `from ${day(previous_change.from_captured_at)} to ${day(previous_change.to_captured_at)}.`
+      : ` ${whose} like-for-like change before it was `
+        + `from ${day(previous_change.from_captured_at)} to ${day(previous_change.to_captured_at)}, `
+        + "with different engines answering, so it has no overall."
     : "";
   const withPrevious = previous_change ? { previous_change } : {};
 
@@ -949,6 +961,11 @@ function changesInHistory(
       ? `Compared with ${day(base.captured_at)}, the earliest snapshot in the window that asked the same question as the one on ${on}; in the window but not compared: ${notComparedPhrase(passedOver)}.`
       : `Compared with ${day(base.captured_at)}, the most recent snapshot that asked the same question; passed over in between: ${notComparedPhrase(passedOver)}.`);
   }
+  // THE OVERALL'S OWN REASON FOR NOT BEING THERE. `skipped` counts snapshots
+  // passed over for asking another question; this is the pair itself, asked
+  // the same question and answered by different engines. A null `score_delta`
+  // with no word beside it reads as "no change" rather than "no comparison".
+  if (result.score_delta === null) notes.push(result.overall_note!);
   if (later) notes.push(later.trim());
   if (notes.length) result.note = notes.join(" ");
   return result;

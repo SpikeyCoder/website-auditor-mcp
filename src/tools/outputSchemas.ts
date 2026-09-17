@@ -110,13 +110,19 @@ const trendWindow = open({
   window_days: z.number(),
   from_score: z.number(),
   to_score: z.number(),
-  score_delta: z.number(),
+  score_delta: z.number().nullable().describe(
+    "The overall move across the window, or null when its two endpoints were answered by different engines — an "
+    + "overall over a different set of engines is a different quantity. `overall_note` says which engines answered "
+    + "each; engine_changes still compares every engine that answered both."),
   engine_changes: z.array(engineChange),
   snapshots: z.number().describe("Snapshots that fell inside this window."),
   from_captured_at: z.string().optional().describe("When the snapshot this window compares against was captured."),
   skipped_snapshots: z.number().optional().describe(
     "Snapshots in the window that were not compared: they asked a different question (another business name, "
     + "market or queries), or do not record what they asked."),
+  overall_note: z.string().optional().describe(
+    "Present exactly when score_delta is null: which engines answered each endpoint. Relay it — a null delta for "
+    + "this reason reads like one for want of history otherwise."),
 });
 
 const aiVisibilityTrend = open({
@@ -176,12 +182,18 @@ const alwaysEmpty = (what: string) => z.array(z.unknown()).describe(
   `Always empty: AI-visibility snapshots record no ${what}. Kept for clients that read it.`);
 
 const changes = open({
-  score_delta: z.number(),
+  score_delta: z.number().nullable().describe(
+    "The overall move, or null when the two snapshots were answered by different engines: the overall is computed "
+    + "over the engines that answered, so an overall over a different set of engines is a different quantity and is "
+    + "not subtracted. `overall_note` says which engines answered each; engine_changes still compares every engine "
+    + "that answered both."),
   engine_changes: z.array(engineChange),
   competitor_changes: alwaysEmpty("competitors"),
   new_issues: alwaysEmpty("audit issues"),
   resolved_issues: alwaysEmpty("audit issues"),
   ...comparedSpan,
+  overall_note: z.string().optional().describe(
+    "Present exactly when score_delta is null: which engines answered each snapshot. Relay it."),
 });
 
 // ─── per-tool output schemas ───────────────────────────────────────────────
@@ -225,18 +237,24 @@ export const runAuditOutput: ZodRawShape = {
 };
 
 export const getChangesOutput: ZodRawShape = {
-  score_delta: z.number().describe(
-    "Only ever between two snapshots that asked the same question. When there is no such pair, including a "
-    + "re-baseline after the business name, market or queries changed, the tool returns NOT_YET_AVAILABLE "
-    + "saying so, never a number."),
+  score_delta: z.number().nullable().describe(
+    "Only ever between two snapshots that asked the same question AND were answered by the same engines. When "
+    + "there is no such pair, including a re-baseline after the business name, market or queries changed, the tool "
+    + "returns NOT_YET_AVAILABLE saying so, never a number; when the pair exists but different engines answered "
+    + "the two snapshots, the overall is not subtracted and is null with overall_note, and engine_changes still "
+    + "compares every engine that answered both."),
   engine_changes: z.array(engineChange),
   competitor_changes: alwaysEmpty("competitors"),
   new_issues: alwaysEmpty("audit issues"),
   resolved_issues: alwaysEmpty("audit issues"),
   ...comparedSpan,
+  overall_note: z.string().optional().describe(
+    "Present exactly when score_delta is null: the two snapshots were answered by different engines, and which "
+    + "answered each. Relay it — a null delta for this reason must not read like a null for want of history."),
   note: z.string().optional().describe(
-    "Present when skipped_snapshots is above 0, when newer measured snapshots were left out of the series, or when "
-    + "newer weekly re-audits measured nothing of the business: which, and why, in words. Relay it."),
+    "Present when skipped_snapshots is above 0, when the two snapshots compared were answered by different "
+    + "engines, when newer measured snapshots were left out of the series, or when newer weekly re-audits measured "
+    + "nothing of the business: which, and why, in words. Relay it."),
 };
 
 export const compareCompetitorsOutput: ZodRawShape = {
@@ -333,7 +351,8 @@ export const getMonitoringStatusOutput: ZodRawShape = {
       + "that do not record what they asked."),
     note: z.string().optional().describe(
       "Present when there is no like-for-like change because of a re-baseline or snapshots that do not record "
-      + "what they asked, or when snapshots were passed over: why, in words. Relay it."),
+      + "what they asked, when snapshots were passed over, or when the change shown has no overall because different "
+      + "engines answered the two snapshots: why, in words. Relay it."),
     summary: z.string(),
   })),
   summary: z.string(),
