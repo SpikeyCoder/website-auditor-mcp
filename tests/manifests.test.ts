@@ -302,4 +302,22 @@ describe("published manifests stay in sync with the code", () => {
     expect(spec.title).toBe("What changed in AI visibility");
     expect(listed.description.startsWith(`${spec.title} [read-only]. `)).toBe(true);
   });
+
+  // ── The tracked-domain claim reaches NO description surface ──
+  //
+  // registry.ts and README dropped "Requires the domain to be tracked" when the
+  // API was shown to read snapshots keyed by user and domain alone (no
+  // tracked-domains check, and every audit writes a snapshot), but the manifest
+  // listing kept it — the exact drift this file exists to catch, missed because
+  // the sweep stopped at the surfaces the code imports. An agent believing the
+  // claim would either decline a change question an untracked domain can already
+  // answer, or call track_site first and spend one of only five monitoring slots.
+  // Pinned on the surface the directory renders, not only the registry's own.
+
+  it("no get_changes listing still says the domain must be tracked", () => {
+    const listed = manifest.tools.find((t: { name: string }) => t.name === "get_changes");
+    expect(listed, "get_changes is served but not listed").toBeTruthy();
+    expect(listed.description).not.toMatch(/requires? the domain to be tracked/i);
+    expect(listed.description).toContain("need not be tracked");
+  });
 });
