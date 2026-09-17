@@ -1298,8 +1298,9 @@ describe("WaApiClient.getChanges — the overall only between snapshots the same
   // other describe's, and what is under test here is the digest's second rule
   // (website-auditor-api src/services/digest.js, detectMeaningfulChange) —
   // an overall averaged over the engines that answered, so a different
-  // answering set is a different quantity. The API subtracts it regardless;
-  // the MCP re-checks from `by_engine`, as it re-checks the question.
+  // answering set is a different quantity. The MCP's own computeChanges
+  // subtracted it regardless before this rule; it re-checks from `by_engine`,
+  // as it re-checks the question.
   const ELSEWHERE = {
     ...ASKED, key: "q-honolulu", business_location: "Honolulu, HI", queries: ["best example in Honolulu, HI"],
   };

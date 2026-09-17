@@ -68,7 +68,8 @@ match (`sameQuestion` in `src/api/mappers.ts`) and whose answering engine sets
 match (`sameEngines` there, the weekly digest's own rule in
 website-auditor-api `src/services/digest.js`: an overall is averaged over the
 engines that answered, so a different answering set is a different quantity —
-the API subtracts it regardless, so the MCP re-checks from `by_engine`,
+the API's pull surfaces hand raw snapshots and pairs without deciding this,
+only the digest does, server-side, so the MCP re-checks from `by_engine`,
 nulls and missing keys both reading as silence, and returns `score_delta:
 null` with an `overall_note` naming which engines answered each snapshot,
 the per-engine changes still reported), over the domain's series as

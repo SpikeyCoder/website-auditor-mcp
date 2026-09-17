@@ -705,13 +705,13 @@ export function unmeasuredNote<T extends { captured_at: string; source?: string 
 /**
  * THE OVERALL ONLY COMPARES LIKE WITH LIKE.
  *
- * An overall AI-visibility score is computed over the engines that answered:
- * the engine's own denominator (chaos_tester's `visibility_score` divides by
- * the answers observed), so when an engine goes silent or rolls out the
- * denominator changes and the overall moves with nothing else moving — a
- * ChatGPT outage week read as "down 15" with no engine line to explain it.
- * The weekly digest has refused that subtraction since it gained per-engine
- * scores (website-auditor-api src/services/digest.js, detectMeaningfulChange:
+ * An overall AI-visibility score is computed over the engines that answered
+ * (the engine computes it over the answers it observed, in the digest's own
+ * words), so when an engine goes silent or rolls out the denominator changes
+ * and the overall moves with nothing else moving — a ChatGPT outage week read
+ * as "down 15" with no engine line to explain it. The weekly digest has
+ * refused that subtraction since it gained per-engine scores
+ * (website-auditor-api src/services/digest.js, detectMeaningfulChange:
  * the overall is compared only when the same engines answered both times,
  * engines that answered both times are still compared one by one); the pull
  * surfaces subtract the overall regardless, so every one of them reported the

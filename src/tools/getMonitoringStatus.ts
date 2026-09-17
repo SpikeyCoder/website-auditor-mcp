@@ -78,10 +78,10 @@ function assess(
       ? comparison.skipped_snapshots
       : 0;
     // NO OVERALL TO NAME when different engines answered the two snapshots
-    // (computeChanges' same-engines rule): `movement(null)` would publish
-    // "NaN since 2026-09-03" beside a change object whose engine deltas are
-    // the real signal. The label says what is shown instead, and the note
-    // below says why, naming the engines.
+    // (computeChanges' same-engines rule): `movement(null)` reads null as
+    // 0 and would publish "unchanged since 2026-09-03" beside a change
+    // object whose engine deltas are the real signal. The label says what is
+    // shown instead, and the note below says why, naming the engines.
     const label = change.score_delta === null
       ? `per-engine changes only since ${day(previous.captured_at)}`
       : `${movement(change.score_delta)} since ${day(previous.captured_at)}`;
