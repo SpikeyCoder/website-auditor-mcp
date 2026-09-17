@@ -75,6 +75,19 @@ describe("tool registry", () => {
     expect(tool.description).toContain("do not track a site just to answer a change question");
   });
 
+  it("track_site's copy does not claim to be what get_changes reads from", () => {
+    // The other half of the same correction: get_changes need not be preceded by
+    // tracking, so track_site must not read as the source of the history it
+    // reads. Its weekly re-audits JOIN a history audits already accrue; an agent
+    // that read "establishes the history" as "creates what get_changes needs"
+    // would spend one of only five monitoring slots to enable a tool that was
+    // never disabled.
+    const track = P1_TOOLS.find((t) => t.name === "track_site")!;
+    expect(track.description).not.toMatch(/establish(es)? the history/i);
+    expect(track.description).toContain("a history every audit already accrues, tracked or not");
+    expect(track.description).toContain("not to make get_changes work");
+  });
+
   it("keeps the verbatim compare_competitors copy but appends quota guidance for agents", () => {
     const compare = P0_TOOLS.find((t) => t.name === "compare_competitors")!;
     // Original listing-doc opening is preserved (agents still match on it)...

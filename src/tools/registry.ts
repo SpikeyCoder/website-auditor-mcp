@@ -148,7 +148,7 @@ export const P1_TOOLS: ToolSpec[] = [
     tier: "pro",
     title: "Start/stop monitoring",
     description:
-      'Start (or stop) ongoing monitoring of a website\'s AI visibility on a schedule. Use this when someone wants to "monitor," "track," "watch," or "get alerted about" a site\'s AI visibility over time, rather than a one-off check. Establishes the history that get_changes reads from.',
+      'Start (or stop) ongoing monitoring of a website\'s AI visibility on a schedule. Use this when someone wants to "monitor," "track," "watch," or "get alerted about" a site\'s AI visibility over time, rather than a one-off check. Adds weekly re-audits to the history that get_changes reads from — a history every audit already accrues, tracked or not — so use this to be watched on a schedule, not to make get_changes work.',
     inputSchema: {
       domain: domainArg,
       // Weekly-only in v1 (the server enforces this too). Kept as a single-value

@@ -96,7 +96,7 @@
     },
     {
       "name": "track_site",
-      "description": "Start/stop monitoring [destructive: writes tracking state]. Start (or stop) ongoing weekly monitoring of a website's AI visibility on a schedule. Establishes the history that get_changes reads from."
+      "description": "Start/stop monitoring [destructive: writes tracking state]. Start (or stop) ongoing weekly monitoring of a website's AI visibility on a schedule. Adds weekly re-audits to the history that get_changes reads from — audits accrue it tracked or not."
     },
     {
       "name": "untrack_site",
