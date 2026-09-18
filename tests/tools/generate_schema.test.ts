@@ -35,8 +35,14 @@ describe("generate_schema [Pro]", () => {
   });
 
   it("valid Pro key: returns the documented { jsonld, placement_notes } shape and forwards the type", async () => {
-    const jsonld = { "@context": "https://schema.org", "@type": "Organization", name: "Example" };
-    const fn = vi.fn(async () => ({ jsonld, placement_notes: "Paste into the <head> of every page." }));
+    // PR #97 in website-auditor-api: the endpoint now returns a DRAFT — the
+    // name field is a placeholder the owner must replace, and placement_notes
+    // asks for that replacement before it says where to embed.
+    const jsonld = { "@context": "https://schema.org", "@type": "Organization", name: "Your Business Name" };
+    const placement_notes =
+      'Replace "Your Business Name" with the business\'s name as customers know it, confirmed with the owner, ' +
+      "then embed this in a <script type=\"application/ld+json\"> tag in the <head> of every page.";
+    const fn = vi.fn(async () => ({ jsonld, placement_notes }));
     const res = await generateSchema(
       { domain: "example.com", type: "Organization" },
       makeDeps({ tier: "pro", client: { generateSchema: fn } }),
@@ -45,6 +51,9 @@ describe("generate_schema [Pro]", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.jsonld).toEqual(jsonld);
+    expect(res.data.jsonld.name).toBe("Your Business Name");
+    expect(res.data.placement_notes).toMatch(/Replace "Your Business Name"/);
+    expect(res.data.placement_notes).toMatch(/confirmed with the owner/);
     expect(res.data.placement_notes).toMatch(/<head>/);
   });
 

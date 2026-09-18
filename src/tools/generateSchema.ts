@@ -1,10 +1,15 @@
 /**
  * generate_schema [Pro]
  *
- * Pro-gated, read-only. Generates ready-to-paste JSON-LD structured data tailored
- * to a domain, to improve how AI assistants and search engines understand it.
- * Wired to `client.generateSchema` (GET /api/schema). The client strips the API's
- * `success` envelope, so this tool returns the documented
+ * Pro-gated, read-only. Generates a JSON-LD structured-data DRAFT tailored to
+ * a domain, to improve how AI assistants and search engines understand it. The
+ * draft is not finished markup: every name field arrives as a placeholder that
+ * the owner must replace with a real name confirmed with them (never guessed
+ * from the domain or copied from an audit), and `placement_notes` says what
+ * to replace first, then where to embed.
+ *
+ * Wired to `client.generateSchema` (GET /api/schema). The client strips the
+ * API's `success` envelope, so this tool returns the documented
  * `{ jsonld, placement_notes }` shape.
  */
 import type { SchemaResult } from "../api/types.js";

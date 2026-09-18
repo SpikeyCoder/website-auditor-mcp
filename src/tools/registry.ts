@@ -182,13 +182,14 @@ export const P1_TOOLS: ToolSpec[] = [
     tier: "pro",
     title: "Generate JSON-LD schema",
     description:
-      'Generate ready-to-paste structured data (JSON-LD schema) tailored to a website, to improve how AI assistants and search engines understand it. Use this when someone asks for "schema," "structured data," "JSON-LD," or wants the actual markup to implement a recommendation. Returns valid JSON-LD.',
+      'Generate structured data (JSON-LD schema) tailored to a website, to improve how AI assistants and search engines understand it. Use this when someone asks for "schema," "structured data," "JSON-LD," or wants the actual markup to implement a recommendation. Returns a DRAFT, not finished markup: every name field arrives as a placeholder — "Your Business Name" on the business types, and on a Product the product\'s own name and brand as "Your Product Name" and "Brand Name" — that the owner must replace with real names confirmed with them, never guessed from the domain or copied from an audit. `placement_notes` says what to replace first, then where to embed the finished snippet, so relay the whole ask and do not tell the user to paste the draft as returned.',
     inputSchema: {
       domain: domainArg,
       type: z
         .enum(["Organization", "LocalBusiness", "Product", "FAQPage", "auto"])
         .optional()
-        .describe("Schema type, or auto-detect."),
+        .describe(
+          'Schema type; "auto" (also the default when omitted) does not detect anything — it returns an Organization draft.'),
     },
   },
   {

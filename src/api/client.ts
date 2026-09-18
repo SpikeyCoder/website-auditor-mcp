@@ -472,10 +472,13 @@ export class WaApiClient implements WaApiClientLike {
   }
 
   /**
-   * Generate ready-to-paste JSON-LD for a domain. Wired to
-   * `GET /api/schema?domain=&type=` (website-auditor-api PR #10). Strips the
-   * `success` envelope and returns `{ jsonld, placement_notes }`. `type` is only
-   * sent when provided.
+   * Generate a JSON-LD structured-data DRAFT for a domain — name placeholders
+   * the owner must fill in, not finished markup. Wired to
+   * `GET /api/schema?domain=&type=` (website-auditor-api PR #10; the drafts it
+   * returns changed in PR #97). Strips the `success` envelope and returns
+   * `{ jsonld, placement_notes }`. `type` is only sent when provided; a missing
+   * or `auto` type resolves to Organization upstream (generateStructuredData in
+   * website-auditor-api), so "auto" is a default, not a detection.
    */
   async generateSchema(params: SchemaParams): Promise<SchemaResult> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/schema`);
