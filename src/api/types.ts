@@ -547,11 +547,26 @@ export interface Recommendations {
   recommendations: Recommendation[];
 }
 
-/** `generate_schema` — ready-to-paste JSON-LD plus where to put it. */
+/**
+ * `generate_schema` — a JSON-LD draft with name placeholders, plus what to
+ * replace before placing it.
+ */
 export interface SchemaResult {
-  /** The JSON-LD document (object or array), ready to paste into the site. */
+  /**
+   * The JSON-LD document (object or array). A DRAFT, not finished markup:
+   * every name field arrives as a placeholder — "Your Business Name" on the
+   * business types, and on a Product the product's own name and brand as
+   * "Your Product Name" and "Brand Name" — that the owner must replace with
+   * real names confirmed with them, never guessed from the domain or copied
+   * from an audit.
+   */
   jsonld: unknown;
-  /** Where/how to place the snippet (e.g. "in the <head> of every page"). */
+  /**
+   * What to replace in the draft first — each name placeholder, confirmed with
+   * the owner — then where/how to place the finished snippet (e.g. "in the
+   * <head> of every page"). The replacement ask comes before the placement;
+   * relay both.
+   */
   placement_notes: string;
 }
 

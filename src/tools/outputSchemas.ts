@@ -377,8 +377,16 @@ export const getRecommendationsOutput: ZodRawShape = {
 
 export const generateSchemaOutput: ZodRawShape = {
   // Object or array, by contract — z.unknown() rather than a guess.
-  jsonld: z.unknown().describe("The JSON-LD document, ready to paste into the site."),
-  placement_notes: z.string().describe('Where to put the snippet, e.g. "in the <head> of every page".'),
+  jsonld: z.unknown().describe(
+    'The JSON-LD draft (object or array). NOT ready to paste: every name field '
+    + "arrives as a placeholder — \"Your Business Name\" on the business types, and on a "
+    + "Product the product's own name and brand as \"Your Product Name\" and \"Brand Name\" — "
+    + "that the owner must replace with real names confirmed with them, never guessed "
+    + "from the domain or copied from an audit."),
+  placement_notes: z.string().describe(
+    'What to replace in the draft first — each name placeholder, confirmed with the owner — then where to ' +
+    "embed the finished snippet, e.g. \"in the <head> of every page\". Relay the whole string, in that order: " +
+    "the replacement ask comes before the placement."),
 };
 
 export const getReportOutput: ZodRawShape = {

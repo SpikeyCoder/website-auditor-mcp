@@ -151,8 +151,10 @@ const richClient = {
     ],
   }),
   generateSchema: async () => ({
-    jsonld: { "@context": "https://schema.org", "@type": "LocalBusiness" },
-    placement_notes: "In the <head> of every page.",
+    jsonld: { "@context": "https://schema.org", "@type": "LocalBusiness", name: "Your Business Name" },
+    placement_notes:
+      'Replace "Your Business Name" with the business\'s name as customers know it, confirmed with the owner, ' +
+      "then embed this in the <head> of your homepage.",
   }),
   getReport: async () => ({ report_url: "https://website-auditor.io/r/abc", badge_html: "<a href='#'>badge</a>" }),
   getGtmPlan: async () => ({

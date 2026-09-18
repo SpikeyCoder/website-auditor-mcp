@@ -468,8 +468,13 @@ describe("WaApiClient.getRecommendations — wired to GET /api/recommendations",
 
 describe("WaApiClient.generateSchema — wired to GET /api/schema", () => {
   it("GETs the endpoint with the type param and returns { jsonld, placement_notes }", async () => {
-    const jsonld = { "@context": "https://schema.org", "@type": "Organization", name: "Example" };
-    const fetchMock = makeFetch(200, { success: true, jsonld, placement_notes: "Paste into <head>." });
+    // PR #97 in website-auditor-api: the payload is a draft — name placeholders
+    // the owner must replace, with the ask leading the placement notes.
+    const jsonld = { "@context": "https://schema.org", "@type": "Organization", name: "Your Business Name" };
+    const placement_notes =
+      'Replace "Your Business Name" with the business\'s name as customers know it, confirmed with the owner, ' +
+      "then embed in the <head> of every page.";
+    const fetchMock = makeFetch(200, { success: true, jsonld, placement_notes });
     const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
     const res = await client.generateSchema({ domain: "example.com", type: "Organization" });
 
@@ -478,7 +483,7 @@ describe("WaApiClient.generateSchema — wired to GET /api/schema", () => {
     expect(String(url)).toContain("domain=example.com");
     expect(new URL(String(url)).searchParams.get("type")).toBe("Organization");
     expect((init as RequestInit).method).toBe("GET");
-    expect(res).toEqual({ jsonld, placement_notes: "Paste into <head>." });
+    expect(res).toEqual({ jsonld, placement_notes });
     expect(res).not.toHaveProperty("success");
   });
 

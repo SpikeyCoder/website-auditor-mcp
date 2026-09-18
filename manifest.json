@@ -120,7 +120,7 @@
     },
     {
       "name": "generate_schema",
-      "description": "Generate JSON-LD schema [read-only]. Generate ready-to-paste structured data (JSON-LD) tailored to a website, to improve how AI assistants and search engines understand it. Returns valid JSON-LD plus placement notes. Requires Pro."
+      "description": "Generate JSON-LD schema [read-only]. Generate structured data (JSON-LD) tailored to a website, to improve how AI assistants and search engines understand it. Returns a draft whose name placeholders (\"Your Business Name\"; on a Product \"Your Product Name\" and \"Brand Name\") the owner must replace with real names confirmed with them — never guessed from the domain or copied from an audit — plus placement notes saying what to replace first, then where to embed. A missing or \"auto\" type returns an Organization draft, not a detected one. Requires Pro."
     },
     {
       "name": "get_report",
