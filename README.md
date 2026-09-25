@@ -226,8 +226,10 @@ minute:
 
 Errors are normalized to stable codes agents can branch on — e.g.
 `AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `OVER_QUOTA`,
-`UNREACHABLE_DOMAIN`, `INVALID_INPUT`, `TIMEOUT`. A domain that can't be reached
-returns `UNREACHABLE_DOMAIN` — never a fabricated score.
+`UNREACHABLE_DOMAIN`, `INVALID_INPUT`, `TIMEOUT`. A domain that resolves but
+whose pages never load (down, refusing, timing out, or answering 404/5xx on
+every page) returns `UNREACHABLE_DOMAIN`; one that does not resolve is refused
+before any audit runs, as `INVALID_INPUT`. Neither gets a fabricated score.
 
 ---
 

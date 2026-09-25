@@ -40,7 +40,7 @@ describe("run_audit [Subscription]", () => {
 
   it("unreachable domain -> UNREACHABLE_DOMAIN, never a fabricated score", async () => {
     const client = { runAudit: vi.fn(async () => ({ runId: "x", report: unreachableReport(), raw: {} })) };
-    const res = await runAudit({ domain: "not-a-real-domain-zzz.example" }, makeDeps({ tier: "pro", client }));
+    const res = await runAudit({ domain: "dead-bakery.example" }, makeDeps({ tier: "pro", client }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("UNREACHABLE_DOMAIN");

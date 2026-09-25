@@ -16,16 +16,17 @@ export function reachableReport(overrides: Partial<AuditReport> = {}): AuditRepo
 }
 
 /**
- * An unreachable domain: the availability module could not load ANY page.
- * Every "Page load" result FAILED at the connection level (the availability
- * module tags these with the "connectivity or DNS resolution" recommendation),
- * and the ai_visibility block never populated (empty), because the homepage
- * fetch failed.
+ * An unreachable site: the domain resolves (one that does not is refused by
+ * the engine at /run, a 400 the MCP reports as INVALID_INPUT, before any
+ * report exists), but no page loaded. Every "Page load" result FAILED at the
+ * connection level, here a timeout, with the engine's own remedy for the cause
+ * (chaos_tester safe_http; since #429 it names the cause and no longer says
+ * "connectivity or DNS resolution").
  */
 export function unreachableReport(): AuditReport {
   return {
     run_id: "deadbeef0000",
-    base_url: "https://not-a-real-domain-zzz.example",
+    base_url: "https://dead-bakery.example",
     environment: "production",
     started_at: "2026-06-30T12:00:00.000Z",
     finished_at: "2026-06-30T12:00:05.000Z",
@@ -36,13 +37,13 @@ export function unreachableReport(): AuditReport {
       {
         test_id: "ee55",
         module: "availability",
-        name: "Page load: not-a-real-domain-zzz.example/",
-        description: "GET https://not-a-real-domain-zzz.example/",
+        name: "Page load: dead-bakery.example/",
+        description: "GET https://dead-bakery.example/",
         status: "failed",
         severity: "high",
-        url: "https://not-a-real-domain-zzz.example/",
-        details: "ConnectionError: Failed to establish a new connection: [Errno 8] nodename nor servname provided",
-        recommendation: "Investigate server connectivity or DNS resolution.",
+        url: "https://dead-bakery.example/",
+        details: "The server did not respond in time.",
+        recommendation: "Check server load and response times.",
       },
     ],
     performance_metrics: {},
@@ -75,7 +76,7 @@ export function partialOutageReport(): AuditReport {
       severity: "high",
       url: "https://example.com/broken",
       details: "ConnectionError on sub-resource",
-      recommendation: "Investigate server connectivity or DNS resolution.",
+      recommendation: "Check server load and response times.",
     },
   ];
   return r;

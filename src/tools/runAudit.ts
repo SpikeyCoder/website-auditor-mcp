@@ -41,7 +41,7 @@ export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<Tool
   if (detectUnreachable(response.report)) {
     return err(
       "UNREACHABLE_DOMAIN",
-      `The site at ${args.domain} could not be reached, so no audit scores can be produced. Check the domain is correct and publicly reachable.`,
+      `The site at ${args.domain} didn't load during the audit (no page loaded), so no audit scores can be produced. Check the domain is correct, publicly reachable and serving pages.`,
     );
   }
 

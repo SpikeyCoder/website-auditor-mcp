@@ -509,19 +509,23 @@ Observed range to put in the listing: `________________`
   `gateProTool` runs before the domain is ever fetched, so an unauthenticated
   caller gets `AUTH_REQUIRED` and the dead domain is never looked up. This was
   the clearest of the five failures in the rejected submission.
-- **Decides it:** the error code is `UNREACHABLE_DOMAIN`, **and** no score or
+- **Decides it:** the error code is `INVALID_INPUT`, **and** no score or
   partial report is invented. Any other code fails this case even though nothing
   was fabricated — `AUTH_REQUIRED` above all, which means the token never
   resolved and the domain was never fetched, not that the server behaved well.
   "Nothing was invented" alone is true of every possible refusal, including the
   one the fixture note directly above calls the clearest of the five failures in
   the rejected submission.
-- **Expected:** `run_audit` returns `UNREACHABLE_DOMAIN` with the MCP's own
-  sentence — "The site at … could not be reached, so no audit scores can be
-  produced. Check the domain is correct and publicly reachable." The API does
-  not emit this code: it answers 200 with a completed report, and
-  `detectUnreachable` (`src/api/mappers.ts`) reads the availability rows and
-  raises the code client-side, so no wording from the API reaches the caller.
+- **Expected:** `run_audit` returns `INVALID_INPUT`, with the engine's "We
+  couldn't find that domain … check the spelling" in `details`. A domain that
+  does not resolve is refused by the engine at `/run` before any audit runs
+  (a `400` the API relays and refunds), so no report exists to judge.
+  `UNREACHABLE_DOMAIN` is for a domain that resolves but whose pages never
+  load (down, refusing, timing out, or 404/5xx on every page): the API answers
+  200 with a completed report, and `detectUnreachable` (`src/api/mappers.ts`)
+  finds no "Page load" row that passed or warned and raises the code
+  client-side, with the MCP's own sentence ("The site at … didn't load during
+  the audit (no page loaded), so no audit scores can be produced …").
 - **Rationale:** a made-up number about an unreachable site would be worse than
   an error; accuracy of results is a review criterion.
 
