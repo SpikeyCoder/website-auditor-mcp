@@ -170,7 +170,9 @@ Write:
   internal context. Natural set: sample audit (keyless), visibility check,
   full audit, competitor comparison, upgrade-status check; negatives: audit a
   site the user does not own → refusal, Pro tool with no key → sample
-  fallback not an error, unreachable domain → UNREACHABLE_DOMAIN not a score.
+  fallback not an error, a domain that does not resolve → INVALID_INPUT (the
+  engine refuses it at /run), not a score: the same case as SUBMISSION-TESTS
+  N2. UNREACHABLE_DOMAIN is for a domain that resolves but never loads.
 - Global tab: launch countries. Submit tab: release notes + attestations.
 
 After approval you choose publication timing; the listing then appears in the

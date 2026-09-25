@@ -46,7 +46,7 @@ describe("get_ai_visibility [Subscription]", () => {
     const client = {
       runAudit: vi.fn(async () => ({ runId: "x", report: unreachableReport(), raw: {} })),
     };
-    const res = await getAiVisibility({ domain: "not-a-real-domain-zzz.example" }, makeDeps({ tier: "pro", client }));
+    const res = await getAiVisibility({ domain: "dead-bakery.example" }, makeDeps({ tier: "pro", client }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("UNREACHABLE_DOMAIN");

@@ -26,23 +26,28 @@ type EngineKey = (typeof ENGINE_KEYS)[number];
 const SEVERITY_RANK: Record<Severity, number> = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
 
 /**
- * True when the audited site could not be reached at all: the availability
- * module reported connection-level failures (tagged by the upstream module with
- * the "connectivity or DNS resolution" recommendation) and NO page load
- * succeeded. A homepage that loads with some broken sub-pages is NOT unreachable.
+ * True when no page of the audited site loaded: the availability module has
+ * "Page load:" rows and none of them passed or warned. A homepage that loads
+ * with some broken sub-pages is NOT unreachable, nor is one that redirected,
+ * was forbidden or answered another unexpected status (a WARNING row).
+ *
+ * This read the remedy text too: a failed row had to say "connectivity or
+ * DNS". The engine stopped writing that in chaos_tester #429 (each transport
+ * failure now names its cause: a timeout, a refused connection, TLS, DNS), so
+ * since then nothing was ever unreachable: a dead site got a report of zeros
+ * and compare_competitors audited every competitor after a primary that never
+ * loaded. The page-load rows are the signal; the wording is not. A homepage
+ * that answered 404 or 5xx on every load did not load either, and counts.
+ * It is the same rule as the API's own (website-auditor-api trialSeeding
+ * siteLoaded), so a comparison stops exactly where the API would not start a
+ * member's dashboard.
  */
 export function detectUnreachable(report: AuditReport): boolean {
-  const availability = (report.results ?? []).filter((r) => r.module === "availability");
-  if (availability.length === 0) return false;
-
-  const connFailures = availability.filter(
-    (r) => r.status === "failed" && /connectivity or DNS/i.test(r.recommendation ?? ""),
+  const pageLoads = (report.results ?? []).filter(
+    (r) => r.module === "availability" && (r.name ?? "").startsWith("Page load:"),
   );
-  if (connFailures.length === 0) return false;
-
-  const pageLoads = availability.filter((r) => (r.name ?? "").startsWith("Page load:"));
-  const anyLoaded = pageLoads.some((r) => r.status === "passed" || r.status === "warning");
-  return !anyLoaded;
+  if (pageLoads.length === 0) return false;
+  return !pageLoads.some((r) => r.status === "passed" || r.status === "warning");
 }
 
 /** Lowercase payload key -> the display name upstream uses. One map, because

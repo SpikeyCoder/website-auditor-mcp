@@ -68,7 +68,7 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
   if (detectUnreachable(response.report)) {
     return err(
       "UNREACHABLE_DOMAIN",
-      `The site at ${args.domain} could not be reached, so no AI-visibility score can be produced. Check the domain is correct and publicly reachable.`,
+      `The site at ${args.domain} didn't load during the audit (no page loaded), so no AI-visibility score can be produced. Check the domain is correct, publicly reachable and serving pages.`,
     );
   }
 

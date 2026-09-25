@@ -11,6 +11,7 @@ import {
 import { isGap } from "../../src/tools/compareCompetitors.js";
 import { mapEngines } from "../../src/tools/getMonitoringStatus.js";
 import { reachableReport, unreachableReport, partialOutageReport } from "../fixtures/reports.js";
+import type { AuditReport } from "../../src/api/types.js";
 
 describe("detectUnreachable", () => {
   it("returns true when no page could be loaded (connection-level failures only)", () => {
@@ -23,6 +24,64 @@ describe("detectUnreachable", () => {
 
   it("returns false when the homepage loaded but a sub-page failed", () => {
     expect(detectUnreachable(partialOutageReport())).toBe(false);
+  });
+
+  // What the engine writes today (chaos_tester modules/availability.py
+  // _test_page): a transport failure is a FAILED "Page load" row whose remedy
+  // names the cause; 404 and 5xx are FAILED; a redirect, a 403 and any other
+  // unexpected status are WARNING; a slow page adds a separate "Slow response"
+  // WARNING row, which is not a page load.
+  const pageLoads = (rows: Array<{ name?: string; status: string; details?: string; recommendation?: string }>) => {
+    const r = reachableReport();
+    r.results = rows.map((row, i) => ({
+      test_id: `pl${i}`, module: "availability", name: row.name ?? `Page load: acme.example/${i ? `p${i}` : ""}`,
+      description: "", status: row.status, severity: "high", url: "https://acme.example/",
+      details: row.details ?? "", recommendation: row.recommendation ?? "",
+    })) as AuditReport["results"];
+    return r;
+  };
+
+  it.each([
+    ["a timeout", "The server did not respond in time.", "Check server load and response times."],
+    ["a refused connection", "The server refused the connection.", "Check that the web server is running and listening on this port."],
+    ["a TLS failure", "The site's TLS certificate could not be verified.", "See the certificate finding in the Security section."],
+    ["a DNS failure mid-crawl", "The domain could not be resolved.", "Check the domain's DNS records and that the registration is current."],
+  ])("returns true when every page load failed with %s (today's engine remedies)", (_label, details, recommendation) => {
+    expect(detectUnreachable(pageLoads([{ status: "failed", details, recommendation }, { status: "failed", details, recommendation }]))).toBe(true);
+  });
+
+  it("returns true when the homepage answered 404 on every load", () => {
+    expect(detectUnreachable(pageLoads([
+      { status: "failed", details: "HTTP 404 Not Found", recommendation: "Remove or fix dead link; add a custom 404 page." },
+    ]))).toBe(true);
+  });
+
+  it("returns true when the homepage answered 5xx on every load, even with a slow-response warning", () => {
+    expect(detectUnreachable(pageLoads([
+      { status: "failed", details: "HTTP 503 Server Error", recommendation: "Investigate server logs immediately." },
+      { name: "Slow response: acme.example/", status: "warning", details: "Response time 4200ms exceeds 3000ms threshold." },
+    ]))).toBe(true);
+  });
+
+  it.each([
+    ["a redirect", "Redirect 301 → https://www.acme.example/"],
+    ["a 403", "HTTP 403 Forbidden"],
+    ["an unexpected status", "Unexpected HTTP 410"],
+  ])("returns false when the homepage answered %s (a page-load warning)", (_label, details) => {
+    expect(detectUnreachable(pageLoads([{ status: "warning", details }]))).toBe(false);
+  });
+
+  it("returns false when a sub-page failed before the homepage loaded (rows arrive in completion order)", () => {
+    expect(detectUnreachable(pageLoads([
+      { status: "failed", details: "HTTP 404 Not Found" },
+      { status: "passed", details: "HTTP 200 OK" },
+    ]))).toBe(false);
+  });
+
+  it("returns false when there are no page-load rows at all (nothing says it failed)", () => {
+    const r = reachableReport();
+    r.results = (r.results ?? []).filter((x) => !(x.name ?? "").startsWith("Page load:"));
+    expect(detectUnreachable(r)).toBe(false);
   });
 
   it("returns false for a 404-heavy site that still served pages", () => {

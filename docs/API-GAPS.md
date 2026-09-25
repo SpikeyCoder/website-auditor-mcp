@@ -160,12 +160,19 @@ that endpoint, or a dedicated quota endpoint, would let the tool pre-flight.)
   key. The MCP therefore returns `AUTH_REQUIRED` (not a silent failure) when no
   key is set. Either mint anonymous/free keys or add an unauthenticated,
   tightly-rate-limited teaser endpoint to honor the "no account" promise.
-- **Unreachable domains** are not signaled as a distinct error by `/api/audit` —
-  it returns `200` with an availability failure in `results`. The MCP detects this
-  (`detectUnreachable`) from the availability module's connection-level failure
-  (recommendation "Investigate server connectivity or DNS resolution." with no
-  page load succeeding) and returns `UNREACHABLE_DOMAIN` instead of a fabricated
-  score.
+- **Unreachable domains** are not signaled as a distinct error by `/api/audit`.
+  A domain that does not resolve is refused by the engine before any audit
+  runs (a `400`, relayed; the MCP reports `INVALID_INPUT` with the engine's
+  "We couldn't find that domain" in `details`). A domain that resolves but
+  whose pages never load gets `200` with availability failures in `results`. The MCP detects this
+  (`detectUnreachable`) from the availability module's "Page load:" rows: when
+  there are some and none passed or warned, no page loaded, and it returns
+  `UNREACHABLE_DOMAIN` instead of a fabricated score (and compare_competitors
+  stops before auditing any competitor). It used to also require a failed row
+  whose remedy said "connectivity or DNS"; the engine stopped writing that in
+  chaos_tester #429, so from then until this change nothing was ever detected.
+  It is the API's own rule for a site that never loaded
+  (website-auditor-api `trialSeeding.siteLoaded`).
 
 ### 4. No free API tier (2026-07-26, api PR #17)
 Every key-authed capability upstream — including `GET /api/audit` — now

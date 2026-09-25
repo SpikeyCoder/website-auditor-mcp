@@ -1126,9 +1126,11 @@ describe("submitted test cases, as an anonymous reviewer sees them", () => {
       ["get_ai_visibility", { domain: "website-auditor.io" }],
       ["run_audit", { domain: "website-auditor.io" }],
       ["get_monitoring_status", {}],
-      // N2's documented UNREACHABLE_DOMAIN is unreachable keyless: gateProTool
-      // runs before the domain is ever fetched, so the dead domain never gets
-      // looked up. This is the case that most clearly could not pass as written.
+      // N2 (a domain that does not resolve; with a key the engine refuses it
+      // at /run and the MCP answers INVALID_INPUT) cannot be reached keyless:
+      // gateProTool runs before the domain is ever sent, so the dead domain
+      // never gets looked up. This is the case that most clearly could not
+      // pass as written.
       ["run_audit", { domain: "this-domain-does-not-exist-9483749.com" }],
     ] as const) {
       const res = await client.callTool({ name, arguments: args });

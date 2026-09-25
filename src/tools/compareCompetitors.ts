@@ -142,7 +142,7 @@ export async function compareCompetitors(
     case "unreachable":
       return err(
         "UNREACHABLE_DOMAIN",
-        `The site at ${args.domain} could not be reached, so it can't be compared. Check the domain is correct and publicly reachable.`,
+        `The site at ${args.domain} didn't load during the audit (no page loaded), so it can't be compared. Check the domain is correct, publicly reachable and serving pages.`,
       );
     case "error":
       return fromApiError(primaryOutcome.error, deps.config, deps.transport, deps.authVia);

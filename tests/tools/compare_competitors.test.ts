@@ -53,6 +53,42 @@ describe("compare_competitors [Pro] — gating & basics", () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe("UNREACHABLE_DOMAIN");
+    // Stopped at the member's own site: no competitor was audited. Carrying on
+    // spends the caller's audits, and the API seeds a member's first site that
+    // loaded, so the first competitor would start their dashboard.
+    expect(runAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a competitor whose pages never loaded is listed as skipped, not dropped", async () => {
+    // Live since detectUnreachable reads page loads: before, it never fired.
+    const runAudit = vi.fn(async ({ domain }: { domain: string }): Promise<AuditResponse> =>
+      domain === "dead-rival.com"
+        ? { runId: "z", report: unreachableReport(), raw: {} }
+        : { runId: "y", report: reportFor(domain), raw: {} },
+    );
+    const res = await compareCompetitors(
+      { domain: "example.com", competitors: ["rival.com", "dead-rival.com"] },
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.skipped).toEqual([{ domain: "dead-rival.com", reason: "unreachable" }]);
+  });
+
+  it("an audit whose pages never loaded is not cached: a repeat audits again and still reports it", async () => {
+    const runAudit = vi.fn(async ({ domain }: { domain: string }): Promise<AuditResponse> =>
+      domain === "dead-rival.com"
+        ? { runId: "z", report: unreachableReport(), raw: {} }
+        : { runId: "y", report: reportFor(domain), raw: {} },
+    );
+    const deps = makeDeps({ tier: "pro", client: { runAudit } });
+    for (let i = 0; i < 2; i++) {
+      const res = await compareCompetitors({ domain: "example.com", competitors: ["dead-rival.com"] }, deps);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.data.skipped).toEqual([{ domain: "dead-rival.com", reason: "unreachable" }]);
+    }
+    expect(runAudit.mock.calls.filter(([a]) => a.domain === "dead-rival.com")).toHaveLength(2);
   });
 
   it("ranks the domain against competitors by AI-visibility score (header-less client)", async () => {
