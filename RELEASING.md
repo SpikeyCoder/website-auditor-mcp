@@ -93,8 +93,8 @@ rather than assuming. The manual steps are kept for when something goes wrong.
    ```
    npm run build
    npm ci --omit=dev
-   npx @anthropic-ai/mcpb pack .
-   mv website-auditor-mcp.mcpb website-auditor-mcp-<x.y.z>.mcpb
+   # mcpb names its output after the directory unless given a path
+   npx --yes @anthropic-ai/mcpb pack . website-auditor-mcp-<x.y.z>.mcpb
    npm ci            # restore dev deps
    ```
 
@@ -110,12 +110,40 @@ rather than assuming. The manual steps are kept for when something goes wrong.
    OTP prompt together take far longer than five minutes. Log in *immediately
    before* this step, not before step 1.
 
-   `scripts/release.sh` does this for you: preconditions only check that the
-   machine has credentials at all and that there is a TTY to re-authenticate
-   with, then it re-mints the token just before publishing. An earlier version
-   demanded 300s of remaining life up front, which no token can ever have, and
-   every release aborted on a message telling you to refresh a token that was
-   already as fresh as tokens get.
+   `scripts/release.sh` does this for you. With the `gh` CLI logged in, it
+   mints each registry token from that login (handing the GitHub token to
+   `mcp-publisher login github` through `MCP_GITHUB_TOKEN`, not the command
+   line), with no prompt, right before every publish attempt. Before npm, it
+   also checks that the `gh` account owns the registry namespace (the registry
+   issues a token to any account, and only refuses the wrong one at publish,
+   after npm), and mints once so an outage stops the release while nothing has
+   shipped. Without `gh`, it needs a terminal for the GitHub device flow; with
+   neither, it stops before npm. An earlier version demanded 300s of remaining life up front, which no
+   token can ever have, and every release aborted on a message telling you to
+   refresh a token that was already as fresh as tokens get.
+
+   **npm must serve the version before the registry is asked.** The registry
+   validates a publish against npm, and right after `npm publish` npm may not
+   serve the new version yet. 1.0.25 was refused with "version '1.0.25' was not
+   found", published once, and stopped. The script now waits for
+   `https://registry.npmjs.org/<pkg>/<version>` to answer, then tries the
+   registry up to five times with backoff. A token mint that fails counts as
+   a failed attempt too, and its error is shown with the token masked.
+
+   **If it still ends half-published, run it again** as it says:
+   `npm run release`, or `npm run release -- --yes` from a shell with no
+   terminal (there is nothing to answer the confirm prompt there). It skips
+   npm, which already has the version and so needs no npm login or one-time
+   password, and finishes the bundle and the registry. Once both channels have
+   the version, a run packs the `.mcpb` for the GitHub release, publishes
+   nothing, and needs no credentials at all. It packs only if the files that
+   decide what the bundle runs and shows (`src`, the manifests, the lockfile,
+   `tsconfig.json`, `README.md`, `LICENSE`, `icon.png`, `.mcpbignore`) match
+   the commit npm published that version from
+   (`npm view <pkg>@<version> gitHead`), and not at all if npm cannot say
+   which commit that was; changes since then need a version bump, not a
+   bundle under the old name. The `.mcpb` is packed before anything is published, so a later
+   failure can't lose it.
 
 6. `gh release create v<x.y.z> website-auditor-mcp-<x.y.z>.mcpb` so `.mcpb`
    users have a canonical download.
