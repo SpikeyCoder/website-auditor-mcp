@@ -371,7 +371,8 @@ function withProSuffix(spec: ToolSpec): ToolSpec {
  * the scheduled-monitoring surface — track_site (start), untrack_site (stop),
  * list_tracked_sites (list), get_monitoring_status (per-user view) — the four
  * read tools (get_benchmark, generate_schema and get_report, Pro-gated, and
- * get_recommendations, any key), and check_upgrade_status (1.0.4).
+ * get_recommendations, any key), get_gtm_plan, check_upgrade_status (1.0.4)
+ * and get_sample_audit (no key at all).
  */
 export const SERVED_TOOLS: ToolSpec[] = [
   ...P0_TOOLS,
