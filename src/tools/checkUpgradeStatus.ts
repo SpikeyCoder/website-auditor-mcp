@@ -128,12 +128,14 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       : `Pro subscription active${periodEnd ? ` (renews ${periodEnd})` : ""} — all tools are unlocked.`;
   } else if (sub.status === "none") {
     message =
-      `No active subscription — there is no free API tier, so all Website Auditor tools are locked. ` +
+      `No active subscription — there is no free API tier, so audits and every other tool are locked, ` +
+      `except get_recommendations, which still lists the next steps from an audit already on record. ` +
       `Subscribe at ${upgradeUrl} — eligible new customers get a 7-day free trial, then $10/month; ` +
       `starting requires adding a payment method and accepting the Terms, with no charge until the trial ends.`;
   } else {
     message =
-      `Subscription lapsed (status: ${sub.status}) — all Website Auditor tools are locked (there is no free API tier). ` +
+      `Subscription lapsed (status: ${sub.status}) — audits and every other tool are locked (there is no free API tier), ` +
+      `except get_recommendations, which still lists the next steps from an audit already on record. ` +
       `Resubscribe at ${upgradeUrl} (requires a payment method and accepting the Terms; ` +
       `a free trial is only available if your last one began more than 12 months ago — otherwise billing starts immediately).`;
   }

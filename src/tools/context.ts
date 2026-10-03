@@ -4,7 +4,7 @@
  */
 import type { WaConfig } from "../config.js";
 import type { WaApiClientLike } from "../api/client.js";
-import type { SubscriptionProvider } from "../auth/entitlements.js";
+import type { SubscriptionProvider, TierResolution } from "../auth/entitlements.js";
 import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
@@ -198,27 +198,25 @@ export function fromApiError(
 }
 
 /**
- * Gate a subscription-required tool. Returns a ToolError result to
- * short-circuit, or null to proceed.
+ * Gate a tool that needs an account — a key, or under Mixed Auth a connected
+ * login — but not a subscription. Returns a ToolError result to short-circuit,
+ * or null to proceed.
  *
- * Since website-auditor-api PR #17 there is no free API tier: every key-authed
- * capability requires an active/trialing subscription, so this pre-flight
- * applies to ALL tools except check_upgrade_status (which reports standing
- * with any valid key). Blocking client-side saves the wasted round-trip the
- * server would 403 anyway.
- *
- * Distinguishes a *verified* non-Pro tier (definitive "not subscribed" →
- * PRO_REQUIRED with the upgrade path) from an *unverified* one (the subscription
- * service was unreachable and we defaulted to free → SUBSCRIPTION_UNVERIFIED, a
- * retryable signal) so a genuine subscriber isn't wrongly told to upgrade
- * during an outage. No key at all is AUTH_REQUIRED, not an upsell.
+ * Refuses exactly two states: no key at all (AUTH_REQUIRED, with the OAuth
+ * challenge where Mixed Auth is on) and a key the API rejected (INVALID_KEY
+ * and its siblings — never an upsell; see below). Every other tier, verified
+ * or not, proceeds: the API decides what a key without Pro gets. Used by
+ * get_recommendations, which the API answers for any key since
+ * website-auditor-api #131 (card 227); gateProTool runs it first, so both
+ * gates say the same thing about a missing or bad key.
  */
-export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | null> {
-  const { tier, verified, message, rejection } = await deps.subscriptions.resolve(
+export async function gateKeyedTool(
+  deps: ToolDeps,
+  resolved?: TierResolution,
+): Promise<ToolResult<never> | null> {
+  const { tier, message, rejection } = resolved ?? await deps.subscriptions.resolve(
     deps.config.apiKey,
   );
-  if (isPro(tier)) return null;
-
   const upgradeUrl = upgradeLink(deps.config);
 
   if (tier === "none") {
@@ -319,6 +317,36 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
       { upgrade_url: upgradeUrl },
     );
   }
+
+  return null;
+}
+
+/**
+ * Gate a subscription-required tool. Returns a ToolError result to
+ * short-circuit, or null to proceed.
+ *
+ * Since website-auditor-api PR #17 there is no free API tier for audits: every
+ * key-authed capability but one requires an active/trialing subscription, so
+ * this pre-flight applies to every tool except check_upgrade_status (which
+ * reports standing with any valid key) and get_recommendations (which the API
+ * answers for any key — see gateKeyedTool). Blocking client-side saves the
+ * wasted round-trip the server would 403 anyway.
+ *
+ * Distinguishes a *verified* non-Pro tier (definitive "not subscribed" →
+ * PRO_REQUIRED with the upgrade path) from an *unverified* one (the subscription
+ * service was unreachable and we defaulted to free → SUBSCRIPTION_UNVERIFIED, a
+ * retryable signal) so a genuine subscriber isn't wrongly told to upgrade
+ * during an outage. No key at all is AUTH_REQUIRED, not an upsell.
+ */
+export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | null> {
+  const resolved = await deps.subscriptions.resolve(deps.config.apiKey);
+  if (isPro(resolved.tier)) return null;
+
+  const keyed = await gateKeyedTool(deps, resolved);
+  if (keyed) return keyed;
+
+  const { verified } = resolved;
+  const upgradeUrl = upgradeLink(deps.config);
 
   if (!verified) {
     return err(

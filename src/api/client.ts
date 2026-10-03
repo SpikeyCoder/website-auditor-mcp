@@ -127,7 +127,7 @@ export interface WaApiClientLike {
   getMonitoringStatus(): Promise<MonitoringStatus>;
   /** Benchmark a domain's AI visibility vs its industry/geo peers (Pro). */
   getBenchmark(params: BenchmarkParams): Promise<Benchmark>;
-  /** Prioritized fixes to raise a domain's AI-visibility/audit scores (Pro). */
+  /** Ranked next steps from a domain's latest audit (any key; Pro gets more). */
   getRecommendations(params: { domain: string }): Promise<Recommendations>;
   /** Ready-to-paste JSON-LD structured data for a domain (Pro). */
   generateSchema(params: SchemaParams): Promise<SchemaResult>;
@@ -459,16 +459,27 @@ export class WaApiClient implements WaApiClientLike {
   }
 
   /**
-   * Prioritized fixes for a domain. Wired to
-   * `GET /api/recommendations?domain=` (website-auditor-api PR #10). Strips the
-   * `success` envelope and returns `{ recommendations }`.
+   * The next steps for a domain. Wired to `GET /api/recommendations?domain=`
+   * (website-auditor-api PR #10; evidence-based and answered for any key since
+   * #131). Strips the `success` envelope and returns `{ run_id, tier,
+   * recommendations }`, each step with every field the API sent. A tier it
+   * does not know is left out rather than passed on.
    */
   async getRecommendations(params: { domain: string }): Promise<Recommendations> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/recommendations`);
     url.searchParams.set("domain", params.domain);
 
-    const body = (await this.requestJson("GET", url)) as { recommendations?: Recommendations["recommendations"] };
-    return { recommendations: Array.isArray(body.recommendations) ? body.recommendations : [] };
+    const body = (await this.requestJson("GET", url)) as {
+      run_id?: unknown;
+      tier?: unknown;
+      recommendations?: Recommendations["recommendations"];
+    };
+    const out: Recommendations = {
+      recommendations: Array.isArray(body.recommendations) ? body.recommendations : [],
+    };
+    if (typeof body.run_id === "string" || body.run_id === null) out.run_id = body.run_id;
+    if (body.tier === "free" || body.tier === "pro") out.tier = body.tier;
+    return out;
   }
 
   /**

@@ -35,6 +35,14 @@ export interface ToolSpec {
    * listing doc, and the schemas carry their own rationale.
    */
   outputSchema?: ZodRawShape;
+  /**
+   * A free-tier tool that still needs an account (a key, or a connected login)
+   * to do anything. Every Pro tool does by definition; this marks the free ones
+   * that do too, so the Mixed Auth listing asks for a login up front instead of
+   * advertising `noauth` for a tool that can only answer AUTH_REQUIRED without
+   * one. See securitySchemesFor.
+   */
+  needsAccount?: boolean;
 }
 
 const domainArg = z.string().describe('The website domain, e.g. "example.com".');
@@ -171,10 +179,13 @@ export const P1_TOOLS: ToolSpec[] = [
   },
   {
     name: "get_recommendations",
-    tier: "pro",
+    // Free-tier since website-auditor-api #131 (card 227): any valid key is
+    // answered, and the API decides how much of the list it gets.
+    tier: "free",
+    needsAccount: true,
     title: "Prioritized fixes",
     description:
-      'Get specific, prioritized fixes to raise a website\'s AI visibility and audit scores. Use this when someone asks "how do I fix this," "what should I change," "how do I improve my AI visibility," or after an audit surfaces issues. Returns ranked actions with expected impact.',
+      'Get specific, prioritized fixes to raise a website\'s AI visibility and audit scores. Use this when someone asks "how do I fix this," "what should I change," "how do I improve my AI visibility," or after an audit surfaces issues. Returns ranked actions with expected impact, each built from the domain\'s latest audit and citing its evidence (blocked AI crawlers, missing structured data, the competitor sites the assistants cited). Works with any Website Auditor API key and needs an audit on record for the domain; with Pro it also says where to get listed, what the assistants get wrong about the business, and which file in the fix package fixes each finding — without Pro the listing places are only counted.',
     inputSchema: { domain: domainArg },
   },
   {

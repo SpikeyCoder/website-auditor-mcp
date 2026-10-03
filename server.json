@@ -41,7 +41,8 @@
     "io.website-auditor/tools": {
       "free": [
         "get_sample_audit",
-        "check_upgrade_status"
+        "check_upgrade_status",
+        "get_recommendations"
       ],
       "pro": [
         "run_audit",
@@ -53,7 +54,6 @@
         "list_tracked_sites",
         "get_monitoring_status",
         "get_benchmark",
-        "get_recommendations",
         "generate_schema",
         "get_report",
         "get_gtm_plan"

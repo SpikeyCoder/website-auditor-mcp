@@ -366,12 +366,20 @@ export const getBenchmarkOutput: ZodRawShape = {
 };
 
 export const getRecommendationsOutput: ZodRawShape = {
+  run_id: z.string().nullable().optional().describe("The audit the steps come from."),
+  tier: z.enum(["free", "pro"]).optional().describe(
+    "Which list the API served. \"free\" omits where to get listed, what the assistants get "
+    + "wrong and each finding's fix file; its step marked `locked` only counts what Pro shows."),
   // The client checks only that this IS an array; nothing validates the rows.
   recommendations: z.array(open({
     action: z.string().optional(),
     why: z.string().optional(),
     expected_impact: z.string().optional(),
     effort: z.string().optional(),
+    source: z.string().optional(),
+    evidence: z.record(z.unknown()).optional(),
+    locked: z.boolean().optional(),
+    fix_id: z.string().optional(),
   })),
 };
 

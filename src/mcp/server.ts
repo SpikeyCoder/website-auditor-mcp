@@ -236,7 +236,8 @@ export function createServer(deps: ToolDeps): McpServer {
     // an Apps SDK extension rather than MCP core, and registerTool's config
     // accepts no top-level field for it, so a value placed anywhere else would
     // be dropped before it reached the wire.
-    const securitySchemes = securitySchemesFor(spec.tier, deps.config, deps.transport);
+    const securitySchemes = securitySchemesFor(
+      spec.tier, deps.config, deps.transport, spec.tier === "pro" || spec.needsAccount === true);
     server.registerTool(
       spec.name,
       {

@@ -139,12 +139,21 @@ describe("tool registry", () => {
     expect(Object.keys(spec.inputSchema)).toHaveLength(0);
   });
 
-  it("the four Phase-1 read tools are served and Pro-gated", () => {
+  it("the four Phase-1 read tools are served; three are Pro-gated", () => {
     const gate = Object.fromEntries(ALL_TOOL_SPECS.map((t) => [t.name, t.tier]));
-    for (const name of ["get_benchmark", "get_recommendations", "generate_schema", "get_report"]) {
+    for (const name of ["get_benchmark", "generate_schema", "get_report"]) {
       expect(SERVED_TOOLS.some((t) => t.name === name)).toBe(true);
       expect(gate[name]).toBe("pro");
     }
+  });
+
+  it("get_recommendations answers any key: free-tier, and says what Pro adds", () => {
+    // Card 227: the API answers a key without Pro with the free list.
+    const spec = SERVED_TOOLS.find((t) => t.name === "get_recommendations")!;
+    expect(spec.tier).toBe("free");
+    expect(spec.description).toMatch(/any Website Auditor API key/i);
+    expect(spec.description).toMatch(/Pro/);
+    expect(spec.description).toMatch(/evidence/i);
   });
 
   it("the monitoring management tools are all Pro-gated", () => {
