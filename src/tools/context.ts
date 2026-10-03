@@ -264,7 +264,8 @@ export async function gateKeyedTool(
   // leaked one). Telling them to subscribe cannot fix their problem.
   //
   // A lapsed subscriber never reaches here: cancelling does not revoke keys, so
-  // their key stays valid and the Pro gate below answers with PRO_REQUIRED.
+  // their key stays valid — gateProTool's Pro check then answers PRO_REQUIRED,
+  // and a key-only tool (get_recommendations) is answered by the API itself.
   //
   // The exception is someone whose key is revoked AND whose subscription has
   // lapsed. Minting a key requires an active subscription (requireProSession on

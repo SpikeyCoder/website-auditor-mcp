@@ -333,9 +333,10 @@ export const ALL_TOOL_SPECS: ToolSpec[] = [
 
 const TRACK_SITE_TOOL: ToolSpec = P1_TOOLS.find((t) => t.name === "track_site")!;
 
-// The four Pro-gated read tools whose backends landed in website-auditor-api
-// PR #10 (benchmark / recommendations / schema / report). Declared in P1_TOOLS
-// with full metadata; now wired to their endpoints and served.
+// The four read tools whose backends landed in website-auditor-api PR #10
+// (benchmark / recommendations / schema / report). Declared in P1_TOOLS with
+// full metadata; now wired to their endpoints and served. Three are Pro-gated;
+// get_recommendations answers any key since api #131.
 const PHASE1_READ_TOOL_NAMES = ["get_benchmark", "get_recommendations", "generate_schema", "get_report"] as const;
 const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TOOLS.find((t) => t.name === name)!);
 
@@ -343,8 +344,8 @@ const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TO
  * The tools actually registered on the running server: the four Phase-0 tools,
  * the scheduled-monitoring surface — track_site (start), untrack_site (stop),
  * list_tracked_sites (list), get_monitoring_status (per-user view) — the four
- * Pro-gated read tools (get_benchmark, get_recommendations, generate_schema,
- * get_report), and check_upgrade_status (1.0.4). Thirteen tools in total.
+ * read tools (get_benchmark, generate_schema and get_report, Pro-gated, and
+ * get_recommendations, any key), and check_upgrade_status (1.0.4).
  */
 /**
  * Appended to every subscription-gated description at registration time.

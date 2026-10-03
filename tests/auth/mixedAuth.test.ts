@@ -201,6 +201,13 @@ describe("securitySchemes — derived from the registry's own tier", () => {
 
   it("marks free tools noauth, so the sample stays reachable without a login", () => {
     expect(securitySchemesFor("free", testConfig(OAUTH), "http")).toEqual([{ type: "noauth" }]);
+    // A free tool that needs an account (get_recommendations) asks for the
+    // login like a Pro one; the tier alone would have advertised noauth.
+    expect(securitySchemesFor({ tier: "free", needsAccount: true }, testConfig(OAUTH), "http"))
+      .toEqual([{ type: "oauth2", scopes: ["audit"] }]);
+    expect(securitySchemesFor({ tier: "free" }, testConfig(OAUTH), "http")).toEqual([{ type: "noauth" }]);
+    expect(securitySchemesFor({ tier: "pro" }, testConfig(OAUTH), "http"))
+      .toEqual([{ type: "oauth2", scopes: ["audit"] }]);
   });
 
   it("publishes nothing over stdio, which can never answer the login it would advertise", () => {

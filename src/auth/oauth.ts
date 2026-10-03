@@ -265,13 +265,16 @@ export function wwwAuthenticateChallenge(config: WaConfig, description: string):
  * but advertises itself as open.
  */
 export function securitySchemesFor(
-  tier: ToolTier,
+  // A tier alone, or the tool's spec: a free tool can still need an account
+  // (get_recommendations: no subscription, but a key the API answers) —
+  // ToolSpec.needsAccount. THE rule, here only: Pro, or flagged.
+  tool: ToolTier | { tier: ToolTier; needsAccount?: boolean },
   config: WaConfig,
   transport?: "stdio" | "http",
-  // A free tool can still need an account (get_recommendations: no
-  // subscription, but a key the API answers) — ToolSpec.needsAccount.
-  needsAccount: boolean = tier === "pro",
 ): unknown[] | undefined {
+  const needsAccount = typeof tool === "string"
+    ? tool === "pro"
+    : tool.tier === "pro" || tool.needsAccount === true;
   // Transport-gated for the same reason the runtime challenge is, and it was a
   // real gap that only this half was not: a stdio process that happens to have
   // the OAuth variables set advertised `oauth2` on thirteen tools while being
