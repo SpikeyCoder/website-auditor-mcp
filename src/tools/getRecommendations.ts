@@ -7,7 +7,8 @@
  * API's `success` envelope, so this tool returns `{ run_id, tier?,
  * recommendations: [{ id, rank, action, why, expected_impact, effort, source,
  * evidence, locked?, fix_id? }] }` — `tier` is absent only when the API fell
- * back to its score-based list and could not read the subscription in time.
+ * back to its score-based list and could not read the subscription (an error,
+ * or no answer in time).
  *
  * Needs a key, not a subscription: the API decides the tier from the key's own
  * standing — Pro gets the whole list, a key without Pro the free one — so the
