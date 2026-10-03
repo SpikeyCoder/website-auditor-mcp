@@ -4,9 +4,10 @@
  * Read-only. Returns the next steps from the domain's latest audit, each built
  * from that audit's own evidence (website-auditor-api #131, card 227). Wired to
  * `client.getRecommendations` (GET /api/recommendations); the client strips the
- * API's `success` envelope, so this tool returns `{ run_id, tier,
- * recommendations: [{ action, why, expected_impact, effort, source, evidence,
- * locked?, fix_id? }] }`.
+ * API's `success` envelope, so this tool returns `{ run_id, tier?,
+ * recommendations: [{ id, rank, action, why, expected_impact, effort, source,
+ * evidence, locked?, fix_id? }] }` — `tier` is absent only when the API fell
+ * back to its score-based list and could not read the subscription in time.
  *
  * Needs a key, not a subscription: the API decides the tier from the key's own
  * standing — Pro gets the whole list, a key without Pro the free one — so the
