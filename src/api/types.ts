@@ -539,6 +539,8 @@ export interface Recommendation {
   /** The step's id ("crawlers", "listing-yelp", …): the same id the 90-day
    *  plan (get_gtm_plan) schedules it by. */
   id?: string;
+  /** Its place in the list, 1 first: the "Recommendation N" the plan shows. */
+  rank?: number;
   action: string;
   why: string;
   expected_impact: string;

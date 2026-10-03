@@ -373,6 +373,7 @@ export const getRecommendationsOutput: ZodRawShape = {
   // The client checks only that this IS an array; nothing validates the rows.
   recommendations: z.array(open({
     id: z.string().optional(),
+    rank: z.number().optional(),
     action: z.string().optional(),
     why: z.string().optional(),
     expected_impact: z.string().optional(),
