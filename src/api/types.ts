@@ -534,16 +534,36 @@ export interface Benchmark {
   position_summary: string;
 }
 
-/** One prioritized fix from `get_recommendations`. */
+/** One next step from `get_recommendations`, built from the audit's evidence. */
 export interface Recommendation {
+  /** The step's id ("crawlers", "listing-yelp", …): the same id the 90-day
+   *  plan (get_gtm_plan) schedules it by. */
+  id?: string;
+  /** Its place in the list, 1 first: the "Recommendation N" the plan shows
+   *  (for the API's score-based fallback, source "generic" with ids
+   *  engine-*, its place in that list alone — the plan never schedules it). */
+  rank?: number;
   action: string;
   why: string;
   expected_impact: string;
   effort: string;
+  /** Where the step came from: "ai_crawler_block", "authority_task", … or
+   *  "generic" for the API's score-based fallback. */
+  source?: string;
+  /** The figures the step rests on; its keys depend on `source`. */
+  evidence?: Record<string, unknown>;
+  /** True on the free list's one step that only counts what Pro shows. */
+  locked?: boolean;
+  /** Pro: the file in `GET /api/fixes` that fixes this finding. */
+  fix_id?: string;
 }
 
-/** `get_recommendations` — ranked actions to raise AI-visibility/audit scores. */
+/** `get_recommendations` — ranked next steps from the domain's latest audit. */
 export interface Recommendations {
+  /** The audit the steps come from. */
+  run_id?: string | null;
+  /** Which list the API served: the whole one ("pro") or the free one. */
+  tier?: "free" | "pro";
   recommendations: Recommendation[];
 }
 

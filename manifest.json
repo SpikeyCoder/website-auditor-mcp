@@ -116,7 +116,7 @@
     },
     {
       "name": "get_recommendations",
-      "description": "Prioritized fixes [read-only]. Get specific, prioritized fixes to raise a website's AI-visibility and audit scores. Returns ranked actions, each with why it matters, expected impact, and effort. Requires Pro."
+      "description": "Prioritized fixes [read-only]. Get specific, prioritized fixes to raise a website's AI-visibility and audit scores. Returns ranked actions built from the latest audit, each with why it matters and the evidence behind it, expected impact, and effort. Works with any API key; Pro adds where to get listed, what AI assistants get wrong about the business, and the fix file for each finding."
     },
     {
       "name": "generate_schema",

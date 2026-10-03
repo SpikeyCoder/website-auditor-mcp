@@ -458,6 +458,31 @@ describe("WaApiClient.getRecommendations — wired to GET /api/recommendations",
     expect(res).not.toHaveProperty("success");
   });
 
+  it("keeps the tier, the run and every field of each step (card 227)", async () => {
+    const recommendations = [
+      {
+        action: "Unlock the 3 places AI checks that don't list you yet",
+        why: "Pro shows which ones.",
+        expected_impact: "high",
+        effort: "medium",
+        source: "authority_count",
+        evidence: { places: 3 },
+        locked: true,
+      },
+    ];
+    const fetchMock = makeFetch(200, { success: true, run_id: "a1b2c3d4e5f6", tier: "free", recommendations });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getRecommendations({ domain: "example.com" });
+    expect(res).toEqual({ run_id: "a1b2c3d4e5f6", tier: "free", recommendations });
+  });
+
+  it("a tier it does not know is left out, not passed on", async () => {
+    const fetchMock = makeFetch(200, { success: true, tier: "platinum", recommendations: [] });
+    const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
+    const res = await client.getRecommendations({ domain: "example.com" });
+    expect(res).toEqual({ recommendations: [] });
+  });
+
   it("defaults to an empty list when the API omits recommendations", async () => {
     const fetchMock = makeFetch(200, { success: true });
     const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });

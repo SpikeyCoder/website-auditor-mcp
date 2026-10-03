@@ -265,10 +265,16 @@ export function wwwAuthenticateChallenge(config: WaConfig, description: string):
  * but advertises itself as open.
  */
 export function securitySchemesFor(
-  tier: ToolTier,
+  // A tier alone, or the tool's spec: a free tool can still need an account
+  // (get_recommendations: no subscription, but a key the API answers) —
+  // ToolSpec.needsAccount. THE rule, here only: Pro, or flagged.
+  tool: ToolTier | { tier: ToolTier; needsAccount?: boolean },
   config: WaConfig,
   transport?: "stdio" | "http",
 ): unknown[] | undefined {
+  const needsAccount = typeof tool === "string"
+    ? tool === "pro"
+    : tool.tier === "pro" || tool.needsAccount === true;
   // Transport-gated for the same reason the runtime challenge is, and it was a
   // real gap that only this half was not: a stdio process that happens to have
   // the OAuth variables set advertised `oauth2` on thirteen tools while being
@@ -276,7 +282,7 @@ export function securitySchemesFor(
   // that cannot exist. Half a Mixed Auth setup fails silently, so both halves
   // answer to the same condition.
   if (transport !== "http" || !oauthEnabled(config)) return undefined;
-  return tier === "pro"
+  return needsAccount
     // config.oauthScopes, for the same reason as the challenge above: this is
     // read during a tool scan to decide what the connector will ask for, and a
     // tool needing only `audit` to RUN does not make `audit` the whole of what

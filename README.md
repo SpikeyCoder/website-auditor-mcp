@@ -178,8 +178,11 @@ Auditor account at
 Minting a key requires an active subscription ($10/month; eligible new
 customers get a 7-day free trial — payment method required, no charge until
 the trial ends): there is no free API tier, so every tool except
-`get_sample_audit` and `check_upgrade_status` needs one. `get_sample_audit`
-needs no key at all.
+`get_sample_audit`, `check_upgrade_status` and `get_recommendations` needs one.
+`get_sample_audit` needs no key at all. `get_recommendations` answers any valid
+key with the next steps from an audit already on record; with Pro it also says
+where to get listed, what AI assistants get wrong about the business, and which
+fix file fixes each finding.
 
 Treat the key like a password — set it only in your MCP client's `env` and never
 commit it.
@@ -221,7 +224,8 @@ minute:
   new key, not a purchase.
 - **No active subscription** (valid key, lapsed/canceled/never subscribed) →
   `PRO_REQUIRED` with the price and an upgrade link — there is no free API tier;
-  `check_upgrade_status` still answers so the caller can learn why.
+  `check_upgrade_status` still answers so the caller can learn why, and
+  `get_recommendations` still answers with the free list (`"tier": "free"`).
 - **Subscribed** (status `active` or a trial in progress) → all tools.
 
 Errors are normalized to stable codes agents can branch on — e.g.

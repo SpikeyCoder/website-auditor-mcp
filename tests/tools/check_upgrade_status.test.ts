@@ -68,6 +68,8 @@ describe("check_upgrade_status [Free]", () => {
     expect(res.data.tier).toBe("free");
     expect(res.data.status).toBe("none");
     expect(res.data.message).toContain("no free API tier");
+    expect(res.data.message).toContain("get_recommendations");
+    expect(res.data.message).not.toMatch(/all Website Auditor tools are locked/);
     // The trial returned 2026-08-04. Disclosure rule: the offer never travels
     // without the price, the payment-method requirement and the Terms — the
     // card sentence is what keeps "free trial" distinct from a free tier.
@@ -89,6 +91,9 @@ describe("check_upgrade_status [Free]", () => {
     if (!res.ok) return;
     expect(res.data.status).toBe("canceled");
     expect(res.data.message).toContain("lapsed");
+    // Card 227: one tool still answers a key without Pro — never "all locked".
+    expect(res.data.message).toContain("get_recommendations");
+    expect(res.data.message).not.toMatch(/all Website Auditor tools are locked/);
   });
 
   it("invalid key -> INVALID_KEY error with upgrade_url", async () => {
