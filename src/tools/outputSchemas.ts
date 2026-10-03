@@ -372,6 +372,7 @@ export const getRecommendationsOutput: ZodRawShape = {
     + "wrong and each finding's fix file; its step marked `locked` only counts what Pro shows."),
   // The client checks only that this IS an array; nothing validates the rows.
   recommendations: z.array(open({
+    id: z.string().optional(),
     action: z.string().optional(),
     why: z.string().optional(),
     expected_impact: z.string().optional(),

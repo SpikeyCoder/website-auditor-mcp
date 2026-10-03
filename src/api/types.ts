@@ -536,6 +536,9 @@ export interface Benchmark {
 
 /** One next step from `get_recommendations`, built from the audit's evidence. */
 export interface Recommendation {
+  /** The step's id ("crawlers", "listing-yelp", …): the same id the 90-day
+   *  plan (get_gtm_plan) schedules it by. */
+  id?: string;
   action: string;
   why: string;
   expected_impact: string;
