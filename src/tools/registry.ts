@@ -341,13 +341,6 @@ const PHASE1_READ_TOOL_NAMES = ["get_benchmark", "get_recommendations", "generat
 const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TOOLS.find((t) => t.name === name)!);
 
 /**
- * The tools actually registered on the running server: the four Phase-0 tools,
- * the scheduled-monitoring surface — track_site (start), untrack_site (stop),
- * list_tracked_sites (list), get_monitoring_status (per-user view) — the four
- * read tools (get_benchmark, generate_schema and get_report, Pro-gated, and
- * get_recommendations, any key), and check_upgrade_status (1.0.4).
- */
-/**
  * Appended to every subscription-gated description at registration time.
  *
  * Two problems it fixes. First, consistency: get_ai_visibility and run_audit
@@ -373,6 +366,13 @@ function withProSuffix(spec: ToolSpec): ToolSpec {
   return { ...spec, description: base + PRO_SUFFIX };
 }
 
+/**
+ * The tools actually registered on the running server: the four Phase-0 tools,
+ * the scheduled-monitoring surface — track_site (start), untrack_site (stop),
+ * list_tracked_sites (list), get_monitoring_status (per-user view) — the four
+ * read tools (get_benchmark, generate_schema and get_report, Pro-gated, and
+ * get_recommendations, any key), and check_upgrade_status (1.0.4).
+ */
 export const SERVED_TOOLS: ToolSpec[] = [
   ...P0_TOOLS,
   TRACK_SITE_TOOL,
