@@ -12,6 +12,6 @@ Walk the user through the sections:
 - what the AI-visibility score measures
 - what the per-assistant breakdown (ChatGPT, Claude, Gemini, Perplexity) is
   telling them
-- what the SEO, security and performance checks cover
+- what the crawlability-and-markup, security and performance checks cover
 
 Then tell them what they would need in order to run this on their own site.

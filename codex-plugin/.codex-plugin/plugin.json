@@ -13,7 +13,7 @@
     "ai-visibility",
     "geo",
     "generative-engine-optimization",
-    "seo",
+    "aeo",
     "website-audit",
     "chatgpt",
     "perplexity",
@@ -25,7 +25,7 @@
   "interface": {
     "displayName": "Website Auditor",
     "shortDescription": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
-    "longDescription": "Ask whether AI assistants actually recommend your business. Website Auditor puts the questions a real customer would ask to ChatGPT, Claude, Gemini and Perplexity, reports which businesses get named, and adds SEO, security-header, broken-link and performance checks — an overall AI-visibility score (0-100), a per-engine breakdown, competitor comparisons, and ongoing monitoring. Try it before subscribing: the sample report needs no API key and no setup.",
+    "longDescription": "Ask whether AI assistants actually recommend your business. Website Auditor puts the questions a real customer would ask to ChatGPT, Claude, Gemini and Perplexity, reports which businesses get named, and adds security-header, broken-link, performance, and crawlability and markup checks — an overall AI-visibility score (0-100), a per-engine breakdown, competitor comparisons, and ongoing monitoring. Try it before subscribing: the sample report needs no API key and no setup.",
     "developerName": "SpikeyCoder",
     "category": "Productivity",
     "capabilities": [
@@ -38,7 +38,7 @@
     "defaultPrompt": [
       "Show me a sample website audit report",
       "Check whether ChatGPT and other AI assistants recommend my website",
-      "Audit my website's AI visibility, SEO, security and performance"
+      "Audit my website's AI visibility, security and performance"
     ],
     "brandColor": "#00AEEF",
     "composerIcon": "./assets/icon.png",
