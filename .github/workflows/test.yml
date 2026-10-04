@@ -44,6 +44,10 @@ jobs:
     name: test (node ${{ matrix.node-version }})
     steps:
       - uses: actions/checkout@v4
+        with:
+          # tests/codexPluginVersion.test.ts compares codex-plugin/ against
+          # origin/main; a shallow checkout has no main to compare with.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:

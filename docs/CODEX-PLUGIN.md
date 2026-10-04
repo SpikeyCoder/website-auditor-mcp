@@ -4,7 +4,7 @@
 
 1. **The plugin package** (`codex-plugin/` in this repo) — works today, installable
    by anyone from this repo as a marketplace. It bundles the stdio npm server
-   plus four skills, and it doubles as the listing material for (2).
+   plus one skill per MCP prompt, and it doubles as the listing material for (2).
 2. **A directory listing** — the in-product Plugins Directory shared by ChatGPT
    and Codex (browse, one-click install, `@website-auditor`). This is a
    submission-and-review channel like the Claude Desktop directory, and it has
@@ -74,11 +74,12 @@ The remedy and its work split are in **docs/OAUTH-MIXED-AUTH.md**.
 codex-plugin/
 ├── .codex-plugin/plugin.json   # manifest + all directory listing metadata
 ├── .mcp.json                   # bundles: npx -y website-auditor-mcp (stdio)
-├── skills/                     # the four MCP prompts, ported
+├── skills/                     # the MCP prompts, ported
 │   ├── see-sample-report/      #   ← no key, no arguments: the entry point
 │   ├── check-ai-visibility/
 │   ├── audit-my-site/
-│   └── compare-to-competitor/
+│   ├── compare-to-competitor/
+│   └── build-growth-plan/
 └── assets/icon.png
 ```
 
@@ -90,16 +91,26 @@ itself a Codex marketplace:
 
 **Why skills, when the server already ships MCP prompts:** Codex does not
 render MCP prompts (openai/codex#8342, closed duplicate of a still-open ask).
-Plugin skills DO surface there. The four skills are the prompts from
+Plugin skills DO surface there. The skills are the prompts from
 `src/mcp/prompts.ts` re-expressed as model instructions — same names, same
 keyless fallback to `get_sample_audit`, same own-site-only guard. If the
-prompts change, change the skills in the same PR; nothing enforces this.
+prompts change, change the skills in the same PR. Tests check that there is
+exactly one skill per prompt and that the codex and cursor copies are
+byte-identical (`tests/cursorPlugin.test.ts`).
+Nothing checks that a reworded prompt was carried into its skill.
 
 **Versioning:** the plugin has its own version (`.codex-plugin/plugin.json`).
 The bundled server is unpinned (`npx -y`), so npm releases reach plugin users
-without a plugin update. Bump the plugin version only when the plugin itself
-(manifest, skills) changes. It is NOT one of the seven strings the release
+without a plugin update. Bump the plugin version when anything in
+`codex-plugin/` changes other than its README. It is NOT one of the seven strings the release
 process keeps in agreement, and `tests/manifests.test.ts` does not check it.
+`tests/codexPluginVersion.test.ts` does: if a branch changed the plugin
+(measured from where it left `origin/main`), its version must be later than
+main's current one; a branch that did not change it must not lower it. Codex installs a repo-marketplace
+plugin under a `local` version, so this number is bookkeeping for the plugin
+and the portal record rather than an update trigger.
+It sat at 0.1.0 through a new skill, a relicence and the mcp#88 rewording;
+0.2.0 is the first bump.
 
 ## Phase 2 — the hosted server
 

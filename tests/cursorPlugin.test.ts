@@ -114,6 +114,15 @@ describe("cursor-plugin skills", () => {
     }
   });
 
+  it("the codex-plugin copy has the same skills, no more and no fewer", () => {
+    // The byte-identity check below reads only the codex files named here, so
+    // a codex-only skill (a prompt removed, its codex skill left behind) was
+    // never seen (review of #90).
+    const codex = readdirSync(join(root, "codex-plugin", "skills"), { withFileTypes: true })
+      .filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    expect(codex).toEqual(skillDirs);
+  });
+
   it("stays byte-identical with the codex-plugin copy — one voice, changed together", () => {
     for (const dir of skillDirs) {
       const ours = readFileSync(join(plugin, "skills", dir, "SKILL.md"), "utf8");
