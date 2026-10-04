@@ -1,26 +1,29 @@
 # Codex plugin & the ChatGPT/Codex plugin directory
 
-**Two different things share this document, and only one of them exists yet.**
+**Two different things share this document.**
 
 1. **The plugin package** (`codex-plugin/` in this repo) — works today, installable
    by anyone from this repo as a marketplace. It bundles the stdio npm server
    plus one skill per MCP prompt, and it doubles as the listing material for (2).
 2. **A directory listing** — the in-product Plugins Directory shared by ChatGPT
    and Codex (browse, one-click install, `@website-auditor`). This is a
-   submission-and-review channel like the Claude Desktop directory, and it has
-   one hard prerequisite we do not meet yet: **a hosted Streamable HTTP MCP
-   server**. The directory does not accept bundled stdio servers.
+   submission-and-review channel like the Claude Desktop directory. It takes
+   **a hosted Streamable HTTP MCP server** only, never a bundled stdio one, so
+   its package declares https://mcp.website-auditor.io/mcp (`npm run
+   pack:codex`, below).
 
-Status: **REJECTED 2026-08-24. Mixed Auth in progress** — see
-docs/OAUTH-MIXED-AUTH.md for the root cause, what has shipped, and what
-website-auditor-api still owes.
+Status: **PUBLISHED.** On 2026-10-04 the portal showed version 1.0.16
+published, 2.0.0 in review, and the MCP configuration "Configured". The
+2026-08-24 rejection and its Mixed Auth fix are recorded below and in
+docs/OAUTH-MIXED-AUTH.md. How to update the live listing:
+[Updating the published listing](#updating-the-published-listing).
 
 | Phase | State |
 |---|---|
 | 1. Package the plugin | **DONE** — `codex-plugin/`, installable from this repo |
 | 2. Hosted HTTP MCP server | **LIVE** — https://mcp.website-auditor.io/mcp (Cloud Run `website-auditor-mcp`, us-central1, `WA_UPSELL_STYLE=info`, pinned `WA_INSTALL_ID`, `WA_APPS_CHALLENGE_TOKEN` serving the domain-verification token) |
 | 3. Compliance pass | **DONE** — accurate annotations (42 justifications filed in the portal), info upsell live, minimization tests, terms/privacy/contact URLs live, reviewer demo account seeded with real monitoring history |
-| 4. Portal submission | **SUBMITTED** — "We'll notify you when a decision is made." No published SLA; submit-and-keep-shipping applies |
+| 4. Portal submission | **PUBLISHED** — 1.0.16 live; 2.0.0 in review (portal, 2026-10-04). Reviews have no published SLA |
 
 Submission facts a future update needs:
 
@@ -37,9 +40,10 @@ Submission facts a future update needs:
   the target: `get_sample_audit` and `check_upgrade_status` open, the other 13
   behind a login. It requires OAuth 2.1 either way — there is no header-key
   shortcut.
-- **Updates are snapshot-versioned**: change the server → Scan Tools again →
-  bump the portal version → resubmit → publish on approval. Tool metadata and
-  skills do NOT track the live server.
+- **Updates**: this said every change meant a rescan, a new version and a
+  resubmission. Not so for a published listing: tools follow the hosted
+  server by daily scan, and only metadata, skills and assets need a new ZIP —
+  see [Updating the published listing](#updating-the-published-listing).
 - **Reviewer-suggested for next version**: `outputSchema` on every tool.
 - The Cloud Scheduler weekly-trackings job, the demo account, and the
   `mcp_transports` view all exist because of this work — see the api repo and
@@ -106,11 +110,12 @@ without a plugin update. Bump the plugin version when anything in
 process keeps in agreement, and `tests/manifests.test.ts` does not check it.
 `tests/codexPluginVersion.test.ts` does: if a branch changed the plugin
 (measured from where it left `origin/main`), its version must be later than
-main's current one; a branch that did not change it must not lower it. Codex installs a repo-marketplace
-plugin under a `local` version, so this number is bookkeeping for the plugin
-and the portal record rather than an update trigger.
-It sat at 0.1.0 through a new skill, a relicence and the mcp#88 rewording;
-0.2.0 is the first bump.
+main's current one; a branch that did not change it must not lower it.
+Codex installs a repo-marketplace plugin under a `local` version, so the
+number matters to the portal, which reads it from the uploaded ZIP: keep it
+above whatever the portal holds. It sat at 0.1.0 through a new skill, a
+relicence and the mcp#88 rewording; 0.2.0 was the first bump, and 2.1.0 put
+it above the portal's own numbering (1.0.16 published, 2.0.0 in review).
 
 ## Phase 2 — the hosted server
 
@@ -163,7 +168,7 @@ Still required, currently missing: a **terms-of-service URL** (the portal
 wants website, support, privacy AND terms URLs; we have no public terms page —
 the subscription flow's terms live inside the portal).
 
-## Phase 4 — the portal
+## Phase 4 — the portal (the first submission, 2026-08)
 
 At **platform.openai.com/plugins**, with identity verification completed in
 OpenAI Platform org settings and the submitter holding "Apps Management" =
@@ -191,17 +196,37 @@ shared directory. **Reviews have no published SLA** ("review timelines may
 vary") — same posture as the Claude directory: submit, keep shipping, never
 assume it happened.
 
-## Updates are snapshots — this becomes a fifth channel
+## Updating the published listing
 
-Published plugins do NOT track the server live: tool metadata and imported
-skills are frozen at scan time. Every meaningful change = rescan → new version
-→ review → publish. When the listing exists, add it to the channel table in
-RELEASING.md with exactly that warning.
+From OpenAI's submission guide (read 2026-10-04):
+
+- **Tools follow the hosted server.** The portal scans
+  https://mcp.website-auditor.io/mcp daily; eligible tool changes go live
+  after automated checks, with no new package version. To hurry it after a
+  deploy: the plugin → **MCPs** → the server → **Issues** → **Rescan**. A
+  flagged tool change holds that tool at its approved metadata; new tools wait
+  for approval. So deploying the hosted server (RELEASING.md) is what updates
+  tool descriptions here.
+- **Metadata, skills and assets need a new ZIP.** Listing text, starter
+  prompts, keywords, icons and `skills/` change only through the plugin →
+  **Upload plugin to make changes**, which creates a package version with its
+  own review. Build it with `npm run pack:codex`
+  (`scripts/pack-codex-plugin.sh`): `codex-plugin/` as committed, with
+  `.mcp.json` declaring the hosted server (`streamable-http`, per the
+  agent-plugins schema) instead of the stdio package, and without the README. The
+  portal reads the version from the manifest: bump it above what the portal
+  holds first.
+- **One review at a time.** A package already in review blocks an upload:
+  wait for its decision or cancel it, then upload.
+- **The connected server's URL is fixed**; changing it needs OpenAI support.
+
+This is the fifth channel in RELEASING.md's table.
 
 ## Sources
 
 - Submission: https://developers.openai.com/plugins/deploy/submission
 - Review guidelines: https://developers.openai.com/plugins/app-guidelines
-- Packaging: https://developers.openai.com/codex/plugins/build
+- Packaging: https://developers.openai.com/codex/plugins/build and
+  https://developers.openai.com/plugins/build/plugins
 - Overview: https://learn.chatgpt.com/docs/plugins
 - Production plugin examples: https://github.com/openai/plugins

@@ -1,6 +1,6 @@
 # Releasing
 
-**Three channels ship this server, and they are separate publishes.** Feeding
+**Five channels ship this server, and they are separate publishes.** Feeding
 only one is how 1.0.8, 1.0.9 and 1.0.10 reached npm while every Claude Desktop
 user stayed on 1.0.6 — which meant `get_sample_audit`, the telemetry that would
 have revealed it, and the storefront copy were all invisible to real users for
@@ -12,21 +12,21 @@ days. Nothing warns you; the versions just quietly disagree.
 | MCP registry | `mcp-publisher publish` | the MCP registry / directory consumers |
 | `.mcpb` bundle | see below | direct/manual installs, GitHub release |
 | **Claude Desktop directory** | **a submission form + human review** | **Claude Desktop users who installed from the in-app directory** |
+| **ChatGPT/Codex plugin directory** | **tools: the portal's daily scan of the hosted server (deploy it); skills and listing text: `npm run pack:codex` + portal upload + review** | **ChatGPT and Codex users who added the listed plugin** |
 
-**Codex is not a fifth channel — don't go looking for one.** MCP servers have
-no Codex directory or submission process (verified 2026-08-10): Codex users
+**Codex has no directory of its own for MCP servers — don't go looking for
+one.** MCP servers have no Codex submission process (verified 2026-08-10): Codex users
 install straight from npm via `codex mcp add` / `~/.codex/config.toml` — the
 README has the config — so `npm publish` already reaches them, and their
 `npx -y` installs self-update like everyone else's.
 
 The adjacent surface that DOES take submissions is the **plugin catalog shared
 by ChatGPT and Codex** (the in-product directory users browse, search and
-`@`-invoke; plugins can bundle MCP servers). **Submitted for review
-2026-08-11** (docs/CODEX-PLUGIN.md has the full submission record). Per this
-file's own rule: do not assume it landed — the listing exists only when OpenAI
-says so, and once it does, it becomes a genuine fifth channel here with its
-own review queue and a rescan required per release, exactly like the Claude
-Desktop directory.
+`@`-invoke; plugins can bundle MCP servers). **Published**: 1.0.16 was live on
+2026-10-04, so it is the fifth row above. Its tools follow the hosted server
+by daily scan, so deploying that server is the release step for them; skills
+and listing text need a new ZIP and a review (docs/CODEX-PLUGIN.md,
+"Updating the published listing").
 
 **Cursor is the same shape.** `npm publish` already reaches Cursor users
 (`~/.cursor/mcp.json`; the README carries the config and a one-click install
@@ -35,7 +35,7 @@ link). The **Cursor Marketplace** is a reviewed plugin channel on top:
 review 2026-08-13** — docs/CURSOR-PLUGIN.md has the full submission record.
 Do not assume it landed; the listing exists only when Cursor says so.
 
-Two things make this channel unlike the other two, and both cut in your
+Two things make this channel unlike the Claude directory, and both cut in your
 favour. The plugin bundles the server unpinned (`npx -y`), so npm releases
 flow through **without re-review** — only changes to the plugin itself
 (manifest, skills) re-enter the queue. But review reads the **repo at
