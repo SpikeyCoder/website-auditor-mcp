@@ -1,8 +1,8 @@
 # Website Auditor — Codex plugin
 
 Packages the [website-auditor-mcp](https://github.com/SpikeyCoder/website-auditor-mcp)
-server for Codex's plugin system: the MCP server (bundled via `npx`) plus four
-skills that mirror the server's MCP prompts, which Codex does not otherwise
+server for Codex's plugin system: the MCP server (bundled via `npx`) plus a
+skill for each of the server's MCP prompts, which Codex does not otherwise
 surface.
 
 ## Install
@@ -25,11 +25,12 @@ domains needs a Website Auditor subscription and an API key from
 |---|---|
 | `.codex-plugin/plugin.json` | Manifest + directory listing metadata |
 | `.mcp.json` | Bundled MCP server (`npx -y website-auditor-mcp`) |
-| `skills/` | The four MCP prompts, ported to plugin skills |
+| `skills/` | The MCP prompts, ported to plugin skills |
 | `assets/icon.png` | Listing icon (copy of the repo icon) |
 
 The plugin versions independently of the npm package: bump
-`.codex-plugin/plugin.json` only when the plugin itself changes. The bundled
+`.codex-plugin/plugin.json` when anything here changes other than this README —
+`tests/codexPluginVersion.test.ts` fails until you do. The bundled
 server tracks npm `latest` on its own through `npx -y`.
 
 Directory submission status and the full plan live in

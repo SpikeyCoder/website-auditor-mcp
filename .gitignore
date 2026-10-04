@@ -23,6 +23,9 @@ coverage/
 *.log
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 
 # Claude Code (worktrees / agent dir)
 .claude/
