@@ -59,12 +59,12 @@ export const PROMPT_SPECS: PromptSpec[] = [
     name: "audit_my_site",
     title: "Run a full site audit",
     description:
-      "AI visibility plus SEO, security headers, broken links and performance, in one report.",
+      "AI visibility plus security headers, broken links, performance, and crawlability and markup, in one report.",
     argsSchema: { domain: arg("The website to audit, e.g. example.com") },
     render: ({ domain }) =>
       `Run a full Website Auditor audit of ${domain}.\n\n` +
-      `Call run_audit for ${domain}, then summarise the result by category — AI visibility, SEO, ` +
-      `security headers, broken links and performance — and list the three fixes that would matter ` +
+      `Call run_audit for ${domain}, then summarise the result by category — AI visibility, ` +
+      `crawlability and markup, security headers, broken links and performance — and list the three fixes that would matter ` +
       `most, highest impact first.\n\n${KEYLESS_FALLBACK}`,
   },
   {
@@ -118,7 +118,7 @@ export const PROMPT_SPECS: PromptSpec[] = [
       "Show me what a Website Auditor report looks like.\n\n" +
       "Call get_sample_audit — it needs no API key and no setup. Walk me through the sections: " +
       "what the AI-visibility score measures, what the per-assistant breakdown is telling me, and " +
-      "what the SEO, security and performance checks cover. Then tell me what I would need in " +
+      "what the crawlability-and-markup, security and performance checks cover. Then tell me what I would need in " +
       "order to run this on my own site.",
   },
 ];

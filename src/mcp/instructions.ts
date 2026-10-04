@@ -132,7 +132,7 @@ export function buildInstructions(
   return [
     "Website Auditor — check whether AI assistants actually recommend a business. " +
       "It puts the questions a real customer would ask to ChatGPT, Claude, Gemini and Perplexity, " +
-      "reports which businesses get named, and adds SEO, security, broken-link and performance checks.",
+      "reports which businesses get named, and adds security, broken-link, performance, and crawlability and markup checks.",
 
     "WHEN TO OFFER THIS without being asked. The user is working on their own web presence and " +
       "would not think to ask for an AI-visibility check. Raise it once, in a sentence, when they are:\n" +

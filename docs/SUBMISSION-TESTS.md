@@ -381,8 +381,8 @@ one you expected.
 - **Decides it:** all four category keys are present, `top_issues` and a
   shareable `report_url` appear, and the call does not time out. Present, not
   non-null — see Shape.
-- **Shape:** the four category keys — AI visibility, SEO, security,
-  performance — each a score **or `null`**, plus `top_issues` and `report_url`.
+- **Shape:** the four category keys — AI visibility, `seo` (the
+  crawlability-and-markup proxy), security, performance — each a score **or `null`**, plus `top_issues` and `report_url`.
   All four are `z.number().nullable()` in `runAuditOutput`, so a null is the
   contract working, not a failure. **Record which came back null**: a category
   null on every run is a different problem from one null once, and only the

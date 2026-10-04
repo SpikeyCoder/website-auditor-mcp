@@ -101,8 +101,12 @@ export const P0_TOOLS: ToolSpec[] = [
     // Retiered free -> pro in 1.0.5: no free API tier since api PR #17.
     tier: "pro",
     title: "Run a full audit",
+    // No "SEO" claim: there is no SEO module upstream. `scores.seo` is
+    // seoProxyScore() in src/api/mappers.ts, a share of crawlability and markup
+    // signals, and the description names them. Pinned (here and in
+    // manifest.json) by tests/tools/runAuditSaysWhatItChecks.test.ts.
     description:
-      'Run a full one-time audit of a website — AI visibility plus SEO, security headers, broken links, and performance. Use this when someone asks to "audit," "scan," "check," or "review" a website\'s health or SEO, or wants a complete report rather than just the AI-visibility number. Returns a scored summary across categories and a link to the full report. The ranked cited-`sources` evidence behind the AI-visibility number is returned by get_ai_visibility, not by this tool. If `name_warning` is present, the business name the AI-visibility score was measured against could not be verified — relay that caveat rather than presenting the score as settled fact. Requires an active subscription.',
+      'Run a full one-time audit of a website — AI visibility, plus security headers, broken links, performance, and a crawlability-and-markup score (`scores.seo`: robots.txt, AI crawler access, sitemap, structured data, meta description and Open Graph tags). Use this when someone asks to "audit," "scan," "check," or "review" a website\'s health, or wants a complete report rather than just the AI-visibility number. Returns a scored summary across categories and a link to the full report. The ranked cited-`sources` evidence behind the AI-visibility number is returned by get_ai_visibility, not by this tool. If `name_warning` is present, the business name the AI-visibility score was measured against could not be verified — relay that caveat rather than presenting the score as settled fact. Requires an active subscription.',
     inputSchema: {
       domain: domainArg,
       business_name: businessNameArg,
