@@ -6,7 +6,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { SERVED_TOOLS } from "../tools/registry.js";
+import { EFFECTS, SERVED_TOOLS, type ToolSpec } from "../tools/registry.js";
 import type { ToolResult } from "../tools/context.js";
 import type { ToolDeps } from "../tools/context.js";
 import { getAiVisibility } from "../tools/getAiVisibility.js";
@@ -59,48 +59,22 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   get_sample_audit: (_a, d) => getSampleAudit({}, d),
 };
 
-// get_sample_audit answers entirely from a bundled fixture — no key, no network,
-// no external world. Every other tool reaches the Website Auditor API.
-const LOCAL_ONLY_TOOLS = new Set(["get_sample_audit"]);
-
 /**
- * Per-tool annotations, accurate against BOTH the MCP spec and the OpenAI
- * plugin-review definitions — each is a listed rejection reason when wrong, and
- * "conservatively true" is as wrong there as false:
- *
- *   readOnlyHint    — true unless the tool mutates server-side state. Only
- *                     track_site / untrack_site do.
- *   destructiveHint — "can delete, overwrite, revoke access, or act
- *                     irreversibly". track_site only ENROLLS (or pauses)
- *                     monitoring — reversible, nothing deleted — so it is NOT
- *                     destructive. untrack_site removes the tracking and frees
- *                     the slot, ending the history get_changes reads → true.
- *   openWorldHint   — read tools query the external Website Auditor API about
- *                     arbitrary internet domains (an open world) → true, except
- *                     the bundled sample. track/untrack change only the
- *                     caller's own account state, nothing publicly visible →
- *                     false.
- *
- * Pinned tool-by-tool in tests/mcp/server.test.ts.
+ * Per-tool annotations: the three hints from the tool's declared effect
+ * (EFFECTS in src/tools/registry.ts, where the definitions and the rule
+ * applied are written down). Accurate against BOTH the MCP spec and the
+ * OpenAI plugin review, where a wrong value is a listed rejection reason in
+ * either direction ("conservatively true" is as wrong as false). Pinned
+ * tool-by-tool in tests/mcp/server.test.ts.
  */
-function annotationsFor(spec: { name: string; title: string }): {
+export function annotationsFor(spec: Pick<ToolSpec, "title" | "effect">): {
   title: string;
   readOnlyHint: boolean;
   destructiveHint: boolean;
   openWorldHint: boolean;
 } {
-  if (spec.name === "track_site") {
-    return { title: spec.title, readOnlyHint: false, destructiveHint: false, openWorldHint: false };
-  }
-  if (spec.name === "untrack_site") {
-    return { title: spec.title, readOnlyHint: false, destructiveHint: true, openWorldHint: false };
-  }
-  return {
-    title: spec.title,
-    readOnlyHint: true,
-    destructiveHint: false,
-    openWorldHint: !LOCAL_ONLY_TOOLS.has(spec.name),
-  };
+  const { readOnlyHint, destructiveHint, openWorldHint } = EFFECTS[spec.effect];
+  return { title: spec.title, readOnlyHint, destructiveHint, openWorldHint };
 }
 
 /** Format a normalized ToolResult as an MCP tool result. */

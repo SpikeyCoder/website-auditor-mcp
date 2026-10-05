@@ -2,9 +2,11 @@
  * Audit cache — a seam for reusing a recent audit for a domain instead of
  * spending a fresh audit against the account's daily quota.
  *
- * `compare_competitors` (and, later, the other read tools) consults this before
- * calling `runAudit`, so repeating a comparison — or comparing overlapping
- * competitor sets — doesn't re-spend quota on domains audited moments ago.
+ * `compare_competitors` consults this before calling `runAudit`, so repeating a
+ * comparison — or comparing overlapping competitor sets — doesn't re-spend
+ * quota on domains audited moments ago. Only an uncached site starts an audit
+ * (and spends quota), which is why the tool is not read-only (EFFECTS in
+ * src/tools/registry.ts).
  *
  * The default is in-memory (per process) with a TTL that mirrors the upstream
  * audit engine's own 24h AI-visibility cache, so reuse never returns data older

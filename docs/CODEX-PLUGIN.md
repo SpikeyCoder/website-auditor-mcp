@@ -23,7 +23,7 @@ docs/OAUTH-MIXED-AUTH.md. How to update the live listing:
 |---|---|
 | 1. Package the plugin | **DONE** — `codex-plugin/`, installable from this repo |
 | 2. Hosted HTTP MCP server | **LIVE** — https://mcp.website-auditor.io/mcp (Cloud Run `website-auditor-mcp`, us-central1, `WA_UPSELL_STYLE=info`, pinned `WA_INSTALL_ID`, `WA_APPS_CHALLENGE_TOKEN` serving the domain-verification token) |
-| 3. Compliance pass | **DONE** — accurate annotations (42 justifications filed in the portal), info upsell live, minimization tests, terms/privacy/contact URLs live, reviewer demo account seeded with real monitoring history |
+| 3. Compliance pass | **DONE** — accurate annotations (42 justifications filed in the portal; 13 of them need updating after 2026-10-05 UTC, and get_gtm_plan needs three new ones, see Phase 3), info upsell live, minimization tests, terms/privacy/contact URLs live, reviewer demo account seeded with real monitoring history |
 | 4. Portal submission | **PUBLISHED** — 1.0.16 live; 2.0.0 in review (portal, 2026-10-04). Reviews have no published SLA |
 
 Submission facts a future update needs:
@@ -168,7 +168,31 @@ What remains is deployment, not code:
    is a listed rejection reason): track_site claimed destructive for
    enrolling monitoring, and track/untrack claimed open-world for touching
    only the caller's own account. Corrected and pinned tool-by-tool in
-   `tests/mcp/server.test.ts`. Rides the next npm release.
+   `tests/mcp/server.test.ts`. Rides the next npm release. (Superseded for
+   track_site on 2026-10-05 UTC, below: its enabled:false path is a hard
+   delete, and enrolling schedules public crawls.)
+   **Corrected again 2026-10-05 UTC:** the portal's live scan flagged
+   run_audit, get_ai_visibility and compare_competitors as read-only tools
+   with a side effect. Each starts an audit, which stores a report and spends
+   daily quota. OpenAI: read-only is "true only when the tool cannot change
+   state". The hints now come from one declared effect per tool (EFFECTS in
+   `src/tools/registry.ts`, which states the rule: open-world exactly when the
+   call makes something reach the public internet). Against the 14 live tools
+   that changes 13 hint values, each needing its filed justification updated:
+   - readOnly to false on the three audit tools (3);
+   - track_site destructive and open-world, since enabled:false makes
+     untrack_site's hard delete and enrolling schedules weekly audits (2);
+   - open-world to false on the eight tools that read what the service
+     holds or build from the input: get_changes, get_benchmark,
+     get_recommendations, get_report, check_upgrade_status,
+     list_tracked_sites, get_monitoring_status and generate_schema (8;
+     get_sample_audit was already false);
+   - get_gtm_plan: not read-only (each plan spends one of the daily plans
+     and refreshes the account's dashboard tasks), not destructive (those
+     tasks are derived data, recomputed on every refresh), closed-world (the
+     plan is written from the stored audit; the plan engine searches
+     nothing). If the portal already holds justifications for it, update its
+     readOnly and openWorld ones (both were true); otherwise write all three.
 
 Still required, currently missing: a **terms-of-service URL** (the portal
 wants website, support, privacy AND terms URLs; we have no public terms page —

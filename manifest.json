@@ -80,11 +80,11 @@
     },
     {
       "name": "get_ai_visibility",
-      "description": "Check AI visibility [read-only]. Check how visible a website is to AI assistants right now. Returns an overall AI-visibility score (0-100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. When the audit recorded citations, sources lists the documents the assistants actually read, ranked by cross-engine agreement and marked yours, competitor or third_party — treat competitor rows as context, not as placement targets; sources is null when nothing attributable was cited, and absent when citations were not recorded for the audit. Includes 7- and 30-day trend data from stored snapshot history. When name_warning is present, the business name behind the score could not be verified — relay that caveat rather than presenting the score as settled fact, and offer to re-run with an explicit business name. Requires an active subscription."
+      "description": "Check AI visibility [runs an audit]. Check how visible a website is to AI assistants right now. Returns an overall AI-visibility score (0-100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. When the audit recorded citations, sources lists the documents the assistants actually read, ranked by cross-engine agreement and marked yours, competitor or third_party — treat competitor rows as context, not as placement targets; sources is null when nothing attributable was cited, and absent when citations were not recorded for the audit. Includes 7- and 30-day trend data from stored snapshot history. When name_warning is present, the business name behind the score could not be verified — relay that caveat rather than presenting the score as settled fact, and offer to re-run with an explicit business name. Requires an active subscription."
     },
     {
       "name": "run_audit",
-      "description": "Run a full audit [read-only]. Run a full one-time audit of a website — AI visibility, plus security headers, broken links, performance, and a crawlability-and-markup score (scores.seo: robots.txt, AI crawler access, sitemap, structured data, meta description and Open Graph tags). Returns a scored summary across categories and a link to the full report. The ranked cited-sources evidence behind the AI-visibility score is returned by get_ai_visibility, not by this tool. When name_warning is present, the business name the AI-visibility score was measured against could not be verified — relay that caveat rather than presenting the score as settled fact. Requires an active subscription."
+      "description": "Run a full audit [runs an audit]. Run a full one-time audit of a website — AI visibility, plus security headers, broken links, performance, and a crawlability-and-markup score (scores.seo: robots.txt, AI crawler access, sitemap, structured data, meta description and Open Graph tags). Returns a scored summary across categories and a link to the full report. The ranked cited-sources evidence behind the AI-visibility score is returned by get_ai_visibility, not by this tool. When name_warning is present, the business name the AI-visibility score was measured against could not be verified — relay that caveat rather than presenting the score as settled fact. Requires an active subscription."
     },
     {
       "name": "get_changes",
@@ -92,15 +92,15 @@
     },
     {
       "name": "compare_competitors",
-      "description": "Compare against competitors [read-only]. Compare a website's AI visibility head-to-head against named competitors. Returns each competitor's score and where they appear that the site does not. Quota-aware: caps the audit fan-out to the remaining daily quota and reports any competitors it had to skip."
+      "description": "Compare against competitors [runs an audit per uncached site]. Compare a website's AI visibility head-to-head against named competitors. Returns each competitor's score and where they appear that the site does not. Quota-aware: caps the audit fan-out to the remaining daily quota and reports any competitors it had to skip."
     },
     {
       "name": "track_site",
-      "description": "Start/stop monitoring [destructive: writes tracking state]. Start (or stop) ongoing weekly monitoring of a website's AI visibility on a schedule. Adds weekly re-audits to the history that get_changes reads from — audits accrue it tracked or not."
+      "description": "Start/stop monitoring [destructive: writes tracking state]. Start (or stop) ongoing weekly monitoring of a website's AI visibility on a schedule. Adds weekly re-audits to the history that get_changes reads from — a history every audit already accrues, tracked or not. Passing enabled: false stops monitoring by deleting the enrollment, as untrack_site does."
     },
     {
       "name": "untrack_site",
-      "description": "Stop monitoring [destructive: writes tracking state]. Stop ongoing monitoring of a website's AI visibility and free up a monitoring slot. Idempotent."
+      "description": "Stop monitoring [destructive: writes tracking state]. Stop ongoing monitoring of a website's AI visibility and free up a monitoring slot. Removing a tracked site deletes its monitoring enrollment; its past audits are kept."
     },
     {
       "name": "list_tracked_sites",
@@ -128,7 +128,7 @@
     },
     {
       "name": "get_gtm_plan",
-      "description": "Build a GTM plan from the audit [read-only]. Produce a written go-to-market plan grounded in the audit's cited sources — the documents the AI assistants actually read, each marked yours, competitor or third_party (competitor sources are context, never placement targets). When no citation evidence was recorded the plan grounds itself in the report's issues and stats. Supports focus, constraints, and refining a prior plan. Requires Pro."
+      "description": "Build a GTM plan from the audit [uses a daily plan]. Produce a written go-to-market plan grounded in the audit's cited sources — the documents the AI assistants actually read, each marked yours, competitor or third_party (competitor sources are context, never placement targets). When no citation evidence was recorded the plan grounds itself in the report's issues and stats. Supports focus, constraints, and refining a prior plan. Requires Pro."
     },
     {
       "name": "check_upgrade_status",

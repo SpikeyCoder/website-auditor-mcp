@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/mcp/server.js";
+import { SERVED_TOOLS } from "../../src/tools/registry.js";
 import { makeDeps, errorPayload } from "../helpers.js";
 
 async function connect(deps = makeDeps({ tier: "pro" })) {
@@ -41,29 +42,54 @@ describe("MCP server (end-to-end over in-memory transport)", () => {
 
   it("carries accurate per-tool annotations — all three hints on every tool", async () => {
     // Accuracy matters, not just presence: mislabeled annotations are a listed
-    // rejection reason in the OpenAI plugin review, in BOTH directions.
-    //   track_site   — mutates, but only enrolls/pauses monitoring: reversible,
-    //                  nothing deleted → NOT destructive. Own-account state only
-    //                  → not open-world.
-    //   untrack_site — removes the tracking and its slot, ending the history
-    //                  get_changes reads → destructive. Own-account state only.
-    //   get_sample_audit — bundled fixture, no key, no network → closed world.
-    //   everything else  — reads the external API about arbitrary domains.
+    // rejection reason in the OpenAI plugin review, in BOTH directions. The
+    // hints come from ToolSpec.effect (EFFECTS in src/tools/registry.ts, where
+    // the definitions and the open-world rule are written down); this pins the
+    // result for every served tool by name, with no fallback, so a tool given
+    // the wrong effect fails.
+    //   read-only, closed-world — reads what the service holds (the caller's
+    //     audits and account, benchmark aggregates), generate_schema's
+    //     template, the bundled sample.
+    //   not read-only, open-world — run_audit, get_ai_visibility and
+    //     compare_competitors start audits (a stored report, daily quota).
+    //     Nothing is deleted.
+    //   get_gtm_plan — spends one of the daily plan allowance (not read-only);
+    //     written from the stored audit with no web search → closed-world.
+    //     The portal flagged the three audit tools on 2026-10-05 UTC.
+    //   track_site — enrolls a domain in weekly audits (open-world); with
+    //     enabled:false it makes untrack_site's hard delete → destructive.
+    //   untrack_site — that delete, on the caller's own account → destructive,
+    //     closed-world.
     const { client } = await connect();
     const { tools } = await client.listTools();
+    const read = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+    const spends = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
     const expected: Record<string, { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }> = {
-      track_site: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      get_changes: read,
+      get_benchmark: read,
+      get_recommendations: read,
+      get_report: read,
+      check_upgrade_status: read,
+      list_tracked_sites: read,
+      get_monitoring_status: read,
+      generate_schema: read,
+      get_sample_audit: read,
+      run_audit: spends,
+      get_ai_visibility: spends,
+      compare_competitors: spends,
+      // Spends a daily plan; written from the stored audit, no web search.
+      get_gtm_plan: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      track_site: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       untrack_site: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
-      get_sample_audit: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     };
+    expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(expected).sort());
     for (const tool of tools) {
-      const want = expected[tool.name] ?? { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
-      expect({ name: tool.name, ...tool.annotations }).toEqual({
-        name: tool.name,
-        title: tool.annotations?.title,
-        ...want,
-      });
-      expect(tool.annotations?.title).toBeTruthy();
+      const want = expected[tool.name]!;
+      const spec = SERVED_TOOLS.find((t) => t.name === tool.name)!;
+      expect({ name: tool.name, ...tool.annotations }).toEqual({ name: tool.name, title: spec.title, ...want });
+      expect(spec.title.trim()).not.toBe("");
+      // What ChatGPT and Codex read must not contradict the hint.
+      if (!want.readOnlyHint) expect(tool.description ?? "", tool.name).not.toMatch(/read[- ]?only|no side effects?/i);
     }
   });
 

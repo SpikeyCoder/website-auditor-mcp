@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { SERVED_TOOLS } from "../src/tools/registry.js";
+import { SERVED_TOOLS, labelFor } from "../src/tools/registry.js";
 import { PROMPT_SPECS } from "../src/mcp/prompts.js";
-import { SERVER_VERSION } from "../src/mcp/server.js";
+import { annotationsFor, SERVER_VERSION } from "../src/mcp/server.js";
 
 /**
  * Drift guards over the three files that describe this server to the outside
@@ -193,11 +193,41 @@ describe("published manifests stay in sync with the code", () => {
 
   it("every served tool carries a title", () => {
     // Directory requirement: "All tools must include a title and the
-    // applicable readOnlyHint or destructiveHint." The hints are applied in
-    // src/mcp/server.ts for every tool; the titles live on the specs here.
+    // applicable readOnlyHint or destructiveHint." The hints come from each
+    // tool's effect (EFFECTS in src/tools/registry.ts); the titles live on the
+    // specs here.
     const untitled = SERVED_TOOLS.filter((t: { name: string; title?: string }) =>
       !t.title || !String(t.title).trim());
     expect(untitled.map((t: { name: string }) => t.name)).toEqual([]);
+  });
+
+  it("each listed tool's label says what the tool does, as its annotations do", () => {
+    // The directory shows these labels from manifest.json; ChatGPT and Codex
+    // act on the served annotations. Both come from ToolSpec.effect through
+    // the one EFFECTS table in src/tools/registry.ts, and
+    // they disagreed until the portal flagged three audit tools listed as
+    // read-only (2026-10-05 UTC). Every label is checked, in both directions:
+    // a state-changing tool never says read-only in any spelling, and a
+    // destructive one says so.
+    for (const spec of SERVED_TOOLS) {
+      const listed = manifest.tools.find((m: { name: string }) => m.name === spec.name);
+      expect(listed, spec.name).toBeTruthy();
+      // The bundled sample's listing opens with its pitch, not "title [label]".
+      const titled = listed.description.startsWith(spec.title);
+      if (spec.name !== "get_sample_audit") expect(titled, spec.name).toBe(true);
+      const rest = titled ? listed.description.slice(spec.title.length) : listed.description;
+      const label = rest.match(/^\s*(\[[^\]]*\])?/)![1] ?? "";
+      // Anywhere in the listing, not just the label.
+      if (!annotationsFor(spec).readOnlyHint) {
+        expect(rest.replace(label, ""), spec.name).not.toMatch(/read[- ]?only|no side effects?/i);
+      }
+      expect(label, `${spec.name} (${spec.effect})`).toBe(labelFor(spec));
+      // The EFFECTS table's own rows agree: a label says read-only (or nothing)
+      // exactly when the served hint does, and destructive exactly when it is.
+      const hints = annotationsFor(spec);
+      expect(label === "[read-only]" || label === "", `${spec.name}: label vs readOnlyHint`).toBe(hints.readOnlyHint);
+      expect(label.includes("destructive"), `${spec.name}: label vs destructiveHint`).toBe(hints.destructiveHint);
+    }
   });
 
   it("the free tool named in the blurb is actually served and actually free", () => {
@@ -329,6 +359,6 @@ describe("published manifests stay in sync with the code", () => {
     const listed = manifest.tools.find((t: { name: string }) => t.name === "track_site");
     expect(listed, "track_site is served but not listed").toBeTruthy();
     expect(listed.description).not.toMatch(/establish(es)? the history/i);
-    expect(listed.description).toContain("audits accrue it tracked or not");
+    expect(listed.description).toContain("a history every audit already accrues, tracked or not");
   });
 });
