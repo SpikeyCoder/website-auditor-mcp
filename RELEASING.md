@@ -215,7 +215,7 @@ applies:
 | HTTPS privacy URL that resolves | PASS — 200 |
 | Policy covers collection, use/storage, third-party sharing, retention, contact | PASS — all five present on the live page |
 | Every tool carries a `title` | PASS — 15/15 |
-| Every tool carries `readOnlyHint` or `destructiveHint` | PASS — 15/15, set in src/mcp/server.ts |
+| Every tool carries `readOnlyHint` or `destructiveHint` | PASS — 15/15, from each tool's declared effect: the EFFECTS table in src/tools/registry.ts |
 
 The **submission form itself** states four more, which this table missed
 through the 1.0.16 submission because they live on the form rather than in the

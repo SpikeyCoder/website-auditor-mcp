@@ -15,6 +15,72 @@ import { OUTPUT_SCHEMAS } from "./outputSchemas.js";
 
 export type ToolTier = "free" | "pro";
 
+/**
+ * What a call does to the world. Every ToolSpec declares one, and it is the
+ * single source of the tool's MCP annotations (annotationsFor in
+ * src/mcp/server.ts) and of its manifest.json label (checked in
+ * tests/manifests.test.ts). Required, so a new tool cannot fall through to
+ * read-only: that default is how three audit tools shipped readOnlyHint true
+ * until the ChatGPT/Codex portal flagged them (2026-10-05 UTC).
+ *
+ * OpenAI's definitions (developers.openai.com/plugins/build/mcp-server):
+ *   readOnlyHint    — "true only when the tool cannot change state".
+ *   destructiveHint — "true when a tool can cause irreversible or difficult
+ *                     to reverse outcomes".
+ *   openWorldHint   — "true when a tool accesses the public internet or
+ *                     open-ended external entities ... A tool limited to a
+ *                     bounded private account or workspace can set this to
+ *                     false, even when that service is externally hosted."
+ * The rule applied: open-world exactly when the call makes something reach
+ * the public internet — an audit crawls the site and queries the AI engines,
+ * and enrolling schedules weekly audits. Reading what this service already
+ * holds, building an answer from the input, and writing a growth plan from
+ * the stored audit (the plan engine carries no web search: chaos_tester
+ * gtm_chat.py) are closed-world. Spending a daily allowance is not
+ * destructive: it is not irreversible, the allowance resets each day.
+ */
+export type ToolEffect =
+  | "stored"      // reads data this service holds (the caller's audits, account, aggregates)
+  | "computes"    // builds its answer from the input alone (generate_schema's template)
+  | "local"       // a bundled fixture; no network (get_sample_audit)
+  | "runs-audit"  // starts a new audit: a stored report and a unit of daily quota
+  | "runs-audits" // one audit per uncached site compared (compare_competitors)
+  | "uses-plan"   // generates a growth plan: one of the daily plan allowance
+  | "enrolls"     // enrolls a domain in weekly audits; enabled:false deletes the tracking row
+  | "untracks";   // deletes the tracking row
+
+export interface EffectTraits {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  openWorldHint: boolean;
+  /** The bracketed label manifest.json gives the tool after its title. */
+  label: string;
+}
+
+const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const SPENDS = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
+
+/** Exhaustive by type: a new effect does not compile until it has a row. */
+export const EFFECTS: Record<ToolEffect, EffectTraits> = {
+  stored: { ...READ, label: "[read-only]" },
+  computes: { ...READ, label: "[read-only]" },
+  // The sample's listing opens with its pitch and carries no label.
+  local: { ...READ, label: "" },
+  "runs-audit": { ...SPENDS, label: "[runs an audit]" },
+  // Cached audits are reused at no quota cost; each uncached site costs one.
+  "runs-audits": { ...SPENDS, label: "[runs an audit per uncached site]" },
+  // Written from the stored audit; the plan engine searches nothing. It also
+  // refreshes the account's dashboard tasks — derived data, recomputed on
+  // every refresh — so it is not destructive.
+  "uses-plan": { ...SPENDS, openWorldHint: false, label: "[uses a daily plan]" },
+  // Both tracking tools can make the same hard delete (there is no pause);
+  // enrolling also schedules weekly audits of a public domain.
+  enrolls: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, label: "[destructive: writes tracking state]" },
+  untracks: { readOnlyHint: false, destructiveHint: true, openWorldHint: false, label: "[destructive: writes tracking state]" },
+};
+
+export const labelFor = (spec: { effect: ToolEffect }): string => EFFECTS[spec.effect].label;
+
 export interface ToolSpec {
   name: string;
   tier: ToolTier;
@@ -35,6 +101,8 @@ export interface ToolSpec {
    * listing doc, and the schemas carry their own rationale.
    */
   outputSchema?: ZodRawShape;
+  /** What a call does to the world: see ToolEffect and EFFECTS above. */
+  effect: ToolEffect;
   /**
    * A free-tier tool that still needs an account (a key, or a connected login)
    * to do anything. Every Pro tool does by definition; this marks the free ones
@@ -87,6 +155,7 @@ export const P0_TOOLS: ToolSpec[] = [
     name: "get_ai_visibility",
     // Retiered free -> pro in 1.0.5: no free API tier since api PR #17.
     tier: "pro",
+    effect: "runs-audit",
     title: "Check AI visibility",
     description:
       'Check how visible a website is to AI assistants right now. Use this whenever someone asks "does ChatGPT/Perplexity/Claude/Gemini recommend this business," "is my site showing up in AI answers," "what\'s my AI visibility / GEO score," or wants a quick read on whether an AI assistant would surface a given domain. Returns an overall AI-visibility score (0–100), a per-engine breakdown (ChatGPT, Perplexity, Claude, Gemini), and the top competitor appearing in place of the site. When the audit recorded citations, `sources` lists the documents the assistants actually read, ranked by cross-engine agreement, each marked `yours`, `competitor` or `third_party` — treat `competitor` rows as context, not as placement targets; `sources: null` means the recorded answers cited nothing attributable, and an absent key means citations were not recorded for this audit. The result also includes trend data: 7- and 30-day score movement computed from the domain\'s stored snapshot history, for the question this audit asked, ending at the snapshot this audit stored; when it stored no measured snapshot, `trend` is null and `trend_note` says why. If `name_warning` is present, the business name behind the score could not be verified — relay that caveat rather than presenting the score as settled fact, and offer to re-run with an explicit business name. Requires an active subscription.',
@@ -100,6 +169,7 @@ export const P0_TOOLS: ToolSpec[] = [
     name: "run_audit",
     // Retiered free -> pro in 1.0.5: no free API tier since api PR #17.
     tier: "pro",
+    effect: "runs-audit",
     title: "Run a full audit",
     // No "SEO" claim: there is no SEO module upstream. `scores.seo` is
     // seoProxyScore() in src/api/mappers.ts, a share of crawlability and markup
@@ -116,6 +186,7 @@ export const P0_TOOLS: ToolSpec[] = [
   {
     name: "get_changes",
     tier: "pro",
+    effect: "stored",
     title: "What changed in AI visibility",
     description:
       'Report what changed in a website\'s AI-visibility score, only between two snapshots that asked the same question. Use this when someone asks "did anything change," "what\'s different this week/month," or "did my AI visibility drop." The domain need not be tracked: history accrues from any audit of it, tracked or not — track_site adds the weekly re-audits to the series, it is not a precondition, so do not track a site just to answer a change question. Returns the change in the overall score and the per-engine score changes, for engines measured both times — the overall only when the same engines answered both snapshots, otherwise it is null with an overall_note naming which answered each, and the per-engine changes stand alone; competitor_changes, new_issues and resolved_issues are always empty, since snapshots record neither competitors nor audit issues. A change is only ever measured between two snapshots that asked the same question (the same business name, market and queries); when there is no such pair it says why instead of giving a number, with the date the series re-baselined when it did. The series is the measured weekly re-audits and any audit that asked the same question as the newest recorded one, while it has no gap longer than four weeks and a day from the newest weekly re-audit that recorded its question, through each later snapshot of the series (weekly re-audits included, recorded or not), to the newest measured snapshot; otherwise every measured snapshot.',
@@ -127,6 +198,7 @@ export const P0_TOOLS: ToolSpec[] = [
   {
     name: "compare_competitors",
     tier: "pro",
+    effect: "runs-audits",
     title: "Compare against competitors",
     description:
       'Compare a website\'s AI visibility head-to-head against named competitors. Use this when someone asks "how do I stack up against X and Y," "who does ChatGPT recommend instead of me," or wants a competitive AI-visibility view. Returns each competitor\'s score and where they appear that the site does not. Each competitor not already cached costs one audit against your daily quota; if the quota can\'t cover every competitor, it ranks the ones it could audit and returns a `quota` summary plus a `skipped` list naming the rest — it never drops competitors silently or invents scores. If the quota is already exhausted it returns an over-quota error with the reset time.',
@@ -158,9 +230,10 @@ export const P1_TOOLS: ToolSpec[] = [
   {
     name: "track_site",
     tier: "pro",
+    effect: "enrolls",
     title: "Start/stop monitoring",
     description:
-      'Start (or stop) ongoing monitoring of a website\'s AI visibility on a schedule. Use this when someone wants to "monitor," "track," "watch," or "get alerted about" a site\'s AI visibility over time, rather than a one-off check. Adds weekly re-audits to the history that get_changes reads from — a history every audit already accrues, tracked or not — so use this to be watched on a schedule, not to make get_changes work.',
+      'Start (or stop) ongoing monitoring of a website\'s AI visibility on a schedule. Use this when someone wants to "monitor," "track," "watch," or "get alerted about" a site\'s AI visibility over time, rather than a one-off check. Adds weekly re-audits to the history that get_changes reads from — a history every audit already accrues, tracked or not — so use this to be watched on a schedule, not to make get_changes work. Passing enabled: false stops monitoring by deleting the enrollment, as untrack_site does.',
     inputSchema: {
       domain: domainArg,
       // Weekly-only in v1 (the server enforces this too). Kept as a single-value
@@ -172,6 +245,7 @@ export const P1_TOOLS: ToolSpec[] = [
   {
     name: "get_benchmark",
     tier: "pro",
+    effect: "stored",
     title: "Benchmark vs industry/geo",
     description:
       'Benchmark a website\'s AI visibility against its industry and location. Use this when someone asks "how do I compare to others in my space," "is this a good score for my industry," or wants percentile/peer context rather than an absolute number. Backed by aggregated audit data.',
@@ -186,6 +260,7 @@ export const P1_TOOLS: ToolSpec[] = [
     // Free-tier since website-auditor-api #131 (card 227): any valid key is
     // answered, and the API decides how much of the list it gets.
     tier: "free",
+    effect: "stored",
     needsAccount: true,
     title: "Prioritized fixes",
     description:
@@ -195,6 +270,7 @@ export const P1_TOOLS: ToolSpec[] = [
   {
     name: "generate_schema",
     tier: "pro",
+    effect: "computes",
     title: "Generate JSON-LD schema",
     description:
       'Generate structured data (JSON-LD schema) tailored to a website, to improve how AI assistants and search engines understand it. Use this when someone asks for "schema," "structured data," "JSON-LD," or wants the actual markup to implement a recommendation. Returns a DRAFT, not finished markup: every name field arrives as a placeholder — "Your Business Name" on the business types, and on a Product the product\'s own name and brand as "Your Product Name" and "Brand Name" — that the owner must replace with real names confirmed with them, never guessed from the domain or copied from an audit. `placement_notes` says what to replace first, then where to embed the finished snippet, so relay the whole ask and do not tell the user to paste the draft as returned.',
@@ -210,6 +286,7 @@ export const P1_TOOLS: ToolSpec[] = [
   {
     name: "get_report",
     tier: "pro",
+    effect: "stored",
     title: "Shareable report + badge",
     description:
       'Get a shareable report URL and the embeddable "Audited by Website Auditor" badge snippet for a website. Use this when someone wants to "share," "export," "send a client," or "embed" the audit result. Returns a link and an HTML badge snippet.',
@@ -227,14 +304,16 @@ export const MONITORING_TOOLS: ToolSpec[] = [
   {
     name: "untrack_site",
     tier: "pro",
+    effect: "untracks",
     title: "Stop monitoring",
     description:
-      'Stop ongoing monitoring of a website\'s AI visibility. Use this when someone wants to "stop tracking," "unmonitor," "stop watching," or "remove" a site from scheduled monitoring, or to free up a monitoring slot. Idempotent — safe to call even if the site isn\'t currently tracked. Returns how many monitoring slots are now free.',
+      'Stop ongoing monitoring of a website\'s AI visibility. Use this when someone wants to "stop tracking," "unmonitor," "stop watching," or "remove" a site from scheduled monitoring, or to free up a monitoring slot. Removing a tracked site deletes its monitoring enrollment (its past audits are kept); calling it for a site that isn\'t tracked changes nothing. Returns how many monitoring slots are now free.',
     inputSchema: { domain: domainArg },
   },
   {
     name: "list_tracked_sites",
     tier: "pro",
+    effect: "stored",
     title: "List monitored sites",
     description:
       'List the websites currently being monitored for AI visibility on a schedule. Use this when someone asks "what am I tracking," "which sites am I monitoring," "how many monitoring slots am I using," or wants to see their tracked domains. Returns each tracked domain with its cadence and active state, plus slots used and remaining (out of 5).',
@@ -243,6 +322,7 @@ export const MONITORING_TOOLS: ToolSpec[] = [
   {
     name: "get_monitoring_status",
     tier: "pro",
+    effect: "stored",
     title: "Monitoring status summary",
     description:
       'Get a glanceable summary of monitoring status across all tracked websites. Use this when someone asks "how are my tracked sites doing," "what\'s my current AI visibility across everything I monitor," "when were my sites last checked or when do they run next," or wants a dashboard of their monitored domains. Returns, per domain, the latest AI-visibility score of its series (the measured weekly re-audits and any audit that asked the same question as the newest recorded one, while it has no gap longer than four weeks and a day from the newest weekly re-audit that recorded its question, through each later snapshot of the series (weekly re-audits included, recorded or not), to the newest measured snapshot; otherwise every measured snapshot; a newer measured snapshot outside the series is not shown, and get_changes names it), the date of its last scheduled run and when the next one runs, and the most recent change against the last snapshot that asked the same question, or a note or the summary saying why there is none — when different engines answered the two snapshots, the change shows the per-engine changes only, with a note naming which answered each, and its score_delta is null; like get_changes, a change carries competitor_changes, new_issues and resolved_issues, always empty.',
@@ -258,6 +338,7 @@ export const MONITORING_TOOLS: ToolSpec[] = [
 export const CHECK_UPGRADE_STATUS_TOOL: ToolSpec = {
   name: "check_upgrade_status",
   tier: "free",
+  effect: "stored",
   title: "Check upgrade status",
   description:
     'Check the caller\'s own Website Auditor subscription standing. Use this when someone asks "am I on Pro," "is my trial still active," "when does my subscription renew/end," "why is this tool locked," or before suggesting an upgrade. Works with any valid API key and consumes no audit quota. Returns the tier (none/free/pro), raw subscription status, period end, whether the subscription is set to cancel, the upgrade URL, and a plain-language summary — including what starting Pro requires (a payment method and accepting the Terms).',
@@ -279,6 +360,7 @@ export const CHECK_UPGRADE_STATUS_TOOL: ToolSpec = {
 export const GET_SAMPLE_AUDIT_TOOL: ToolSpec = {
   name: "get_sample_audit",
   tier: "free",
+  effect: "local",
   title: "See a sample audit (no key needed)",
   description:
     'Show a complete sample Website Auditor report — no API key required, nothing to set up. Use this whenever someone wants to "try it," "see a demo," "show me what this does," "what does the output look like," or is deciding whether Website Auditor is worth subscribing to — and use it INSTEAD of refusing when no API key is configured. Returns fixed sample data for example.com in the exact shape a real audit returns: scored summary, per-test results, and the AI-visibility breakdown across ChatGPT, Perplexity, Claude and Gemini. It is clearly marked as a sample and always describes example.com, never the user\'s own site — auditing a real domain needs a subscription.',
@@ -293,6 +375,7 @@ export const GET_SAMPLE_AUDIT_TOOL: ToolSpec = {
 const GET_GTM_PLAN_TOOL: ToolSpec = {
   name: "get_gtm_plan",
   tier: "pro",
+  effect: "uses-plan",
   title: "Build a GTM plan from the audit",
   description:
     'Build a written go-to-market plan from a website\'s latest audit, grounded in its citation evidence. ' +
