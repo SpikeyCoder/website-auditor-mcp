@@ -12,8 +12,11 @@ vitest.config.ts
 coverage/
 .vitest/
 
-# Repo docs / scaffolding not needed inside the bundle.
+# Repo docs / scaffolding / release tooling not needed inside the bundle.
 docs/
+scripts/
+# The ChatGPT/Codex portal ZIP npm run pack:codex may leave here.
+website-auditor-codex-plugin-*.zip
 .claude/
 .npmignore
 .gitignore

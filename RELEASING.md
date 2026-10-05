@@ -12,7 +12,7 @@ days. Nothing warns you; the versions just quietly disagree.
 | MCP registry | `mcp-publisher publish` | the MCP registry / directory consumers |
 | `.mcpb` bundle | see below | direct/manual installs, GitHub release |
 | **Claude Desktop directory** | **a submission form + human review** | **Claude Desktop users who installed from the in-app directory** |
-| **ChatGPT/Codex plugin directory** | **tools: the portal's daily scan of the hosted server (deploy it); skills and listing text: `npm run pack:codex` + portal upload + review** | **ChatGPT and Codex users who added the listed plugin** |
+| **ChatGPT/Codex plugin directory** | **tools: the portal's daily scan of the hosted server (deploy it); skills and listing text: the portal's release ZIP → `npm run pack:codex` → portal upload + review** | **ChatGPT and Codex users who added the listed plugin** |
 
 **Codex has no directory of its own for MCP servers — don't go looking for
 one.** MCP servers have no Codex submission process (verified 2026-08-10): Codex users
