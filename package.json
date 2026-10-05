@@ -50,7 +50,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run typecheck && npm test && npm run build",
-    "release": "bash scripts/release.sh"
+    "release": "bash scripts/release.sh",
+    "pack:codex": "bash scripts/pack-codex-plugin.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

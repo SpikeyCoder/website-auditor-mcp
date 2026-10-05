@@ -23,7 +23,7 @@ domains needs a Website Auditor subscription and an API key from
 
 | Path | What it is |
 |---|---|
-| `.codex-plugin/plugin.json` | Manifest + directory listing metadata |
+| `.codex-plugin/plugin.json` | Manifest; its version is the ChatGPT/Codex portal version |
 | `.mcp.json` | Bundled MCP server (`npx -y website-auditor-mcp`) |
 | `skills/` | The MCP prompts, ported to plugin skills |
 | `assets/icon.png` | Listing icon (copy of the repo icon) |

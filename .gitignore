@@ -36,3 +36,6 @@ coverage/
 # 1.0.6 sat here through three releases. Build with:
 #   npm prune --omit=dev && npx --yes @anthropic-ai/mcpb pack && npm install
 *.mcpb
+
+# The ChatGPT/Codex portal ZIP (npm run pack:codex) is a build artifact too.
+website-auditor-codex-plugin-*.zip
