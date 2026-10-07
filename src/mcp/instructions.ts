@@ -119,7 +119,8 @@ export function buildInstructions(
   // expired connection with a sales pitch. Reconnecting is free and is the
   // whole remedy; PRO_REQUIRED keeps the billing answer, because there the
   // money genuinely is the blocker.
-  // The two AUTH_REQUIREDs are told apart by details.connection (context.ts).
+  // The AUTH_REQUIREDs are told apart by details.connection (context.ts):
+  // not_connected, expired and unverified, with a catch-all for none.
   // A first connection is the decision point, so the trial is stated before
   // the user connects rather than discovered as a PRO_REQUIRED afterwards; an
   // expired one stays price-free for the reason above.

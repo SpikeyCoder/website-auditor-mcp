@@ -12,7 +12,7 @@
  * before OAuth existed, because every stdio install and every existing
  * `Authorization: Bearer wa_…` caller is on that path.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   looksLikeApiKey,
   oauthEnabled,
@@ -670,6 +670,34 @@ describe("round three: one unverified answer, and a catch-all", () => {
     const { NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } = await import("../../src/tools/context.js");
     for (const label of [NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED]) {
       expect(Object.isFrozen(label)).toBe(true);
+    }
+  });
+});
+
+describe("round four: no key header for a Mixed Auth reader, and a visible introspection failure", () => {
+  it("get_sample_audit tells a keyless Mixed Auth reader to connect, not to send a header", async () => {
+    const { getSampleAudit } = await import("../../src/tools/sampleAudit.js");
+    const deps = { ...makeDeps({ config: { ...OAUTH, apiKey: undefined } }), transport: "http" as const };
+    const res = await getSampleAudit({}, deps);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.note).toContain("there is no key to paste");
+    expect(res.data.note).not.toContain("Authorization: Bearer");
+  });
+
+  it("a non-2xx from introspection is logged with its status, never the token", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const ex = new IntrospectionTokenExchange(
+        loadConfig({ ...process.env, WA_OAUTH_INTROSPECTION_URL: "https://api.test/introspect" }),
+        (async () => new Response("no", { status: 401 })) as unknown as typeof fetch,
+      );
+      expect(await ex.resolve("secret-token-value")).toBeUndefined();
+      const logged = warn.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toContain("HTTP 401");
+      expect(logged).not.toContain("secret-token-value");
+    } finally {
+      warn.mockRestore();
     }
   });
 });

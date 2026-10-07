@@ -17,6 +17,7 @@
  */
 import { keySetupNote, ok, type ToolDeps, type ToolResult } from "./context.js";
 import { upgradeLink, PRICE } from "./upgrade.js";
+import { oauthEnabled } from "../auth/oauth.js";
 import { sampleAuditReport } from "./sampleData.js";
 import type { AuditReport } from "../api/types.js";
 
@@ -57,7 +58,15 @@ export async function getSampleAudit(
       // was told to set a key and restart their client, which reads as "your
       // key isn't working", on the highest-traffic string in the package: the
       // keyless surface a marketplace reviewer sees first.
-      (deps.config.apiKey ? "" : ` ${keySetupNote(deps.transport)}`),
+      //
+      // Under Mixed Auth there is no key to deliver at all — the host's login
+      // carries it — and the unverified and not-connected errors send readers
+      // here, so the header instruction would contradict what they just read.
+      (deps.config.apiKey
+        ? ""
+        : deps.transport === "http" && oauthEnabled(deps.config)
+          ? " Connect a Website Auditor account when your app offers to — there is no key to paste."
+          : ` ${keySetupNote(deps.transport)}`),
     audit: sampleAuditReport(),
     price: PRICE,
     upgrade_url: upgradeLink(deps.config),

@@ -120,11 +120,11 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
 }
 
 /**
- * Which of the two Mixed Auth AUTH_REQUIREDs this is, in `details` where the
- * model can branch on it (instructions.ts says how). The first one is the
- * moment the reader decides whether to connect, so it carries the price and
- * the trial; an expired one belongs to someone who may already be paying, so
- * it does not. Before this the instructions could not tell them apart and
+ * Which Mixed Auth AUTH_REQUIRED this is, in `details` where the model can
+ * branch on it (instructions.ts says how): not connected, expired, or
+ * unverified. Only the first carries the price and the trial — it is the
+ * moment the reader decides whether to connect; the others belong to someone
+ * who signed in and may already be paying. Before this the instructions could not tell them apart and
  * answered both with "do not quote a price" — so a ChatGPT user first heard
  * about the subscription from the PRO_REQUIRED after connecting.
  */
@@ -137,13 +137,15 @@ export const CONNECTION_UNVERIFIED = Object.freeze({ connection: "unverified" } 
 
 /**
  * The unverified answer's words, shared by the gated tools' AUTH_REQUIRED and
- * check_upgrade_status (which answers with a success and so carries no
- * challenge — hence "reconnect from the app" rather than "when prompted"
- * there). One copy, because two had already drifted.
+ * check_upgrade_status. Neither says "when prompted": check_upgrade_status
+ * answers with a success and carries no challenge. One copy, because two had
+ * already drifted. Reconnecting comes first because an expired token is the
+ * commonest way here (introspection answers it active:false, like a token
+ * seconds old).
  */
 export const UNVERIFIED_MESSAGE =
   `Website Auditor could not verify this conversation's connection. ` +
-  `If you only just connected, try again in a moment; otherwise reconnect. ` +
+  `Reconnect Website Auditor, or if you only just connected, try again in a moment. ` +
   `If you pasted an API key instead, check it starts with wa_. ` +
   `get_sample_audit keeps working with no account at all in the meantime.`;
 
@@ -161,7 +163,7 @@ export function err(
  * and the likeliest causes — a token seconds old, an outage — are fixed by
  * trying again, not by buying anything.
  */
-export function connectionUnverified(config: WaConfig, upgradeUrl: string): ToolResult<never> {
+function connectionUnverified(config: WaConfig, upgradeUrl: string): ToolResult<never> {
   return err(
     "AUTH_REQUIRED",
     UNVERIFIED_MESSAGE,

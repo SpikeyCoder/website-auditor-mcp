@@ -143,11 +143,19 @@ export class IntrospectionTokenExchange implements TokenExchange {
         body: new URLSearchParams({ token, token_type_hint: "access_token" }).toString(),
         signal: controller.signal,
       });
-      if (!resp.ok) return undefined;
+      if (!resp.ok) {
+        // Logged (status only, never the token): an inactive token answers 200,
+        // so a non-2xx is the endpoint or its secret failing — a misconfigured
+        // WA_OAUTH_INTROSPECTION_SECRET answers 401 for every connected user,
+        // and their "could not verify, try again" looks like a passing glitch.
+        console.warn(`OAuth introspection answered HTTP ${resp.status}; treating the token as unresolved`);
+        return undefined;
+      }
       const body = (await resp.json()) as { active?: unknown; api_key?: unknown };
       if (body?.active !== true) return undefined;
       return typeof body.api_key === "string" && body.api_key ? body.api_key : undefined;
-    } catch {
+    } catch (err) {
+      console.warn(`OAuth introspection failed: ${err instanceof Error ? err.name : "unknown error"}; treating the token as unresolved`);
       return undefined;
     } finally {
       clearTimeout(timer);
