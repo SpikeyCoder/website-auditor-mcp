@@ -390,6 +390,21 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // The copy has to match the mechanism: nobody pastes a key on this surface.
     expect(error.message).toContain("connected Website Auditor account");
     expect(error.message).not.toContain("restart");
+    // The instructions quote the trial on this one and not on an expired one,
+    // and this is the only thing that tells them apart.
+    expect(error.details).toEqual({ connection: "not_connected" });
+    // An http reader is already on the hosted server; offering it is noise.
+    expect(error.message).not.toContain("mcp.website-auditor.io/mcp");
+  });
+
+  it("offers the hosted connector to a keyless stdio reader, alongside the key route", async () => {
+    // Subscribe, mint, edit a config file, restart: the route Claude installs
+    // stop on. The key route stays — the connector is the shorter one beside it.
+    const error = await authError({ tier: "none", config: { apiKey: undefined } }, "stdio");
+    expect(error.code).toBe("AUTH_REQUIRED");
+    expect(error.message).toContain("create a key at");
+    expect(error.message).toContain("https://mcp.website-auditor.io/mcp");
+    expect(error.message).toContain("Add custom connector");
   });
 
   it("keeps the original key-setup copy, and no challenge, when OAuth is off", async () => {
@@ -421,6 +436,7 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.wwwAuthenticate).toContain("resource_metadata=");
     expect(error.message).toContain("expired");
     expect(error.message).not.toContain("replace");
+    expect(error.details).toEqual({ connection: "expired" });
   });
 
   it("leaves a PASTED key's rejection alone, even with OAuth configured", async () => {
@@ -484,6 +500,25 @@ describe("handshake instructions", () => {
     const plain = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", false);
     expect(plain).toContain("connector's authentication field");
   });
+
+  it("quote the trial on a first connection and keep an expired one price-free", () => {
+    const mixed = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", true);
+    const notConnected = mixed.slice(mixed.indexOf('"not_connected"'), mixed.indexOf('"expired"'));
+    expect(notConnected).toContain("the price, the trial");
+    expect(notConnected).toContain("connect when prompted");
+    const expired = mixed.slice(mixed.indexOf('"expired"'), mixed.indexOf("PRO_REQUIRED"));
+    expect(expired).toContain("do not quote a price for it");
+    expect(expired).not.toContain("the trial");
+  });
+
+  it("offer the hosted connector over stdio only", () => {
+    expect(buildInstructions("https://x/?source=mcp", "link", "stdio", false))
+      .toContain("https://mcp.website-auditor.io/mcp");
+    expect(buildInstructions("https://x/?source=mcp", "link", "http", false))
+      .not.toContain("https://mcp.website-auditor.io/mcp");
+    expect(buildInstructions("https://x/?source=mcp", "info", "http", true))
+      .not.toContain("https://mcp.website-auditor.io/mcp");
+  });
 });
 
 describe("fromApiError — where an expired connection ACTUALLY surfaces", () => {
@@ -503,6 +538,7 @@ describe("fromApiError — where an expired connection ACTUALLY surfaces", () =>
     expect(result.error.code).toBe("AUTH_REQUIRED");
     expect(result.error.wwwAuthenticate).toContain("resource_metadata=");
     expect(result.error.message).toContain("expired");
+    expect(result.error.details).toEqual({ connection: "expired" });
   });
 
   it("leaves a pasted key's rejection alone — the credential decides, not the config", () => {

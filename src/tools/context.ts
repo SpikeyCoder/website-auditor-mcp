@@ -9,7 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
-import { upgradeLink, tagSource, PRICE } from "./upgrade.js";
+import { upgradeLink, tagSource, PRICE, CONNECTOR_ALTERNATIVE } from "./upgrade.js";
 import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
 import type { EventSink } from "../telemetry/events.js";
 
@@ -111,6 +111,18 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
     : `Set it as WA_API_KEY in this server's config. ${RESTART_NOTE}`;
 }
 
+/**
+ * Which of the two Mixed Auth AUTH_REQUIREDs this is, in `details` where the
+ * model can branch on it (instructions.ts says how). The first one is the
+ * moment the reader decides whether to connect, so it carries the price and
+ * the trial; an expired one belongs to someone who may already be paying, so
+ * it does not. Before this the instructions could not tell them apart and
+ * answered both with "do not quote a price" — so a ChatGPT user first heard
+ * about the subscription from the PRO_REQUIRED after connecting.
+ */
+export const NOT_CONNECTED = { connection: "not_connected" } as const;
+export const CONNECTION_EXPIRED = { connection: "expired" } as const;
+
 export function err(
   code: ErrorCode,
   message: string,
@@ -158,6 +170,7 @@ export function fromApiError(
           `get_sample_audit keeps working with no account at all in the meantime.`,
         {
           upgrade_url: upgradeLink(config),
+          details: CONNECTION_EXPIRED,
           wwwAuthenticate: wwwAuthenticateChallenge(
             config,
             "The Website Auditor connection expired. Reconnect to continue.",
@@ -242,6 +255,7 @@ export async function gateKeyedTool(
           `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`,
         {
           upgrade_url: upgradeUrl,
+          details: NOT_CONNECTED,
           wwwAuthenticate: wwwAuthenticateChallenge(
             deps.config,
             "Connect a Website Auditor account to use this tool.",
@@ -253,7 +267,9 @@ export async function gateKeyedTool(
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +
         `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
-        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}`,
+        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}` +
+        // stdio only: an http reader is already on the hosted server.
+        (deps.transport === "http" ? "" : ` ${CONNECTOR_ALTERNATIVE}`),
       { upgrade_url: upgradeUrl },
     );
   }
@@ -291,6 +307,7 @@ export async function gateKeyedTool(
           `get_sample_audit keeps working with no account at all in the meantime.`,
         {
           upgrade_url: upgradeUrl,
+          details: CONNECTION_EXPIRED,
           wwwAuthenticate: wwwAuthenticateChallenge(
             deps.config,
             "The Website Auditor connection expired. Reconnect to continue.",

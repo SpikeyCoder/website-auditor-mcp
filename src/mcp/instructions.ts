@@ -48,7 +48,7 @@
  * tests/mcp/instructionTriggers.test.ts pins the ordering and the proportion, so
  * billing can never precede or outweigh the trigger guidance again.
  */
-import { PRICE } from "../tools/upgrade.js";
+import { PRICE, CONNECTOR_ALTERNATIVE } from "../tools/upgrade.js";
 import type { UpsellStyle } from "../config.js";
 
 export function buildInstructions(
@@ -110,6 +110,8 @@ export function buildInstructions(
       : `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
         "a 7-day free trial — payment method required to start, no charge until the trial ends). Sign up " +
         `and create an API key at ${signupUrl} , then ${keyDelivery}. ` +
+        // stdio only: the hosted server's sign-in is the shorter route (upgrade.ts).
+        (transport === "http" ? "" : `${CONNECTOR_ALTERNATIVE} `) +
         "check_upgrade_status reports the caller's own standing with any valid key.";
 
   // AUTH_REQUIRED means something different under Mixed Auth, and the two codes
@@ -118,11 +120,19 @@ export function buildInstructions(
   // expired connection with a sales pitch. Reconnecting is free and is the
   // whole remedy; PRO_REQUIRED keeps the billing answer, because there the
   // money genuinely is the blocker.
+  // The two AUTH_REQUIREDs are told apart by details.connection (context.ts).
+  // A first connection is the decision point, so the trial is stated before
+  // the user connects rather than discovered as a PRO_REQUIRED afterwards; an
+  // expired one stays price-free for the reason above.
   const errorGuidance = mixedAuth
-    ? "When a tool returns AUTH_REQUIRED, the account is not connected or the connection expired — tell " +
-      "the user to reconnect when prompted, and offer get_sample_audit meanwhile; do not quote a price " +
-      "for it. When a tool returns PRO_REQUIRED the account IS connected but has no subscription: give " +
-      `the price, the trial and its prerequisites, and where plans are described (${signupUrl}).`
+    ? "When a tool returns AUTH_REQUIRED with details.connection \"not_connected\", no account is " +
+      "connected yet: tell the user to connect when prompted, and say up front that audits then need a " +
+      "subscription — give the price, the trial and its prerequisites, and where plans are described " +
+      `(${signupUrl}) — and offer get_sample_audit meanwhile. When it returns AUTH_REQUIRED with ` +
+      "details.connection \"expired\", tell the user to reconnect when prompted and offer get_sample_audit " +
+      "meanwhile; do not quote a price for it. When a tool returns PRO_REQUIRED the account IS connected " +
+      "but has no subscription: give the price, the trial and its prerequisites, and where plans are " +
+      `described (${signupUrl}).`
     : style === "info"
       ? "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price, the trial and its " +
         `prerequisites, and where plans are described (${signupUrl}) — never just the error code.`

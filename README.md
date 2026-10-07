@@ -105,6 +105,13 @@ API key at
 then set it as `WA_API_KEY` below. There is no free API tier — a key only
 functions with an active subscription.
 
+**No key? Connect the hosted server instead.** Clients that support remote
+connectors can skip the key and the config file entirely: add
+`https://mcp.website-auditor.io/mcp` as a connector and sign in when prompted.
+In Claude (claude.ai or Claude Desktop): **Settings → Connectors → Add custom
+connector**. Signing in connects your account; audits still need the
+subscription above, and the 7-day trial applies the same way.
+
 **Claude Desktop** (`claude_desktop_config.json`), **Cursor**
 (`~/.cursor/mcp.json`), and most other clients use the same `mcpServers` shape:
 
