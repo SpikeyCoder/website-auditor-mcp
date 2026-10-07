@@ -41,8 +41,16 @@ export interface ToolDeps {
    * byte-identical promise http.ts makes to exactly those callers, broken by a
    * message meant for somebody else. Per REQUEST, not per tenant — the bundle
    * is shared and cached, this is not.
+   *
+   * "unresolved_token": a bearer was presented, OAuth is on, and introspection
+   * did not turn it into a key. That is not authenticated (no key, tier
+   * "none"), but it is not a first visit either — it is a token that just
+   * failed: issued seconds ago and not yet active (tokenExchange's 5s negative
+   * cache exists for exactly that), expired or revoked, an introspection
+   * outage, or a typo'd pasted key. Kept apart from "oauth" so nothing that
+   * means "authenticated via OAuth" inherits it.
    */
-  authVia?: "oauth" | "key";
+  authVia?: "oauth" | "key" | "unresolved_token";
 }
 
 export interface ToolError {
@@ -122,6 +130,8 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
  */
 export const NOT_CONNECTED = { connection: "not_connected" } as const;
 export const CONNECTION_EXPIRED = { connection: "expired" } as const;
+/** A presented token that did not resolve — see ToolDeps.authVia "unresolved_token". */
+export const CONNECTION_UNVERIFIED = { connection: "unverified" } as const;
 
 export function err(
   code: ErrorCode,
@@ -129,6 +139,30 @@ export function err(
   extra: { upgrade_url?: string; details?: unknown; wwwAuthenticate?: string } = {},
 ): ToolResult<never> {
   return { ok: false, error: { code, message, ...extra } };
+}
+
+/**
+ * AUTH_REQUIRED for a presented token that did not resolve. No price: whoever
+ * holds a token signed in (a first-timer saw the trial on the consent page),
+ * and the likeliest causes — a token seconds old, an outage — are fixed by
+ * trying again, not by buying anything.
+ */
+export function connectionUnverified(config: WaConfig, upgradeUrl: string): ToolResult<never> {
+  return err(
+    "AUTH_REQUIRED",
+    `Website Auditor could not verify this conversation's connection. ` +
+      `If you only just connected, try again in a moment; otherwise reconnect when prompted. ` +
+      `If you pasted an API key instead, check it starts with wa_. ` +
+      `get_sample_audit keeps working with no account at all in the meantime.`,
+    {
+      upgrade_url: upgradeUrl,
+      details: CONNECTION_UNVERIFIED,
+      wwwAuthenticate: wwwAuthenticateChallenge(
+        config,
+        "The Website Auditor connection could not be verified. Reconnect to continue.",
+      ),
+    },
+  );
 }
 
 /** AUTH_REQUIRED for a connection that existed and has expired: reconnect, no price. */
@@ -246,14 +280,15 @@ export async function gateKeyedTool(
     // describes a procedure that does not exist on that surface, addressed to
     // someone who never saw a config file.
     //
-    // The challenge rides this branch and only this branch. Emitting it without
-    // the declarative half would point the host at an authorization server it
-    // cannot discover, and oauthEnabled is what keeps the two in step; see
-    // auth/oauth.ts for why half a Mixed Auth setup fails silently.
-    // A token was presented and did not resolve (http.ts credentialFor): the
-    // connection existed and has expired, so no price, as in the branches below.
-    if (deps.transport === "http" && deps.authVia === "oauth" && oauthEnabled(deps.config)) {
-      return connectionExpired(deps.config, upgradeUrl);
+    // Every AUTH_REQUIRED that carries the challenge is gated on oauthEnabled.
+    // Emitting it without the declarative half would point the host at an
+    // authorization server it cannot discover; see auth/oauth.ts for why half a
+    // Mixed Auth setup fails silently.
+    //
+    // A token was presented and did not resolve (http.ts credentialFor): not a
+    // first visit, so not the first-visit pitch.
+    if (deps.transport === "http" && deps.authVia === "unresolved_token" && oauthEnabled(deps.config)) {
+      return connectionUnverified(deps.config, upgradeUrl);
     }
     if (deps.transport === "http" && oauthEnabled(deps.config)) {
       return err(

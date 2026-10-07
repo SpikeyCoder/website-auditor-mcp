@@ -59,8 +59,14 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       // key to paste" copy the same model reads from every other tool. It
       // cannot carry a challenge (this is a success, and `_meta` is lifted only
       // from errors), so the wording is the whole remedy.
+      // A token that did not resolve (http.ts, authVia "unresolved_token") is
+      // not "no account yet": it is the same unverified connection every gated
+      // tool reports, so it gets the same retry-or-reconnect answer and no price.
       message:
-        deps.transport === "http" && oauthEnabled(deps.config)
+        deps.transport === "http" && oauthEnabled(deps.config) && deps.authVia === "unresolved_token"
+          ? `Website Auditor could not verify this conversation's connection. If you only just ` +
+            `connected, try again in a moment; otherwise reconnect when prompted.`
+          : deps.transport === "http" && oauthEnabled(deps.config)
           ? `No Website Auditor account is connected to this conversation yet. ` +
             `Connect one when prompted — there is no key to paste. Audits also need an ` +
             `active subscription (${PRICE}) on the connected account: ${upgradeUrl}`

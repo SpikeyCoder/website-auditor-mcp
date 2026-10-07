@@ -115,10 +115,10 @@ export class IntrospectionTokenExchange implements TokenExchange {
    * Every failure — unreachable, non-2xx, unparseable, inactive, no key —
    * answers `undefined`, which lands the caller on the keyless surface. That is
    * the safe direction and the same one DefaultSubscriptionProvider takes on a
-   * cold-cache outage: never fail OPEN into someone else's account. It does
-   * mean an introspection outage looks like "not signed in" rather than "try
-   * again", which is worth knowing when reading a support report; the challenge
-   * on the resulting error at least re-offers the login.
+   * cold-cache outage: never fail OPEN into someone else's account. The caller
+   * then answers "could not verify the connection — try again, or reconnect"
+   * (http.ts, authVia "unresolved_token"), which is right for an outage and a
+   * token seconds old alike; this cannot tell those apart, so neither can it.
    */
   private async introspect(token: string): Promise<string | undefined> {
     const endpoint = this.cfg.oauthIntrospectionUrl;

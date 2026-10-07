@@ -445,8 +445,9 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
    *
    * With OAuth ON the same string is ambiguous — an expired token and a typo'd
    * key are indistinguishable here — and the two possible answers cannot both
-   * be right. It resolves to "not authenticated", which carries the login
-   * challenge, rather than to the malformed-key sentence. On a Mixed Auth
+   * be right. It resolves to authVia "unresolved_token" — a "could not verify
+   * the connection: retry, reconnect, or check the wa_ prefix" answer carrying
+   * the login challenge — rather than to the malformed-key sentence. On a Mixed Auth
    * endpoint the overwhelming majority of callers never paste a key at all, and
    * "connect an account" is at worst imprecise for the curl user while
    * "Invalid API key format. Keys start with wa_." is actively wrong for the
@@ -468,12 +469,11 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return { key: presented, authVia: "key" };
     }
     const resolved = await tokenExchange.resolve(presented);
-    // Unresolvable carries no key, but it is still an OAuth CALLER: the host
-    // sent a token it was issued, so this is an expired or revoked connection
-    // (or an introspection outage), never a first visit. gateKeyedTool reads
-    // authVia to tell the two apart — answering "not_connected" here quoted the
-    // price to members who were connected and possibly paying.
-    return { key: resolved, authVia: "oauth" };
+    // Unresolved is not authenticated, and not a first visit either: a token
+    // seconds old, expired or revoked, an introspection outage, or a typo'd
+    // key. Its own state (ToolDeps.authVia), so the reader is told to retry or
+    // reconnect rather than pitched the plan as if they had never signed in.
+    return resolved ? { key: resolved, authVia: "oauth" } : { key: undefined, authVia: "unresolved_token" };
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {

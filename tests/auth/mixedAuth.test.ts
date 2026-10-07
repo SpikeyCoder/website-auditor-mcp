@@ -395,11 +395,16 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.details).toEqual({ connection: "not_connected" });
   });
 
-  it("answers an OAuth caller with no resolved key as expired, without the price", async () => {
-    const error = await authError({ tier: "none", config: { ...OAUTH, apiKey: undefined } }, "http", "oauth");
+  it("answers a token that did not resolve as unverified — retry or reconnect, no price", async () => {
+    // Seconds-old, expired, an outage or a typo: never the first-visit pitch,
+    // and not "expired" either, which would be false for a token not yet active.
+    const error = await authError(
+      { tier: "none", config: { ...OAUTH, apiKey: undefined } }, "http", "unresolved_token",
+    );
     expect(error.code).toBe("AUTH_REQUIRED");
-    expect(error.details).toEqual({ connection: "expired" });
-    expect(error.message).toContain("expired");
+    expect(error.details).toEqual({ connection: "unverified" });
+    expect(error.message).toContain("try again in a moment");
+    expect(error.message).not.toContain("expired");
     expect(error.message).not.toContain("$10");
     expect(error.wwwAuthenticate).toContain("resource_metadata=");
   });
@@ -499,14 +504,26 @@ describe("handshake instructions", () => {
     expect(plain).toContain("connector's authentication field");
   });
 
-  it("quote the trial on a first connection and keep an expired one price-free", () => {
+  it("quote the trial on a first connection, and keep expired and unverified ones price-free", () => {
     const mixed = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", true);
-    const notConnected = mixed.slice(mixed.indexOf('"not_connected"'), mixed.indexOf('"expired"'));
+    // Each clause found by its full anchor phrase, so an unrelated mention of
+    // "expired" or PRO_REQUIRED elsewhere in the instructions cannot shift it.
+    const clause = (anchor: string, end: string) => {
+      const from = mixed.indexOf(anchor);
+      expect(from, `missing: ${anchor}`).toBeGreaterThan(-1);
+      const to = mixed.indexOf(end, from + anchor.length);
+      expect(to, `missing after ${anchor}: ${end}`).toBeGreaterThan(from);
+      return mixed.slice(from, to);
+    };
+    const notConnected = clause('details.connection "not_connected"', 'details.connection "expired"');
     expect(notConnected).toContain("the price, the trial");
     expect(notConnected).toContain("connect when prompted");
-    const expired = mixed.slice(mixed.indexOf('"expired"'), mixed.indexOf("PRO_REQUIRED"));
+    const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");
     expect(expired).not.toContain("the trial");
+    const unverified = clause('details.connection "unverified"', "When a tool returns PRO_REQUIRED");
+    expect(unverified).toContain("do not quote a");
+    expect(unverified).not.toContain("the trial");
   });
 
 });

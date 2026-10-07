@@ -1019,9 +1019,9 @@ describe("Mixed Auth over Streamable HTTP", () => {
     await client.close();
   });
 
-  it("answers an expired token as an expired connection — reconnect, no price — not a first visit", async () => {
-    // A host that sends a token was issued one: this member WAS connected and
-    // may be paying, so the instructions must not read it as "not_connected".
+  it("answers a token that did not resolve as unverified — no price — never as a first visit", async () => {
+    // A host that sends a token was issued one: this member signed in and may
+    // be paying, so the instructions must not read it as "not_connected".
     const { url } = await listen({
       config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
       depsFactory: (config: WaConfig): ToolDeps => ({
@@ -1035,7 +1035,7 @@ describe("Mixed Auth over Streamable HTTP", () => {
     expect(res.isError).toBe(true);
     const body = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(body.code).toBe("AUTH_REQUIRED");
-    expect(body.details).toEqual({ connection: "expired" });
+    expect(body.details).toEqual({ connection: "unverified" });
     expect(body.message).not.toContain("$10");
     expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
     await client.close();

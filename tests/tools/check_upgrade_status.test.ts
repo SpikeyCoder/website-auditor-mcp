@@ -196,3 +196,29 @@ describe("check_upgrade_status: a malformed key is told where the key goes", () 
     expect(res.error.message).not.toContain("WA_API_KEY");
   });
 });
+
+describe("check_upgrade_status — a token that did not resolve", () => {
+  const OAUTH = {
+    oauthIssuer: "https://api.website-auditor.io",
+    oauthResourceUrl: "https://mcp.website-auditor.io/mcp",
+    oauthScope: "audit",
+  };
+
+  it("says the connection could not be verified, without the price, like every gated tool", async () => {
+    const deps = { ...makeDeps({ config: { apiKey: undefined, ...OAUTH } }), transport: "http" as const,
+      authVia: "unresolved_token" as const };
+    const res = await checkUpgradeStatus({}, deps);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.message).toContain("could not verify");
+    expect(res.data.message).not.toContain("$10");
+  });
+
+  it("still says no account is connected yet to a caller who sent nothing", async () => {
+    const deps = { ...makeDeps({ config: { apiKey: undefined, ...OAUTH } }), transport: "http" as const };
+    const res = await checkUpgradeStatus({}, deps);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.message).toContain("No Website Auditor account is connected");
+  });
+});

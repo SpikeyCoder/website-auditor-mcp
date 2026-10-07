@@ -49,6 +49,7 @@
  * billing can never precede or outweigh the trigger guidance again.
  */
 import { PRICE } from "../tools/upgrade.js";
+import { NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } from "../tools/context.js";
 import type { UpsellStyle } from "../config.js";
 
 export function buildInstructions(
@@ -123,12 +124,14 @@ export function buildInstructions(
   // the user connects rather than discovered as a PRO_REQUIRED afterwards; an
   // expired one stays price-free for the reason above.
   const errorGuidance = mixedAuth
-    ? "When a tool returns AUTH_REQUIRED with details.connection \"not_connected\", no account is " +
+    ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", no account is ` +
       "connected yet: tell the user to connect when prompted, and say up front that audits then need a " +
       "subscription — give the price, the trial and its prerequisites, and where plans are described " +
       `(${signupUrl}) — and offer get_sample_audit meanwhile. When it returns AUTH_REQUIRED with ` +
-      "details.connection \"expired\", tell the user to reconnect when prompted and offer get_sample_audit " +
-      "meanwhile; do not quote a price for it. When a tool returns PRO_REQUIRED the account IS connected " +
+      `details.connection "${CONNECTION_EXPIRED.connection}", tell the user to reconnect when prompted and offer get_sample_audit ` +
+      `meanwhile; do not quote a price for it. With details.connection "${CONNECTION_UNVERIFIED.connection}", the ` +
+      "connection could not be checked: suggest trying again in a moment or reconnecting, and do not quote a " +
+      "price for it either. When a tool returns PRO_REQUIRED the account IS connected " +
       "but has no subscription: give the price, the trial and its prerequisites, and where plans are " +
       `described (${signupUrl}).`
     : style === "info"
