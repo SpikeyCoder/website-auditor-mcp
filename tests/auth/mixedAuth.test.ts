@@ -393,8 +393,6 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // The instructions quote the trial on this one and not on an expired one,
     // and this is the only thing that tells them apart.
     expect(error.details).toEqual({ connection: "not_connected" });
-    // An http reader is already on the hosted server; offering it is noise.
-    expect(error.message).not.toContain("mcp.website-auditor.io/mcp");
   });
 
   it("answers an OAuth caller with no resolved key as expired, without the price", async () => {
@@ -406,15 +404,6 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.wwwAuthenticate).toContain("resource_metadata=");
   });
 
-  it("offers the hosted connector to a keyless stdio reader, alongside the key route", async () => {
-    // Subscribe, mint, edit a config file, restart: the route Claude installs
-    // stop on. The key route stays — the connector is the shorter one beside it.
-    const error = await authError({ tier: "none", config: { apiKey: undefined } }, "stdio");
-    expect(error.code).toBe("AUTH_REQUIRED");
-    expect(error.message).toContain("create a key at");
-    expect(error.message).toContain("https://mcp.website-auditor.io/mcp");
-    expect(error.message).toContain("Add custom connector");
-  });
 
   it("keeps the original key-setup copy, and no challenge, when OAuth is off", async () => {
     const error = await authError({ tier: "none", config: { apiKey: undefined } }, "http");
@@ -520,14 +509,6 @@ describe("handshake instructions", () => {
     expect(expired).not.toContain("the trial");
   });
 
-  it("offer the hosted connector over stdio only", () => {
-    expect(buildInstructions("https://x/?source=mcp", "link", "stdio", false))
-      .toContain("https://mcp.website-auditor.io/mcp");
-    expect(buildInstructions("https://x/?source=mcp", "link", "http", false))
-      .not.toContain("https://mcp.website-auditor.io/mcp");
-    expect(buildInstructions("https://x/?source=mcp", "info", "http", true))
-      .not.toContain("https://mcp.website-auditor.io/mcp");
-  });
 });
 
 describe("fromApiError — where an expired connection ACTUALLY surfaces", () => {

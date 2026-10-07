@@ -48,7 +48,7 @@
  * tests/mcp/instructionTriggers.test.ts pins the ordering and the proportion, so
  * billing can never precede or outweigh the trigger guidance again.
  */
-import { PRICE, CONNECTOR_ALTERNATIVE } from "../tools/upgrade.js";
+import { PRICE } from "../tools/upgrade.js";
 import type { UpsellStyle } from "../config.js";
 
 export function buildInstructions(
@@ -110,8 +110,6 @@ export function buildInstructions(
       : `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
         "a 7-day free trial — payment method required to start, no charge until the trial ends). Sign up " +
         `and create an API key at ${signupUrl} , then ${keyDelivery}. ` +
-        // stdio only: the hosted server's sign-in is the shorter route (upgrade.ts).
-        (transport === "http" ? "" : `${CONNECTOR_ALTERNATIVE} `) +
         "check_upgrade_status reports the caller's own standing with any valid key.";
 
   // AUTH_REQUIRED means something different under Mixed Auth, and the two codes

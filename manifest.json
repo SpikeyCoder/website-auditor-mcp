@@ -48,7 +48,7 @@
     "wa_api_key": {
       "type": "string",
       "title": "Website Auditor API Key",
-      "description": "Optional to install: get_sample_audit runs with no key and shows a full report in the real output format. A key is required for every other tool — audits, AI-visibility checks, monitoring, benchmarks and competitor comparison — and minting one needs an active Website Auditor subscription ($10/month; eligible new customers get a 7-day free trial — payment method required, no charge until the trial ends). Sign up and create a key at https://api.website-auditor.io/admin_portal/?source=mcp (starts with 'wa_'). No key? Leave this blank and add https://mcp.website-auditor.io/mcp under Settings → Connectors → Add custom connector instead — you sign in there, with nothing to paste.",
+      "description": "Optional to install: get_sample_audit runs with no key and shows a full report in the real output format. A key is required for every other tool — audits, AI-visibility checks, monitoring, benchmarks and competitor comparison — and minting one needs an active Website Auditor subscription ($10/month; eligible new customers get a 7-day free trial — payment method required, no charge until the trial ends). Sign up and create a key at https://api.website-auditor.io/admin_portal/?source=mcp (starts with 'wa_').",
       "sensitive": true,
       "required": false
     },

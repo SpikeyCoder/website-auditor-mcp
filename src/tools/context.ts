@@ -9,7 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
-import { upgradeLink, tagSource, PRICE, CONNECTOR_ALTERNATIVE } from "./upgrade.js";
+import { upgradeLink, tagSource, PRICE } from "./upgrade.js";
 import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
 import type { EventSink } from "../telemetry/events.js";
 
@@ -277,9 +277,7 @@ export async function gateKeyedTool(
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +
         `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
-        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}` +
-        // stdio only: an http reader is already on the hosted server.
-        (deps.transport === "http" ? "" : ` ${CONNECTOR_ALTERNATIVE}`),
+        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}`,
       { upgrade_url: upgradeUrl },
     );
   }

@@ -11,23 +11,6 @@ import type { WaConfig } from "../config.js";
 export const PRICE = "$10/month";
 
 /**
- * The hosted server, which signs in with OAuth instead of taking a pasted key.
- *
- * Offered to stdio readers with no key as the shorter route. The pasted-key
- * route is subscribe, mint a key, edit a config file, restart the client, and
- * it is where Claude installs stop: 2026-09-23..10-07, 119 Claude installs
- * called a tool, 104 never had a key, and 107 calls ended in AUTH_REQUIRED.
- * A client that supports remote connectors (Claude: Settings → Connectors →
- * Add custom connector) reaches the same account through a sign-in.
- */
-export const HOSTED_MCP_URL = "https://mcp.website-auditor.io/mcp";
-
-/** One sentence offering the hosted connector in place of a pasted key. */
-export const CONNECTOR_ALTERNATIVE =
-  "Or skip the key: if your client supports remote connectors (in Claude: Settings → Connectors → " +
-  `Add custom connector), add ${HOSTED_MCP_URL} and sign in when prompted — nothing to paste, nothing to restart.`;
-
-/**
  * The sign-up link, tagged so the resulting key is attributable to the MCP.
  *
  * `?source=mcp` is not decoration: website-auditor-api stamps
