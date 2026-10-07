@@ -468,9 +468,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return { key: presented, authVia: "key" };
     }
     const resolved = await tokenExchange.resolve(presented);
-    // Unresolvable is not "authenticated via OAuth" — it is nobody, and the
-    // keyless surface's own copy is the right answer.
-    return { key: resolved, authVia: resolved ? "oauth" : undefined };
+    // Unresolvable carries no key, but it is still an OAuth CALLER: the host
+    // sent a token it was issued, so this is an expired or revoked connection
+    // (or an introspection outage), never a first visit. gateKeyedTool reads
+    // authVia to tell the two apart — answering "not_connected" here quoted the
+    // price to members who were connected and possibly paying.
+    return { key: resolved, authVia: "oauth" };
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {

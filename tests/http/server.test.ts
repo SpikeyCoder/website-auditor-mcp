@@ -1019,6 +1019,28 @@ describe("Mixed Auth over Streamable HTTP", () => {
     await client.close();
   });
 
+  it("answers an expired token as an expired connection — reconnect, no price — not a first visit", async () => {
+    // A host that sends a token was issued one: this member WAS connected and
+    // may be paying, so the instructions must not read it as "not_connected".
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: (config: WaConfig): ToolDeps => ({
+        ...makeDeps({ tier: config.apiKey ? "pro" : "none", config }),
+        transport: "http",
+      }),
+      tokenExchange: { resolve: async () => undefined },
+    });
+    const client = await connectClient(url, { Authorization: "Bearer expired-token" });
+    const res = await client.callTool({ name: "run_audit", arguments: { domain: "example.com" } });
+    expect(res.isError).toBe(true);
+    const body = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(body.code).toBe("AUTH_REQUIRED");
+    expect(body.details).toEqual({ connection: "expired" });
+    expect(body.message).not.toContain("$10");
+    expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
+    await client.close();
+  });
+
   it("carries the login challenge in _meta on a protected tool called without a token", async () => {
     const { url } = await listen({
       config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),

@@ -131,6 +131,24 @@ export function err(
   return { ok: false, error: { code, message, ...extra } };
 }
 
+/** AUTH_REQUIRED for a connection that existed and has expired: reconnect, no price. */
+function connectionExpired(config: WaConfig, upgradeUrl: string): ToolResult<never> {
+  return err(
+    "AUTH_REQUIRED",
+    `The Website Auditor connection for this conversation has expired. ` +
+      `Reconnect when prompted — there is no key to paste. ` +
+      `get_sample_audit keeps working with no account at all in the meantime.`,
+    {
+      upgrade_url: upgradeUrl,
+      details: CONNECTION_EXPIRED,
+      wwwAuthenticate: wwwAuthenticateChallenge(
+        config,
+        "The Website Auditor connection expired. Reconnect to continue.",
+      ),
+    },
+  );
+}
+
 /** Map a thrown WaApiError (or unknown error) to a ToolError result. */
 export function fromApiError(
   e: unknown,
@@ -163,20 +181,7 @@ export function fromApiError(
       oauthEnabled(config) &&
       isKeyRejection(e.code)
     ) {
-      return err(
-        "AUTH_REQUIRED",
-        `The Website Auditor connection for this conversation has expired. ` +
-          `Reconnect when prompted — there is no key to paste. ` +
-          `get_sample_audit keeps working with no account at all in the meantime.`,
-        {
-          upgrade_url: upgradeLink(config),
-          details: CONNECTION_EXPIRED,
-          wwwAuthenticate: wwwAuthenticateChallenge(
-            config,
-            "The Website Auditor connection expired. Reconnect to continue.",
-          ),
-        },
-      );
+      return connectionExpired(config, upgradeLink(config));
     }
     // OVER_QUOTA is deliberately NOT in this list. It is the shared daily audit
     // cap, which only a subscriber can reach (there is no free API tier), so an
@@ -245,6 +250,11 @@ export async function gateKeyedTool(
     // the declarative half would point the host at an authorization server it
     // cannot discover, and oauthEnabled is what keeps the two in step; see
     // auth/oauth.ts for why half a Mixed Auth setup fails silently.
+    // A token was presented and did not resolve (http.ts credentialFor): the
+    // connection existed and has expired, so no price, as in the branches below.
+    if (deps.transport === "http" && deps.authVia === "oauth" && oauthEnabled(deps.config)) {
+      return connectionExpired(deps.config, upgradeUrl);
+    }
     if (deps.transport === "http" && oauthEnabled(deps.config)) {
       return err(
         "AUTH_REQUIRED",
@@ -300,20 +310,7 @@ export async function gateKeyedTool(
     // sends the next call upstream with a dead credential and lands exactly
     // here. The challenge turns that into a reconnect instead of a dead end.
     if (deps.transport === "http" && deps.authVia === "oauth" && oauthEnabled(deps.config)) {
-      return err(
-        "AUTH_REQUIRED",
-        `The Website Auditor connection for this conversation has expired. ` +
-          `Reconnect when prompted — there is no key to paste. ` +
-          `get_sample_audit keeps working with no account at all in the meantime.`,
-        {
-          upgrade_url: upgradeUrl,
-          details: CONNECTION_EXPIRED,
-          wwwAuthenticate: wwwAuthenticateChallenge(
-            deps.config,
-            "The Website Auditor connection expired. Reconnect to continue.",
-          ),
-        },
-      );
+      return connectionExpired(deps.config, upgradeUrl);
     }
     // The upstream message already carries the "generate a new key" instruction,
     // so only the portal URL and the subscription caveat are added — restating

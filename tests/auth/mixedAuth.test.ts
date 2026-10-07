@@ -397,6 +397,15 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.message).not.toContain("mcp.website-auditor.io/mcp");
   });
 
+  it("answers an OAuth caller with no resolved key as expired, without the price", async () => {
+    const error = await authError({ tier: "none", config: { ...OAUTH, apiKey: undefined } }, "http", "oauth");
+    expect(error.code).toBe("AUTH_REQUIRED");
+    expect(error.details).toEqual({ connection: "expired" });
+    expect(error.message).toContain("expired");
+    expect(error.message).not.toContain("$10");
+    expect(error.wwwAuthenticate).toContain("resource_metadata=");
+  });
+
   it("offers the hosted connector to a keyless stdio reader, alongside the key route", async () => {
     // Subscribe, mint, edit a config file, restart: the route Claude installs
     // stop on. The key route stays — the connector is the shorter one beside it.
