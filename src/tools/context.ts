@@ -128,10 +128,24 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
  * answered both with "do not quote a price" — so a ChatGPT user first heard
  * about the subscription from the PRO_REQUIRED after connecting.
  */
-export const NOT_CONNECTED = { connection: "not_connected" } as const;
-export const CONNECTION_EXPIRED = { connection: "expired" } as const;
+// Frozen: each is placed by reference into every error's `details`, so a
+// consumer that wrote to one would change it for the rest of the process.
+export const NOT_CONNECTED = Object.freeze({ connection: "not_connected" } as const);
+export const CONNECTION_EXPIRED = Object.freeze({ connection: "expired" } as const);
 /** A presented token that did not resolve — see ToolDeps.authVia "unresolved_token". */
-export const CONNECTION_UNVERIFIED = { connection: "unverified" } as const;
+export const CONNECTION_UNVERIFIED = Object.freeze({ connection: "unverified" } as const);
+
+/**
+ * The unverified answer's words, shared by the gated tools' AUTH_REQUIRED and
+ * check_upgrade_status (which answers with a success and so carries no
+ * challenge — hence "reconnect from the app" rather than "when prompted"
+ * there). One copy, because two had already drifted.
+ */
+export const UNVERIFIED_MESSAGE =
+  `Website Auditor could not verify this conversation's connection. ` +
+  `If you only just connected, try again in a moment; otherwise reconnect. ` +
+  `If you pasted an API key instead, check it starts with wa_. ` +
+  `get_sample_audit keeps working with no account at all in the meantime.`;
 
 export function err(
   code: ErrorCode,
@@ -150,10 +164,7 @@ export function err(
 export function connectionUnverified(config: WaConfig, upgradeUrl: string): ToolResult<never> {
   return err(
     "AUTH_REQUIRED",
-    `Website Auditor could not verify this conversation's connection. ` +
-      `If you only just connected, try again in a moment; otherwise reconnect when prompted. ` +
-      `If you pasted an API key instead, check it starts with wa_. ` +
-      `get_sample_audit keeps working with no account at all in the meantime.`,
+    UNVERIFIED_MESSAGE,
     {
       upgrade_url: upgradeUrl,
       details: CONNECTION_UNVERIFIED,

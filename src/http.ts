@@ -449,7 +449,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
    * the connection: retry, reconnect, or check the wa_ prefix" answer carrying
    * the login challenge — rather than to the malformed-key sentence. On a Mixed Auth
    * endpoint the overwhelming majority of callers never paste a key at all, and
-   * "connect an account" is at worst imprecise for the curl user while
+   * that answer is at worst imprecise for the curl user while
    * "Invalid API key format. Keys start with wa_." is actively wrong for the
    * OAuth one — the direction that misleads fewer people, stated because it IS
    * a trade rather than an oversight.

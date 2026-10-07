@@ -16,7 +16,7 @@
  */
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
-import { fromApiError, keySetupNote, ok, type ToolDeps, type ToolResult } from "./context.js";
+import { fromApiError, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
 import { oauthEnabled } from "../auth/oauth.js";
 import { PRICE, upgradeLink } from "./upgrade.js";
 
@@ -64,8 +64,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       // tool reports, so it gets the same retry-or-reconnect answer and no price.
       message:
         deps.transport === "http" && oauthEnabled(deps.config) && deps.authVia === "unresolved_token"
-          ? `Website Auditor could not verify this conversation's connection. If you only just ` +
-            `connected, try again in a moment; otherwise reconnect when prompted.`
+          ? UNVERIFIED_MESSAGE
           : deps.transport === "http" && oauthEnabled(deps.config)
           ? `No Website Auditor account is connected to this conversation yet. ` +
             `Connect one when prompted — there is no key to paste. Audits also need an ` +

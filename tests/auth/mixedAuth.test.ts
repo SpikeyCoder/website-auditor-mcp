@@ -23,7 +23,7 @@ import {
   wwwAuthenticateChallenge,
 } from "../../src/auth/oauth.js";
 import { IntrospectionTokenExchange } from "../../src/auth/tokenExchange.js";
-import { fromApiError, gateProTool } from "../../src/tools/context.js";
+import { fromApiError, gateProTool, type ToolDeps } from "../../src/tools/context.js";
 import { WaApiError } from "../../src/api/errors.js";
 import { toCallResult } from "../../src/mcp/server.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
@@ -375,7 +375,7 @@ describe("gateProTool — the runtime half, and who gets it", () => {
   async function authError(
     over: Parameters<typeof makeDeps>[0],
     transport?: "stdio" | "http",
-    authVia?: "oauth" | "key",
+    authVia?: ToolDeps["authVia"],
   ) {
     const deps = { ...makeDeps(over), transport, authVia };
     const result = await gateProTool(deps);
@@ -645,5 +645,31 @@ describe("the resource's advertised scopes", () => {
     expect(config.oauthScopes).toEqual(["audit"]);
     expect(wwwAuthenticateChallenge(config, "nope")).toContain('scope="audit"');
     expect(securitySchemesFor("pro", config, "http")).toEqual([{ type: "oauth2", scopes: ["audit"] }]);
+  });
+});
+
+describe("round three: one unverified answer, and a catch-all", () => {
+  it("check_upgrade_status and the gated tools give the unverified reader the same words", async () => {
+    const { checkUpgradeStatus } = await import("../../src/tools/checkUpgradeStatus.js");
+    const { UNVERIFIED_MESSAGE } = await import("../../src/tools/context.js");
+    const deps = { ...makeDeps({ tier: "none", config: { ...OAUTH, apiKey: undefined } }), transport: "http" as const,
+      authVia: "unresolved_token" as const };
+    const status = await checkUpgradeStatus({}, deps);
+    expect(status.ok && status.data.message).toBe(UNVERIFIED_MESSAGE);
+    const gated = await gateProTool(deps);
+    expect(gated && !gated.ok && gated.error.message).toBe(UNVERIFIED_MESSAGE);
+    expect(UNVERIFIED_MESSAGE).toContain("wa_");
+  });
+
+  it("tell the model what to do with an AUTH_REQUIRED that carries no label", () => {
+    const mixed = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", true);
+    expect(mixed).toContain("Any other AUTH_REQUIRED, with no details.connection");
+  });
+
+  it("freeze the shared labels, so no error can rewrite another's details", async () => {
+    const { NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } = await import("../../src/tools/context.js");
+    for (const label of [NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED]) {
+      expect(Object.isFrozen(label)).toBe(true);
+    }
   });
 });
