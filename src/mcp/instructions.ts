@@ -131,7 +131,8 @@ export function buildInstructions(
       `(${signupUrl}) — and offer get_sample_audit meanwhile. When it returns AUTH_REQUIRED with ` +
       `details.connection "${CONNECTION_EXPIRED.connection}", tell the user to reconnect when prompted and offer get_sample_audit ` +
       `meanwhile; do not quote a price for it. With details.connection "${CONNECTION_UNVERIFIED.connection}", the ` +
-      "connection could not be checked: suggest trying again in a moment or reconnecting, and do not quote a " +
+      "connection could not be checked: suggest reconnecting, or trying again in a moment if they only just " +
+      "connected, and do not quote a " +
       "price for it either. Any other AUTH_REQUIRED, with no details.connection: tell the user to " +
       "connect or reconnect when prompted, and do not quote a price for it. " +
       "When a tool returns PRO_REQUIRED the account IS connected " +

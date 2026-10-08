@@ -7,6 +7,7 @@
  * bearer extraction, per-key bundle reuse — is exactly what a marketplace
  * client will hit.
  */
+import { PRICE } from "../../src/tools/upgrade.js";
 import { afterEach, describe, it, expect } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
@@ -1036,7 +1037,7 @@ describe("Mixed Auth over Streamable HTTP", () => {
     const body = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(body.code).toBe("AUTH_REQUIRED");
     expect(body.details).toEqual({ connection: "unverified" });
-    expect(body.message).not.toContain("$10");
+    expect(body.message).not.toContain(PRICE);
     expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
     await client.close();
   });

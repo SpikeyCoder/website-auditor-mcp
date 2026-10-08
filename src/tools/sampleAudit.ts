@@ -50,7 +50,11 @@ export async function getSampleAudit(
       `for any site you asked about. It shows the exact response shape a real run returns — ` +
       `scored summary, per-test results, and the AI-visibility breakdown across ChatGPT, ` +
       `Perplexity, Claude and Gemini. To audit a real domain you need a Website Auditor ` +
-      `subscription (${PRICE}) and an API key.` +
+      // Under Mixed Auth the account behind the login carries the key, so "and
+      // an API key" would contradict the connect sentence appended below.
+      (!deps.config.apiKey && deps.transport === "http" && oauthEnabled(deps.config)
+        ? `subscription (${PRICE}) on a connected account.`
+        : `subscription (${PRICE}) and an API key.`) +
       // Only for a caller who has no key. This tool does no gating and no key
       // check, so the note was appended unconditionally — which turned a
       // statement of what a real audit requires into a setup procedure served
@@ -65,7 +69,7 @@ export async function getSampleAudit(
       (deps.config.apiKey
         ? ""
         : deps.transport === "http" && oauthEnabled(deps.config)
-          ? " Connect a Website Auditor account when your app offers to — there is no key to paste."
+          ? " Connect (or reconnect) your account when your app offers to — there is no key to paste."
           : ` ${keySetupNote(deps.transport)}`),
     audit: sampleAuditReport(),
     price: PRICE,

@@ -17,13 +17,28 @@
  * THE CONTRACT THIS RELIES ON, which the API side must honor: an active token
  * resolves to a key for ANY authenticated account, subscribed or not. It is
  * tempting to withhold the key from a non-subscriber, but that strands them —
- * with no key they resolve to tier "none", which answers AUTH_REQUIRED and asks
- * them to connect an account they just connected. Returning the key lets the
+ * with no key they resolve as an unresolved token (http.ts, authVia
+ * "unresolved_token"), which answers AUTH_REQUIRED "unverified" and sends a
+ * member who just connected round a reconnect loop. Returning the key lets the
  * normal subscription path answer PRO_REQUIRED instead, which is the true
  * statement and the one with a way forward. Two gates, two different answers;
  * see gateProTool.
  */
 import type { WaConfig } from "../config.js";
+
+/**
+ * One warn per distinct reason per minute. During an outage every token
+ * re-introspects every NEGATIVE_TTL_MS, and an unthrottled line per attempt is
+ * the log flood the cache bound exists to blunt — billed, on Cloud Run.
+ */
+const WARN_INTERVAL_MS = 60_000;
+const lastWarned = new Map<string, number>();
+function warnIntrospection(reason: string, now: number = Date.now()): void {
+  const last = lastWarned.get(reason);
+  if (last !== undefined && now - last < WARN_INTERVAL_MS) return;
+  lastWarned.set(reason, now);
+  console.warn(`[website-auditor-mcp http] OAuth introspection ${reason}; treating the token as unresolved`);
+}
 
 /** The seam tools and tests depend on: a token in, a `wa_` key or nothing out. */
 export interface TokenExchange {
@@ -148,14 +163,17 @@ export class IntrospectionTokenExchange implements TokenExchange {
         // so a non-2xx is the endpoint or its secret failing — a misconfigured
         // WA_OAUTH_INTROSPECTION_SECRET answers 401 for every connected user,
         // and their "could not verify, try again" looks like a passing glitch.
-        console.warn(`OAuth introspection answered HTTP ${resp.status}; treating the token as unresolved`);
+        warnIntrospection(`answered HTTP ${resp.status}`);
         return undefined;
       }
       const body = (await resp.json()) as { active?: unknown; api_key?: unknown };
       if (body?.active !== true) return undefined;
       return typeof body.api_key === "string" && body.api_key ? body.api_key : undefined;
     } catch (err) {
-      console.warn(`OAuth introspection failed: ${err instanceof Error ? err.name : "unknown error"}; treating the token as unresolved`);
+      // fetch wraps the network cause (ENOTFOUND, ECONNREFUSED, a TLS code) in
+      // err.cause, and the bare name reads TypeError for all of them.
+      const cause = err instanceof Error ? (err.cause as { code?: string } | undefined)?.code : undefined;
+      warnIntrospection(`failed: ${cause ?? (err instanceof Error ? err.name : "unknown error")}`);
       return undefined;
     } finally {
       clearTimeout(timer);

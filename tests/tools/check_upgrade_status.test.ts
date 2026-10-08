@@ -1,3 +1,4 @@
+import { PRICE } from "../../src/tools/upgrade.js";
 import { describe, it, expect, vi } from "vitest";
 import { checkUpgradeStatus } from "../../src/tools/checkUpgradeStatus.js";
 import { makeDeps } from "../helpers.js";
@@ -211,7 +212,7 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.message).toContain("could not verify");
-    expect(res.data.message).not.toContain("$10");
+    expect(res.data.message).not.toContain(PRICE);
   });
 
   it("still says no account is connected yet to a caller who sent nothing", async () => {

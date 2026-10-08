@@ -12,6 +12,7 @@
  * before OAuth existed, because every stdio install and every existing
  * `Authorization: Bearer wa_…` caller is on that path.
  */
+import { PRICE } from "../../src/tools/upgrade.js";
 import { describe, it, expect, vi } from "vitest";
 import {
   looksLikeApiKey,
@@ -405,7 +406,7 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.details).toEqual({ connection: "unverified" });
     expect(error.message).toContain("try again in a moment");
     expect(error.message).not.toContain("expired");
-    expect(error.message).not.toContain("$10");
+    expect(error.message).not.toContain(PRICE);
     expect(error.wwwAuthenticate).toContain("resource_metadata=");
   });
 
@@ -648,7 +649,7 @@ describe("the resource's advertised scopes", () => {
   });
 });
 
-describe("round three: one unverified answer, and a catch-all", () => {
+describe("the unverified answer: one wording everywhere, and a catch-all for unlabelled errors", () => {
   it("check_upgrade_status and the gated tools give the unverified reader the same words", async () => {
     const { checkUpgradeStatus } = await import("../../src/tools/checkUpgradeStatus.js");
     const { UNVERIFIED_MESSAGE } = await import("../../src/tools/context.js");
@@ -658,7 +659,9 @@ describe("round three: one unverified answer, and a catch-all", () => {
     expect(status.ok && status.data.message).toBe(UNVERIFIED_MESSAGE);
     const gated = await gateProTool(deps);
     expect(gated && !gated.ok && gated.error.message).toBe(UNVERIFIED_MESSAGE);
-    expect(UNVERIFIED_MESSAGE).toContain("wa_");
+    expect(UNVERIFIED_MESSAGE).toContain("Reconnect");
+    // Almost always a ChatGPT reader, which has no key field to check.
+    expect(UNVERIFIED_MESSAGE).not.toContain("wa_");
   });
 
   it("tell the model what to do with an AUTH_REQUIRED that carries no label", () => {
@@ -674,7 +677,7 @@ describe("round three: one unverified answer, and a catch-all", () => {
   });
 });
 
-describe("round four: no key header for a Mixed Auth reader, and a visible introspection failure", () => {
+describe("Mixed Auth keyless copy and introspection failures", () => {
   it("get_sample_audit tells a keyless Mixed Auth reader to connect, not to send a header", async () => {
     const { getSampleAudit } = await import("../../src/tools/sampleAudit.js");
     const deps = { ...makeDeps({ config: { ...OAUTH, apiKey: undefined } }), transport: "http" as const };
@@ -695,7 +698,12 @@ describe("round four: no key header for a Mixed Auth reader, and a visible intro
       expect(await ex.resolve("secret-token-value")).toBeUndefined();
       const logged = warn.mock.calls.map((c) => String(c[0])).join("\n");
       expect(logged).toContain("HTTP 401");
+      expect(logged).toContain("[website-auditor-mcp http]");
       expect(logged).not.toContain("secret-token-value");
+      // An outage re-introspects every token every few seconds: one line, not one per attempt.
+      await ex.resolve("another-token");
+      await ex.resolve("a-third-token");
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("HTTP 401")).length).toBe(1);
     } finally {
       warn.mockRestore();
     }

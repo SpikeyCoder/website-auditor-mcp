@@ -141,12 +141,13 @@ export const CONNECTION_UNVERIFIED = Object.freeze({ connection: "unverified" } 
  * answers with a success and carries no challenge. One copy, because two had
  * already drifted. Reconnecting comes first because an expired token is the
  * commonest way here (introspection answers it active:false, like a token
- * seconds old).
+ * seconds old). No "check the wa_ prefix": this reader is almost always in
+ * ChatGPT, which has no key field, and a curl user with a typo can read the
+ * README.
  */
 export const UNVERIFIED_MESSAGE =
   `Website Auditor could not verify this conversation's connection. ` +
   `Reconnect Website Auditor, or if you only just connected, try again in a moment. ` +
-  `If you pasted an API key instead, check it starts with wa_. ` +
   `get_sample_audit keeps working with no account at all in the meantime.`;
 
 export function err(
