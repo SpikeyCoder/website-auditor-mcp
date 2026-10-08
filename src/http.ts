@@ -446,7 +446,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
    * With OAuth ON the same string is ambiguous — an expired token and a typo'd
    * key are indistinguishable here — and the two possible answers cannot both
    * be right. It resolves to authVia "unresolved_token" — a "could not verify
-   * the connection: retry, reconnect, or check the wa_ prefix" answer carrying
+   * the connection: reconnect, or retry if only just connected" answer carrying
    * the login challenge — rather than to the malformed-key sentence. On a Mixed Auth
    * endpoint the overwhelming majority of callers never paste a key at all, and
    * that answer is at worst imprecise for the curl user while

@@ -9,7 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
-import { upgradeLink, tagSource, PRICE } from "./upgrade.js";
+import { upgradeLink, tagSource, PRICE, plansAreDescribedAt } from "./upgrade.js";
 import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
 import type { EventSink } from "../telemetry/events.js";
 
@@ -179,6 +179,19 @@ function connectionUnverified(config: WaConfig, upgradeUrl: string): ToolResult<
   );
 }
 
+/**
+ * PRO_REQUIRED's words under info style: the feature is not in this account's
+ * plan, and where plans are described — nothing more (plansAreDescribedAt).
+ * Shared by gateProTool and fromApiError, because the API's own 403 texts
+ * ("…or free trial is required", "needs Website Auditor Pro or a trial") would
+ * otherwise reach a ChatGPT reader through a relayed error.
+ */
+function planNotIncludedMessage(config: WaConfig): string {
+  return `This tool is not included in this account's current Website Auditor plan. ` +
+    `${plansAreDescribedAt(config)}. ` +
+    `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
+}
+
 /** AUTH_REQUIRED for a connection that existed and has expired: reconnect, no price. */
 function connectionExpired(config: WaConfig, upgradeUrl: string): ToolResult<never> {
   return err(
@@ -255,7 +268,16 @@ export function fromApiError(
           ? upgradeLink(config)
           : undefined
         : (e.upgradeUrl ?? (attachUpgrade ? config.upgradeUrl : undefined));
-    return err(e.code, e.message, {
+    // The upstream message is replaced under info style for the same reason
+    // the link is: the API's 403 texts name the trial.
+    // The API's note on the daily allowance ("was not consumed", or "could
+    // not be refunded … still counts toward it") is kept: it is what a caller
+    // needs before retrying, and it says nothing about plans.
+    const allowanceNote = /Your daily allowance[^.]*(?:\.[^.]*?counts toward it)?\./.exec(e.message)?.[0];
+    const message = config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
+      ? planNotIncludedMessage(config) + (allowanceNote ? ` ${allowanceNote}` : "")
+      : e.message;
+    return err(e.code, message, {
       upgrade_url: target === undefined ? undefined : tagSource(target),
       details: e.details,
     });
@@ -310,8 +332,11 @@ export async function gateKeyedTool(
         `This tool needs a connected Website Auditor account, and this conversation has none yet. ` +
           `Connect one when prompted — there is no key to paste. ` +
           `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
-          `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
-          `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`,
+          (deps.config.upsellStyle === "info"
+            // No price or trial: see plansAreDescribedAt.
+            ? `Audits also need a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
+            : `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
+              `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`),
         {
           upgrade_url: upgradeUrl,
           details: NOT_CONNECTED,
@@ -326,7 +351,10 @@ export async function gateKeyedTool(
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +
         `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
-        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}`,
+        (deps.config.upsellStyle === "info"
+          ? `Auditing real domains needs a Website Auditor plan and an API key from it. ` +
+            `${plansAreDescribedAt(deps.config)}. ${keySetupNote(deps.transport)}`
+          : `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}`),
       { upgrade_url: upgradeUrl },
     );
   }
@@ -374,8 +402,13 @@ export async function gateKeyedTool(
     // fallback for an API that has not shipped the field yet.
     return err(
       rejection ?? "INVALID_KEY",
-      `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
-        `so if yours has lapsed, resubscribe there first. Then replace the key. ${keySetupNote(deps.transport)}`,
+      (deps.config.upsellStyle === "info"
+        // Most revoked keys belong to paying members who rotated them (see
+        // above), so: where a replacement comes from, not what a plan is.
+        ? `${base} Create a replacement key from your Website Auditor account, then replace the key. ` +
+          `${keySetupNote(deps.transport)}`
+        : `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
+          `so if yours has lapsed, resubscribe there first. Then replace the key. ${keySetupNote(deps.transport)}`),
       { upgrade_url: upgradeUrl },
     );
   }
@@ -418,6 +451,11 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     );
   }
 
+  if (deps.config.upsellStyle === "info") {
+    // The allowed form only (plansAreDescribedAt): this feature is not in the
+    // account's current plan, and where plans are described.
+    return err("PRO_REQUIRED", planNotIncludedMessage(deps.config), { upgrade_url: upgradeUrl });
+  }
   return err(
     "PRO_REQUIRED",
     `This tool requires an active Website Auditor subscription (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends). ` +

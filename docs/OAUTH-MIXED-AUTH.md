@@ -73,8 +73,8 @@ Three decisions worth knowing before changing any of it:
   — curl, Codex's `bearer_token_env_var`, the README examples — is on that path.
 - **With OAuth ON, a non-`wa_` bearer that fails introspection is `authVia:
   "unresolved_token"`**, answered as `AUTH_REQUIRED` with `details.connection:
-  "unverified"` ("could not verify the connection — try again in a moment,
-  reconnect, or check the `wa_` prefix", no price), not with the malformed-key
+  "unverified"` ("could not verify the connection — reconnect, or try again in
+  a moment if only just connected", no price), not with the malformed-key
   message. A token seconds old, an expired one, an introspection outage and a
   typo'd key are indistinguishable at that point; the unverified answer is at
   worst imprecise for a curl user, while "Invalid API key format" is actively

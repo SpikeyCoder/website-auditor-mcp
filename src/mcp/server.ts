@@ -6,7 +6,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { EFFECTS, SERVED_TOOLS, type ToolSpec } from "../tools/registry.js";
+import { EFFECTS, SERVED_TOOLS, descriptionFor, titleFor, type ToolSpec } from "../tools/registry.js";
 import type { ToolResult } from "../tools/context.js";
 import type { ToolDeps } from "../tools/context.js";
 import { getAiVisibility } from "../tools/getAiVisibility.js";
@@ -200,7 +200,7 @@ export function createServer(deps: ToolDeps): McpServer {
     // Every tool carries a human `title` plus all three hint annotations —
     // required by the Claude connector directory and the OpenAI plugin review
     // alike. The values are per-tool; see annotationsFor above.
-    const annotations = annotationsFor(spec);
+    const annotations = annotationsFor({ ...spec, title: titleFor(spec, deps.config.upsellStyle) });
     // The declarative half of Mixed Auth: which tools need a connected account
     // and for what scope. Undefined unless OAuth is configured, so an
     // unconfigured server publishes no `_meta` at all and its tool list is
@@ -214,8 +214,8 @@ export function createServer(deps: ToolDeps): McpServer {
     server.registerTool(
       spec.name,
       {
-        title: spec.title,
-        description: spec.description,
+        title: titleFor(spec, deps.config.upsellStyle),
+        description: descriptionFor(spec, deps.config.upsellStyle),
         inputSchema: spec.inputSchema,
         // Declared where a tool has a stable result shape. The portal flags
         // every tool without one ("so models can better understand this tool's

@@ -11,6 +11,21 @@ import type { WaConfig } from "../config.js";
 export const PRICE = "$10/month";
 
 /**
+ * The plan sentence an `upsellStyle: "info"` surface may say, and all it may
+ * say. OpenAI's app rules: "Plugins must not display subscription plans,
+ * initiate new subscriptions, or promote upgrades", and "Do not advertise
+ * pricing, subscriptions, free trials, discounts, or promotions" — but they
+ * allow "Explain that a certain feature is not available with the user's
+ * current plan" and "Link to an informational page describing available
+ * plans" (developers.openai.com/apps-sdk/app-submission-guidelines). So no
+ * price and no trial under info style: the need for a plan, and where plans
+ * are described.
+ */
+export function plansAreDescribedAt(config: WaConfig): string {
+  return `Plans are described at ${upgradeLink(config)}`;
+}
+
+/**
  * The sign-up link, tagged so the resulting key is attributable to the MCP.
  *
  * `?source=mcp` is not decoration: website-auditor-api stamps

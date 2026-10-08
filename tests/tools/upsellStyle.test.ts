@@ -1,12 +1,12 @@
 /**
  * WA_UPSELL_STYLE — the switch that keeps checkout links out of responses.
  *
- * The OpenAI plugin directory prohibits "direct checkout links or transactional
- * pages" while allowing a plugin to "explain unavailable features under current
- * plans". The hosted deployment therefore runs `info` style: price and trial
- * terms still appear everywhere they do today, but every link — including the
- * ones the API itself returns on a 401/403 — points at the informational page,
- * never the portal.
+ * OpenAI's app rules forbid a plugin to display plans, advertise pricing or
+ * free trials, or promote upgrades, while allowing it to say a feature is not
+ * in the current plan and to link an informational plans page. The hosted
+ * deployment therefore runs `info` style: no price and no trial anywhere, and
+ * every link — including the ones the API itself returns on a 401/403 —
+ * points at the informational page, never the portal.
  *
  * The other half of the contract matters just as much: `link` style (the
  * default) must stay byte-identical to the pre-style behavior, because every
@@ -73,8 +73,12 @@ describe("gateProTool under info style", () => {
     expect(result.error.upgrade_url).toContain(INFO);
     expect(result.error.upgrade_url).not.toContain(PORTAL);
     expect(result.error.message).not.toContain(PORTAL);
-    // Explaining the plan is still allowed — and still required.
-    expect(result.error.message).toContain("$10/month");
+    // OpenAI's rules: never the price or the trial. Where a plan is the
+    // blocker the message says where plans are described; a rejected key
+    // usually belongs to a paying member, so it says where keys come from.
+    if (result.error.code !== "INVALID_KEY") expect(result.error.message).toContain("Plans are described at");
+    expect(result.error.message).not.toContain("$10/month");
+    expect(result.error.message).not.toMatch(/free trial/i);
   });
 
   it("link style is untouched: the portal link, as every existing install expects", async () => {
@@ -113,9 +117,10 @@ describe("fromApiError under info style", () => {
 describe("instructions under info style", () => {
   const infoText = buildInstructions(`${INFO}?source=mcp`, "info");
 
-  it("keeps the full disclosure — price, trial, prerequisites — and the info link", () => {
-    expect(infoText).toContain("$10/month");
-    expect(infoText).toMatch(/payment method/i);
+  it("says a plan is needed and links the info page — no price, no trial (OpenAI's app rules)", () => {
+    expect(infoText).not.toContain("$10/month");
+    expect(infoText).not.toMatch(/free trial/i);
+    expect(infoText).toMatch(/Website Auditor plan/);
     expect(infoText).toContain(`${INFO}?source=mcp`);
   });
 
@@ -124,10 +129,13 @@ describe("instructions under info style", () => {
     expect(infoText).not.toContain(PORTAL);
   });
 
-  it("keeps the trigger block before any mention of money, in both styles", () => {
-    for (const text of [infoText, buildInstructions("https://x.example/?source=mcp", "link")]) {
+  it("keeps the trigger block before any mention of plans or money, in both styles", () => {
+    for (const [text, billing] of [
+      [infoText, /Website Auditor plan/],
+      [buildInstructions("https://x.example/?source=mcp", "link"), /\$10\/month/],
+    ] as const) {
       const trigger = text.search(/when to offer/i);
-      const money = text.search(/\$10\/month/);
+      const money = text.search(billing);
       expect(trigger).toBeGreaterThanOrEqual(0);
       expect(money).toBeGreaterThan(trigger);
     }
@@ -152,5 +160,135 @@ describe("check_upgrade_status under info style", () => {
     expect(result.data.upgrade_url).toContain(INFO);
     expect(result.data.upgrade_url).not.toContain(PORTAL);
     expect(result.data.message).not.toContain(PORTAL);
+  });
+});
+
+describe("info style says no price and no trial anywhere (OpenAI's app rules)", () => {
+  // Any amount, any trial, any invitation to buy. Wider than the literal
+  // "$10" / "free trial" so a rephrasing ("start your 7-day trial") is caught.
+  const NO_MONEY = (text: string) => {
+    expect(text).not.toMatch(/\$\d/);
+    expect(text).not.toMatch(/\btrial\b/i);
+    expect(text).not.toMatch(/\bsubscribe\b|\bupgrade\b|starting pro/i);
+  };
+
+  it("no published tool description advertises the price or the trial", async () => {
+    const { SERVED_TOOLS, descriptionFor } = await import("../../src/tools/registry.js");
+    for (const spec of SERVED_TOOLS) {
+      const text = descriptionFor(spec, "info");
+      // check_upgrade_status answers a member's own "is my trial still
+      // active" — their account's state, which the rules allow.
+      NO_MONEY(text.replace('"is my trial still active,"', ""));
+    }
+    // Link style keeps the terms on the Pro tools, as before.
+    expect(SERVED_TOOLS.some((s) => descriptionFor(s, "link").includes("$10"))).toBe(true);
+  });
+
+  it.each([
+    ["never subscribed", { tier: "free" as const, status: "none" }],
+    ["lapsed", { tier: "free" as const, status: "canceled" }],
+    ["trial set to end", { tier: "pro" as const, status: "trialing", cancel_at_period_end: true }],
+    ["subscription set to end", { tier: "pro" as const, status: "active", cancel_at_period_end: true }],
+  ])("check_upgrade_status (%s) points at plans, not at a purchase", async (_label, sub) => {
+    const client = { getSubscription: async () => ({ current_period_end: null, ...sub }) };
+    const res = await checkUpgradeStatus({}, makeDeps({ client, config: infoConfig() }));
+    if (!res.ok) throw new Error("expected ok");
+    // Reporting the member's OWN trial ("Free trial active") is their account's
+    // state, which the rules allow; selling one is not. So: no price, no
+    // purchase link, and no trial offered to someone without one.
+    expect(res.data.message).not.toContain("$10");
+    expect(res.data.message).not.toMatch(/subscribe at/i);
+    if (sub.status !== "trialing") expect(res.data.message).not.toMatch(/free trial/i);
+  });
+
+  it("check_upgrade_status with no key points at plans, not at a purchase", async () => {
+    const res = await checkUpgradeStatus({}, makeDeps({ config: infoConfig({ apiKey: undefined }) }));
+    if (!res.ok) throw new Error("expected ok");
+    NO_MONEY(res.data.message);
+  });
+
+  it("get_sample_audit's note and price field state no price", async () => {
+    const { getSampleAudit } = await import("../../src/tools/sampleAudit.js");
+    const res = await getSampleAudit({}, makeDeps({ config: infoConfig({ apiKey: undefined }) }));
+    if (!res.ok) throw new Error("expected ok");
+    NO_MONEY(res.data.note);
+    expect(res.data.price).toBeUndefined();
+  });
+});
+
+describe("info style: what the API relays, and what a connected reader is told", () => {
+  it("a relayed API 403 that names the trial is replaced, not passed through", () => {
+    const result = fromApiError(
+      new WaApiError("PRO_REQUIRED", "An active subscription or free trial is required for the GTM plan.", { status: 403 }),
+      infoConfig(),
+    );
+    if (result.ok) throw new Error("expected an error result");
+    expect(result.error.message).not.toMatch(/trial/i);
+    expect(result.error.message).toContain("Plans are described at");
+  });
+
+  it("link style still passes the API's own message through", () => {
+    const msg = "An active subscription or free trial is required for the GTM plan.";
+    const result = fromApiError(new WaApiError("PRO_REQUIRED", msg, { status: 403 }), testConfig());
+    if (result.ok) throw new Error("expected an error result");
+    expect(result.error.message).toBe(msg);
+  });
+
+  it("a connected Mixed Auth reader's sample note asks for no API key", async () => {
+    const { getSampleAudit } = await import("../../src/tools/sampleAudit.js");
+    const deps = {
+      ...makeDeps({ config: infoConfig({
+        apiKey: "wa_from_login",
+        oauthIssuer: "https://api.website-auditor.io",
+        oauthResourceUrl: "https://mcp.website-auditor.io/mcp",
+        oauthScope: "audit",
+      }) }),
+      transport: "http" as const,
+    };
+    const res = await getSampleAudit({}, deps);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.note).toContain("on a connected account");
+    expect(res.data.note).not.toContain("API key");
+  });
+
+  it("a trialing member is not sent to the plans page to cancel", async () => {
+    const client = { getSubscription: async () => ({ tier: "pro" as const, status: "trialing", current_period_end: null }) };
+    const res = await checkUpgradeStatus({}, makeDeps({ client, config: infoConfig() }));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.message).not.toContain(INFO);
+    expect(res.data.message).toContain("cancel it from your Website Auditor account");
+  });
+});
+
+describe("info style: titles, quota copy, allowance notes", () => {
+  it("publishes check_upgrade_status as a plan check, not an upgrade check", async () => {
+    const { CHECK_UPGRADE_STATUS_TOOL, titleFor } = await import("../../src/tools/registry.js");
+    expect(titleFor(CHECK_UPGRADE_STATUS_TOOL, "info")).not.toMatch(/upgrade/i);
+    expect(titleFor(CHECK_UPGRADE_STATUS_TOOL, "link")).toBe(CHECK_UPGRADE_STATUS_TOOL.title);
+  });
+
+  it("keeps the API's allowance note when it replaces a relayed PRO_REQUIRED", () => {
+    const msg = "The engine refused. Your daily allowance could not be refunded automatically, so this attempt still counts toward it.";
+    const result = fromApiError(new WaApiError("PRO_REQUIRED", msg, { status: 403 }), infoConfig());
+    if (result.ok) throw new Error("expected an error result");
+    expect(result.error.message).toContain("Plans are described at");
+    expect(result.error.message).toContain("Your daily allowance could not be refunded automatically, so this attempt still counts toward it.");
+  });
+
+  it("a pasted key on a Mixed Auth server is still told it needs a key, in link style", async () => {
+    const { getSampleAudit } = await import("../../src/tools/sampleAudit.js");
+    const deps = {
+      ...makeDeps({ config: testConfig({
+        apiKey: "wa_pasted",
+        oauthIssuer: "https://api.website-auditor.io",
+        oauthResourceUrl: "https://mcp.website-auditor.io/mcp",
+        oauthScope: "audit",
+      }) }),
+      transport: "http" as const,
+      authVia: "key" as const,
+    };
+    const res = await getSampleAudit({}, deps);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.note).toContain("and an API key");
   });
 });

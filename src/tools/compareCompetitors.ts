@@ -335,7 +335,7 @@ function buildSummary(p: {
         ? `${p.remaining} audit${p.remaining === 1 ? "" : "s"} remain today${resetTxt}`
         : `the daily audit quota is exhausted${resetTxt}`;
     parts.push(
-      `${p.quotaSkipped} competitor${p.quotaSkipped === 1 ? "" : "s"} skipped because ${remainTxt}. They were not dropped — re-run after the reset or upgrade for a higher quota.`,
+      `${p.quotaSkipped} competitor${p.quotaSkipped === 1 ? "" : "s"} skipped because ${remainTxt}. They were not dropped — re-run after the reset.`,
     );
   } else if (p.remaining !== null) {
     parts.push(`${p.remaining} audit${p.remaining === 1 ? "" : "s"} remain today.`);

@@ -505,7 +505,7 @@ describe("handshake instructions", () => {
     expect(plain).toContain("connector's authentication field");
   });
 
-  it("quote the trial on a first connection, and keep expired and unverified ones price-free", () => {
+  it("mention the plan on a first connection, and keep expired and unverified ones price-free", () => {
     const mixed = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", true);
     // Each clause found by its full anchor phrase, so an unrelated mention of
     // "expired" or PRO_REQUIRED elsewhere in the instructions cannot shift it.
@@ -517,7 +517,10 @@ describe("handshake instructions", () => {
       return mixed.slice(from, to);
     };
     const notConnected = clause('details.connection "not_connected"', 'details.connection "expired"');
-    expect(notConnected).toContain("the price, the trial");
+    // The hosted (info) server: the plan and where plans are described, never
+    // a price or a trial — OpenAI's app rules.
+    expect(notConnected).toContain("audits need a Website Auditor plan");
+    expect(notConnected).toContain("no price, no trial");
     expect(notConnected).toContain("connect when prompted");
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");
@@ -525,6 +528,21 @@ describe("handshake instructions", () => {
     const unverified = clause('details.connection "unverified"', "When a tool returns PRO_REQUIRED");
     expect(unverified).toContain("do not quote a");
     expect(unverified).not.toContain("the trial");
+  });
+
+  it("under Mixed Auth with link style, still give the full terms on a first connection", () => {
+    const linked = buildInstructions("https://x.example/?source=mcp", "link", "http", true);
+    const from = linked.indexOf('details.connection "not_connected"');
+    const clause = linked.slice(from, linked.indexOf('details.connection "expired"', from));
+    expect(clause).toContain("the price, the trial");
+  });
+
+  it("under info style, no surface of the instructions names a price or a trial", () => {
+    for (const mixedAuth of [true, false]) {
+      const text = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", mixedAuth);
+      expect(text).not.toContain(PRICE);
+      expect(text).not.toMatch(/free trial/i);
+    }
   });
 
 });
