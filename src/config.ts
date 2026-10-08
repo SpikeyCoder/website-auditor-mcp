@@ -18,12 +18,13 @@ export type Tier = "none" | "free" | "pro" | "invalid";
  *
  *   "link" — the default, and the behavior every existing install has: errors
  *            and instructions carry the sign-up/portal link (WA_UPGRADE_URL).
- *   "info" — for deployments under marketplace rules that forbid checkout
- *            links (the OpenAI plugin directory prohibits "direct checkout
- *            links or transactional pages" while allowing plans to be
- *            explained): price and trial terms are still stated, but every
- *            link points at the informational `upsellInfoUrl` instead — and
- *            checkout links the API itself returns are replaced too.
+ *   "info" — for deployments under OpenAI's app rules, which forbid a plugin
+ *            to display plans, advertise pricing or trials, or promote
+ *            upgrades, while allowing it to say a feature is not in the
+ *            current plan and to link an informational plans page. No price
+ *            and no trial anywhere (tools/upgrade.ts plansAreDescribedAt),
+ *            and every link points at `upsellInfoUrl` — checkout links and
+ *            trial-naming messages the API itself returns are replaced too.
  */
 export type UpsellStyle = "link" | "info";
 

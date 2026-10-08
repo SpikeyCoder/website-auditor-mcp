@@ -7,6 +7,7 @@
  * bearer extraction, per-key bundle reuse — is exactly what a marketplace
  * client will hit.
  */
+import { PRICE } from "../../src/tools/upgrade.js";
 import { afterEach, describe, it, expect } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
@@ -1019,6 +1020,28 @@ describe("Mixed Auth over Streamable HTTP", () => {
     await client.close();
   });
 
+  it("answers a token that did not resolve as unverified — no price — never as a first visit", async () => {
+    // A host that sends a token was issued one: this member signed in and may
+    // be paying, so the instructions must not read it as "not_connected".
+    const { url } = await listen({
+      config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
+      depsFactory: (config: WaConfig): ToolDeps => ({
+        ...makeDeps({ tier: config.apiKey ? "pro" : "none", config }),
+        transport: "http",
+      }),
+      tokenExchange: { resolve: async () => undefined },
+    });
+    const client = await connectClient(url, { Authorization: "Bearer expired-token" });
+    const res = await client.callTool({ name: "run_audit", arguments: { domain: "example.com" } });
+    expect(res.isError).toBe(true);
+    const body = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+    expect(body.code).toBe("AUTH_REQUIRED");
+    expect(body.details).toEqual({ connection: "unverified" });
+    expect(body.message).not.toContain(PRICE);
+    expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
+    await client.close();
+  });
+
   it("carries the login challenge in _meta on a protected tool called without a token", async () => {
     const { url } = await listen({
       config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
@@ -1153,7 +1176,9 @@ describe("submitted test cases, as an anonymous reviewer sees them", () => {
     const error = errorPayload(res);
     expect(error.code).toBe("AUTH_REQUIRED");
     expect(error.message).toContain("get_sample_audit");
-    expect(error.message).toContain("$10/month");
+    // The allowed form only: a plan is needed, and where plans are described.
+    expect(error.message).toContain("Plans are described at");
+    expect(error.message).not.toContain("$10/month");
     // The deployed box runs WA_UPSELL_STYLE=info precisely so no response
     // carries a checkout link — the OpenAI guidelines forbid one.
     expect(error.upgrade_url).toContain("website-auditor.io");

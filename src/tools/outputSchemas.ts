@@ -484,7 +484,8 @@ export const getSampleAuditOutput: ZodRawShape = {
     results: z.array(z.unknown()).optional(),
     ai_visibility: z.unknown().optional(),
   }).describe("A real GET /api/audit payload, populated with sample data."),
-  price: z.string(),
+  // Absent under info style, which states no price (tools/upgrade.ts).
+  price: z.string().optional(),
   upgrade_url: z.string(),
 };
 

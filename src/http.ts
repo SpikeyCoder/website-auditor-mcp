@@ -445,10 +445,11 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
    *
    * With OAuth ON the same string is ambiguous — an expired token and a typo'd
    * key are indistinguishable here — and the two possible answers cannot both
-   * be right. It resolves to "not authenticated", which carries the login
-   * challenge, rather than to the malformed-key sentence. On a Mixed Auth
+   * be right. It resolves to authVia "unresolved_token" — a "could not verify
+   * the connection: reconnect, or retry if only just connected" answer carrying
+   * the login challenge — rather than to the malformed-key sentence. On a Mixed Auth
    * endpoint the overwhelming majority of callers never paste a key at all, and
-   * "connect an account" is at worst imprecise for the curl user while
+   * that answer is at worst imprecise for the curl user while
    * "Invalid API key format. Keys start with wa_." is actively wrong for the
    * OAuth one — the direction that misleads fewer people, stated because it IS
    * a trade rather than an oversight.
@@ -468,9 +469,11 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return { key: presented, authVia: "key" };
     }
     const resolved = await tokenExchange.resolve(presented);
-    // Unresolvable is not "authenticated via OAuth" — it is nobody, and the
-    // keyless surface's own copy is the right answer.
-    return { key: resolved, authVia: resolved ? "oauth" : undefined };
+    // Unresolved is not authenticated, and not a first visit either: a token
+    // seconds old, expired or revoked, an introspection outage, or a typo'd
+    // key. Its own state (ToolDeps.authVia), so the reader is told to retry or
+    // reconnect rather than pitched the plan as if they had never signed in.
+    return resolved ? { key: resolved, authVia: "oauth" } : { key: undefined, authVia: "unresolved_token" };
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {

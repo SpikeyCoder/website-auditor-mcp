@@ -155,7 +155,11 @@ with **no marketplace re-review**. Only changes under `cursor-plugin/`
 (manifest, skills) re-enter the review queue. If review ever objects to
 checkout links in tool responses, `WA_UPSELL_STYLE=info` in `mcp.json`'s
 `env` is the one-line fix — the same switch the hosted endpoint uses for
-OpenAI's marketplace rules.
+OpenAI's marketplace rules. Note what else it does: it removes the price and
+the trial terms from every response, tool description and the instructions,
+leaving only "needs a plan" and a link to where plans are described, because
+OpenAI's rules forbid advertising either. A platform whose rules only forbid
+checkout links may want a narrower switch.
 
 ## Secondary channel
 

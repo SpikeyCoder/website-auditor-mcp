@@ -12,7 +12,8 @@
  * before OAuth existed, because every stdio install and every existing
  * `Authorization: Bearer wa_…` caller is on that path.
  */
-import { describe, it, expect } from "vitest";
+import { PRICE } from "../../src/tools/upgrade.js";
+import { describe, it, expect, vi } from "vitest";
 import {
   looksLikeApiKey,
   oauthEnabled,
@@ -23,7 +24,7 @@ import {
   wwwAuthenticateChallenge,
 } from "../../src/auth/oauth.js";
 import { IntrospectionTokenExchange } from "../../src/auth/tokenExchange.js";
-import { fromApiError, gateProTool } from "../../src/tools/context.js";
+import { fromApiError, gateProTool, type ToolDeps } from "../../src/tools/context.js";
 import { WaApiError } from "../../src/api/errors.js";
 import { toCallResult } from "../../src/mcp/server.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
@@ -375,7 +376,7 @@ describe("gateProTool — the runtime half, and who gets it", () => {
   async function authError(
     over: Parameters<typeof makeDeps>[0],
     transport?: "stdio" | "http",
-    authVia?: "oauth" | "key",
+    authVia?: ToolDeps["authVia"],
   ) {
     const deps = { ...makeDeps(over), transport, authVia };
     const result = await gateProTool(deps);
@@ -390,7 +391,25 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // The copy has to match the mechanism: nobody pastes a key on this surface.
     expect(error.message).toContain("connected Website Auditor account");
     expect(error.message).not.toContain("restart");
+    // The instructions quote the trial on this one and not on an expired one,
+    // and this is the only thing that tells them apart.
+    expect(error.details).toEqual({ connection: "not_connected" });
   });
+
+  it("answers a token that did not resolve as unverified — retry or reconnect, no price", async () => {
+    // Seconds-old, expired, an outage or a typo: never the first-visit pitch,
+    // and not "expired" either, which would be false for a token not yet active.
+    const error = await authError(
+      { tier: "none", config: { ...OAUTH, apiKey: undefined } }, "http", "unresolved_token",
+    );
+    expect(error.code).toBe("AUTH_REQUIRED");
+    expect(error.details).toEqual({ connection: "unverified" });
+    expect(error.message).toContain("try again in a moment");
+    expect(error.message).not.toContain("expired");
+    expect(error.message).not.toContain(PRICE);
+    expect(error.wwwAuthenticate).toContain("resource_metadata=");
+  });
+
 
   it("keeps the original key-setup copy, and no challenge, when OAuth is off", async () => {
     const error = await authError({ tier: "none", config: { apiKey: undefined } }, "http");
@@ -421,6 +440,7 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.wwwAuthenticate).toContain("resource_metadata=");
     expect(error.message).toContain("expired");
     expect(error.message).not.toContain("replace");
+    expect(error.details).toEqual({ connection: "expired" });
   });
 
   it("leaves a PASTED key's rejection alone, even with OAuth configured", async () => {
@@ -484,6 +504,47 @@ describe("handshake instructions", () => {
     const plain = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", false);
     expect(plain).toContain("connector's authentication field");
   });
+
+  it("mention the plan on a first connection, and keep expired and unverified ones price-free", () => {
+    const mixed = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", true);
+    // Each clause found by its full anchor phrase, so an unrelated mention of
+    // "expired" or PRO_REQUIRED elsewhere in the instructions cannot shift it.
+    const clause = (anchor: string, end: string) => {
+      const from = mixed.indexOf(anchor);
+      expect(from, `missing: ${anchor}`).toBeGreaterThan(-1);
+      const to = mixed.indexOf(end, from + anchor.length);
+      expect(to, `missing after ${anchor}: ${end}`).toBeGreaterThan(from);
+      return mixed.slice(from, to);
+    };
+    const notConnected = clause('details.connection "not_connected"', 'details.connection "expired"');
+    // The hosted (info) server: the plan and where plans are described, never
+    // a price or a trial — OpenAI's app rules.
+    expect(notConnected).toContain("audits need a Website Auditor plan");
+    expect(notConnected).toContain("no price, no trial");
+    expect(notConnected).toContain("connect when prompted");
+    const expired = clause('details.connection "expired"', 'details.connection "unverified"');
+    expect(expired).toContain("do not quote a price for it");
+    expect(expired).not.toContain("the trial");
+    const unverified = clause('details.connection "unverified"', "When a tool returns PRO_REQUIRED");
+    expect(unverified).toContain("do not quote a");
+    expect(unverified).not.toContain("the trial");
+  });
+
+  it("under Mixed Auth with link style, still give the full terms on a first connection", () => {
+    const linked = buildInstructions("https://x.example/?source=mcp", "link", "http", true);
+    const from = linked.indexOf('details.connection "not_connected"');
+    const clause = linked.slice(from, linked.indexOf('details.connection "expired"', from));
+    expect(clause).toContain("the price, the trial");
+  });
+
+  it("under info style, no surface of the instructions names a price or a trial", () => {
+    for (const mixedAuth of [true, false]) {
+      const text = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", mixedAuth);
+      expect(text).not.toContain(PRICE);
+      expect(text).not.toMatch(/free trial/i);
+    }
+  });
+
 });
 
 describe("fromApiError — where an expired connection ACTUALLY surfaces", () => {
@@ -503,6 +564,7 @@ describe("fromApiError — where an expired connection ACTUALLY surfaces", () =>
     expect(result.error.code).toBe("AUTH_REQUIRED");
     expect(result.error.wwwAuthenticate).toContain("resource_metadata=");
     expect(result.error.message).toContain("expired");
+    expect(result.error.details).toEqual({ connection: "expired" });
   });
 
   it("leaves a pasted key's rejection alone — the credential decides, not the config", () => {
@@ -602,5 +664,66 @@ describe("the resource's advertised scopes", () => {
     expect(config.oauthScopes).toEqual(["audit"]);
     expect(wwwAuthenticateChallenge(config, "nope")).toContain('scope="audit"');
     expect(securitySchemesFor("pro", config, "http")).toEqual([{ type: "oauth2", scopes: ["audit"] }]);
+  });
+});
+
+describe("the unverified answer: one wording everywhere, and a catch-all for unlabelled errors", () => {
+  it("check_upgrade_status and the gated tools give the unverified reader the same words", async () => {
+    const { checkUpgradeStatus } = await import("../../src/tools/checkUpgradeStatus.js");
+    const { UNVERIFIED_MESSAGE } = await import("../../src/tools/context.js");
+    const deps = { ...makeDeps({ tier: "none", config: { ...OAUTH, apiKey: undefined } }), transport: "http" as const,
+      authVia: "unresolved_token" as const };
+    const status = await checkUpgradeStatus({}, deps);
+    expect(status.ok && status.data.message).toBe(UNVERIFIED_MESSAGE);
+    const gated = await gateProTool(deps);
+    expect(gated && !gated.ok && gated.error.message).toBe(UNVERIFIED_MESSAGE);
+    expect(UNVERIFIED_MESSAGE).toContain("Reconnect");
+    // Almost always a ChatGPT reader, which has no key field to check.
+    expect(UNVERIFIED_MESSAGE).not.toContain("wa_");
+  });
+
+  it("tell the model what to do with an AUTH_REQUIRED that carries no label", () => {
+    const mixed = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", true);
+    expect(mixed).toContain("Any other AUTH_REQUIRED, with no details.connection");
+  });
+
+  it("freeze the shared labels, so no error can rewrite another's details", async () => {
+    const { NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } = await import("../../src/tools/context.js");
+    for (const label of [NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED]) {
+      expect(Object.isFrozen(label)).toBe(true);
+    }
+  });
+});
+
+describe("Mixed Auth keyless copy and introspection failures", () => {
+  it("get_sample_audit tells a keyless Mixed Auth reader to connect, not to send a header", async () => {
+    const { getSampleAudit } = await import("../../src/tools/sampleAudit.js");
+    const deps = { ...makeDeps({ config: { ...OAUTH, apiKey: undefined } }), transport: "http" as const };
+    const res = await getSampleAudit({}, deps);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.note).toContain("there is no key to paste");
+    expect(res.data.note).not.toContain("Authorization: Bearer");
+  });
+
+  it("a non-2xx from introspection is logged with its status, never the token", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const ex = new IntrospectionTokenExchange(
+        loadConfig({ ...process.env, WA_OAUTH_INTROSPECTION_URL: "https://api.test/introspect" }),
+        (async () => new Response("no", { status: 401 })) as unknown as typeof fetch,
+      );
+      expect(await ex.resolve("secret-token-value")).toBeUndefined();
+      const logged = warn.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toContain("HTTP 401");
+      expect(logged).toContain("[website-auditor-mcp http]");
+      expect(logged).not.toContain("secret-token-value");
+      // An outage re-introspects every token every few seconds: one line, not one per attempt.
+      await ex.resolve("another-token");
+      await ex.resolve("a-third-token");
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("HTTP 401")).length).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

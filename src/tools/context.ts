@@ -9,7 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
-import { upgradeLink, tagSource, PRICE } from "./upgrade.js";
+import { upgradeLink, tagSource, PRICE, plansAreDescribedAt } from "./upgrade.js";
 import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
 import type { EventSink } from "../telemetry/events.js";
 
@@ -41,8 +41,16 @@ export interface ToolDeps {
    * byte-identical promise http.ts makes to exactly those callers, broken by a
    * message meant for somebody else. Per REQUEST, not per tenant — the bundle
    * is shared and cached, this is not.
+   *
+   * "unresolved_token": a bearer was presented, OAuth is on, and introspection
+   * did not turn it into a key. That is not authenticated (no key, tier
+   * "none"), but it is not a first visit either — it is a token that just
+   * failed: issued seconds ago and not yet active (tokenExchange's 5s negative
+   * cache exists for exactly that), expired or revoked, an introspection
+   * outage, or a typo'd pasted key. Kept apart from "oauth" so nothing that
+   * means "authenticated via OAuth" inherits it.
    */
-  authVia?: "oauth" | "key";
+  authVia?: "oauth" | "key" | "unresolved_token";
 }
 
 export interface ToolError {
@@ -111,12 +119,95 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
     : `Set it as WA_API_KEY in this server's config. ${RESTART_NOTE}`;
 }
 
+/**
+ * Which Mixed Auth AUTH_REQUIRED this is, in `details` where the model can
+ * branch on it (instructions.ts says how): not connected, expired, or
+ * unverified. Only the first carries the price and the trial — it is the
+ * moment the reader decides whether to connect; the others belong to someone
+ * who signed in and may already be paying. Before this the instructions could not tell them apart and
+ * answered both with "do not quote a price" — so a ChatGPT user first heard
+ * about the subscription from the PRO_REQUIRED after connecting.
+ */
+// Frozen: each is placed by reference into every error's `details`, so a
+// consumer that wrote to one would change it for the rest of the process.
+export const NOT_CONNECTED = Object.freeze({ connection: "not_connected" } as const);
+export const CONNECTION_EXPIRED = Object.freeze({ connection: "expired" } as const);
+/** A presented token that did not resolve — see ToolDeps.authVia "unresolved_token". */
+export const CONNECTION_UNVERIFIED = Object.freeze({ connection: "unverified" } as const);
+
+/**
+ * The unverified answer's words, shared by the gated tools' AUTH_REQUIRED and
+ * check_upgrade_status. Neither says "when prompted": check_upgrade_status
+ * answers with a success and carries no challenge. One copy, because two had
+ * already drifted. Reconnecting comes first because an expired token is the
+ * commonest way here (introspection answers it active:false, like a token
+ * seconds old). No "check the wa_ prefix": this reader is almost always in
+ * ChatGPT, which has no key field, and a curl user with a typo can read the
+ * README.
+ */
+export const UNVERIFIED_MESSAGE =
+  `Website Auditor could not verify this conversation's connection. ` +
+  `Reconnect Website Auditor, or if you only just connected, try again in a moment. ` +
+  `get_sample_audit keeps working with no account at all in the meantime.`;
+
 export function err(
   code: ErrorCode,
   message: string,
   extra: { upgrade_url?: string; details?: unknown; wwwAuthenticate?: string } = {},
 ): ToolResult<never> {
   return { ok: false, error: { code, message, ...extra } };
+}
+
+/**
+ * AUTH_REQUIRED for a presented token that did not resolve. No price: whoever
+ * holds a token signed in (a first-timer saw the trial on the consent page),
+ * and the likeliest causes — a token seconds old, an outage — are fixed by
+ * trying again, not by buying anything.
+ */
+function connectionUnverified(config: WaConfig, upgradeUrl: string): ToolResult<never> {
+  return err(
+    "AUTH_REQUIRED",
+    UNVERIFIED_MESSAGE,
+    {
+      upgrade_url: upgradeUrl,
+      details: CONNECTION_UNVERIFIED,
+      wwwAuthenticate: wwwAuthenticateChallenge(
+        config,
+        "The Website Auditor connection could not be verified. Reconnect to continue.",
+      ),
+    },
+  );
+}
+
+/**
+ * PRO_REQUIRED's words under info style: the feature is not in this account's
+ * plan, and where plans are described — nothing more (plansAreDescribedAt).
+ * Shared by gateProTool and fromApiError, because the API's own 403 texts
+ * ("…or free trial is required", "needs Website Auditor Pro or a trial") would
+ * otherwise reach a ChatGPT reader through a relayed error.
+ */
+function planNotIncludedMessage(config: WaConfig): string {
+  return `This tool is not included in this account's current Website Auditor plan. ` +
+    `${plansAreDescribedAt(config)}. ` +
+    `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
+}
+
+/** AUTH_REQUIRED for a connection that existed and has expired: reconnect, no price. */
+function connectionExpired(config: WaConfig, upgradeUrl: string): ToolResult<never> {
+  return err(
+    "AUTH_REQUIRED",
+    `The Website Auditor connection for this conversation has expired. ` +
+      `Reconnect when prompted — there is no key to paste. ` +
+      `get_sample_audit keeps working with no account at all in the meantime.`,
+    {
+      upgrade_url: upgradeUrl,
+      details: CONNECTION_EXPIRED,
+      wwwAuthenticate: wwwAuthenticateChallenge(
+        config,
+        "The Website Auditor connection expired. Reconnect to continue.",
+      ),
+    },
+  );
 }
 
 /** Map a thrown WaApiError (or unknown error) to a ToolError result. */
@@ -151,19 +242,7 @@ export function fromApiError(
       oauthEnabled(config) &&
       isKeyRejection(e.code)
     ) {
-      return err(
-        "AUTH_REQUIRED",
-        `The Website Auditor connection for this conversation has expired. ` +
-          `Reconnect when prompted — there is no key to paste. ` +
-          `get_sample_audit keeps working with no account at all in the meantime.`,
-        {
-          upgrade_url: upgradeLink(config),
-          wwwAuthenticate: wwwAuthenticateChallenge(
-            config,
-            "The Website Auditor connection expired. Reconnect to continue.",
-          ),
-        },
-      );
+      return connectionExpired(config, upgradeLink(config));
     }
     // OVER_QUOTA is deliberately NOT in this list. It is the shared daily audit
     // cap, which only a subscriber can reach (there is no free API tier), so an
@@ -189,7 +268,16 @@ export function fromApiError(
           ? upgradeLink(config)
           : undefined
         : (e.upgradeUrl ?? (attachUpgrade ? config.upgradeUrl : undefined));
-    return err(e.code, e.message, {
+    // The upstream message is replaced under info style for the same reason
+    // the link is: the API's 403 texts name the trial.
+    // The API's note on the daily allowance ("was not consumed", or "could
+    // not be refunded … still counts toward it") is kept: it is what a caller
+    // needs before retrying, and it says nothing about plans.
+    const allowanceNote = /Your daily allowance[^.]*(?:\.[^.]*?counts toward it)?\./.exec(e.message)?.[0];
+    const message = config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
+      ? planNotIncludedMessage(config) + (allowanceNote ? ` ${allowanceNote}` : "")
+      : e.message;
+    return err(e.code, message, {
       upgrade_url: target === undefined ? undefined : tagSource(target),
       details: e.details,
     });
@@ -228,20 +316,30 @@ export async function gateKeyedTool(
     // describes a procedure that does not exist on that surface, addressed to
     // someone who never saw a config file.
     //
-    // The challenge rides this branch and only this branch. Emitting it without
-    // the declarative half would point the host at an authorization server it
-    // cannot discover, and oauthEnabled is what keeps the two in step; see
-    // auth/oauth.ts for why half a Mixed Auth setup fails silently.
+    // Every AUTH_REQUIRED that carries the challenge is gated on oauthEnabled.
+    // Emitting it without the declarative half would point the host at an
+    // authorization server it cannot discover; see auth/oauth.ts for why half a
+    // Mixed Auth setup fails silently.
+    //
+    // A token was presented and did not resolve (http.ts credentialFor): not a
+    // first visit, so not the first-visit pitch.
+    if (deps.transport === "http" && deps.authVia === "unresolved_token" && oauthEnabled(deps.config)) {
+      return connectionUnverified(deps.config, upgradeUrl);
+    }
     if (deps.transport === "http" && oauthEnabled(deps.config)) {
       return err(
         "AUTH_REQUIRED",
         `This tool needs a connected Website Auditor account, and this conversation has none yet. ` +
           `Connect one when prompted — there is no key to paste. ` +
           `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
-          `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
-          `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`,
+          (deps.config.upsellStyle === "info"
+            // No price or trial: see plansAreDescribedAt.
+            ? `Audits also need a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
+            : `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
+              `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`),
         {
           upgrade_url: upgradeUrl,
+          details: NOT_CONNECTED,
           wwwAuthenticate: wwwAuthenticateChallenge(
             deps.config,
             "Connect a Website Auditor account to use this tool.",
@@ -253,7 +351,10 @@ export async function gateKeyedTool(
       "AUTH_REQUIRED",
       `This tool requires a Website Auditor API key, but none is configured. ` +
         `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
-        `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}`,
+        (deps.config.upsellStyle === "info"
+          ? `Auditing real domains needs a Website Auditor plan and an API key from it. ` +
+            `${plansAreDescribedAt(deps.config)}. ${keySetupNote(deps.transport)}`
+          : `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}`),
       { upgrade_url: upgradeUrl },
     );
   }
@@ -284,19 +385,7 @@ export async function gateKeyedTool(
     // sends the next call upstream with a dead credential and lands exactly
     // here. The challenge turns that into a reconnect instead of a dead end.
     if (deps.transport === "http" && deps.authVia === "oauth" && oauthEnabled(deps.config)) {
-      return err(
-        "AUTH_REQUIRED",
-        `The Website Auditor connection for this conversation has expired. ` +
-          `Reconnect when prompted — there is no key to paste. ` +
-          `get_sample_audit keeps working with no account at all in the meantime.`,
-        {
-          upgrade_url: upgradeUrl,
-          wwwAuthenticate: wwwAuthenticateChallenge(
-            deps.config,
-            "The Website Auditor connection expired. Reconnect to continue.",
-          ),
-        },
-      );
+      return connectionExpired(deps.config, upgradeUrl);
     }
     // The upstream message already carries the "generate a new key" instruction,
     // so only the portal URL and the subscription caveat are added — restating
@@ -313,8 +402,13 @@ export async function gateKeyedTool(
     // fallback for an API that has not shipped the field yet.
     return err(
       rejection ?? "INVALID_KEY",
-      `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
-        `so if yours has lapsed, resubscribe there first. Then replace the key. ${keySetupNote(deps.transport)}`,
+      (deps.config.upsellStyle === "info"
+        // Most revoked keys belong to paying members who rotated them (see
+        // above), so: where a replacement comes from, not what a plan is.
+        ? `${base} Create a replacement key from your Website Auditor account, then replace the key. ` +
+          `${keySetupNote(deps.transport)}`
+        : `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
+          `so if yours has lapsed, resubscribe there first. Then replace the key. ${keySetupNote(deps.transport)}`),
       { upgrade_url: upgradeUrl },
     );
   }
@@ -357,6 +451,11 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
     );
   }
 
+  if (deps.config.upsellStyle === "info") {
+    // The allowed form only (plansAreDescribedAt): this feature is not in the
+    // account's current plan, and where plans are described.
+    return err("PRO_REQUIRED", planNotIncludedMessage(deps.config), { upgrade_url: upgradeUrl });
+  }
   return err(
     "PRO_REQUIRED",
     `This tool requires an active Website Auditor subscription (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends). ` +

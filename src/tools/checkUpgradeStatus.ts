@@ -16,9 +16,9 @@
  */
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
-import { fromApiError, keySetupNote, ok, type ToolDeps, type ToolResult } from "./context.js";
+import { fromApiError, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
 import { oauthEnabled } from "../auth/oauth.js";
-import { PRICE, upgradeLink } from "./upgrade.js";
+import { PRICE, upgradeLink, plansAreDescribedAt } from "./upgrade.js";
 
 export interface UpgradeStatus {
   tier: "none" | "free" | "pro";
@@ -59,11 +59,21 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       // key to paste" copy the same model reads from every other tool. It
       // cannot carry a challenge (this is a success, and `_meta` is lifted only
       // from errors), so the wording is the whole remedy.
+      // A token that did not resolve (http.ts, authVia "unresolved_token") is
+      // not "no account yet": it is the same unverified connection every gated
+      // tool reports, so it gets the same retry-or-reconnect answer and no price.
       message:
-        deps.transport === "http" && oauthEnabled(deps.config)
+        deps.transport === "http" && oauthEnabled(deps.config) && deps.authVia === "unresolved_token"
+          ? UNVERIFIED_MESSAGE
+          : deps.transport === "http" && oauthEnabled(deps.config)
           ? `No Website Auditor account is connected to this conversation yet. ` +
-            `Connect one when prompted — there is no key to paste. Audits also need an ` +
-            `active subscription (${PRICE}) on the connected account: ${upgradeUrl}`
+            `Connect one when prompted — there is no key to paste. Audits also need ` +
+            (deps.config.upsellStyle === "info"
+              ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
+              : `an active subscription (${PRICE}) on the connected account: ${upgradeUrl}`)
+          : deps.config.upsellStyle === "info"
+          ? `No API key is configured. A key comes from a Website Auditor plan. ` +
+            `${plansAreDescribedAt(deps.config)}. ${keySetupNote(deps.transport)}`
           : `No API key is configured. Create one at ${upgradeUrl} — minting a key requires an ` +
             `active subscription (${PRICE}). ${keySetupNote(deps.transport)}`,
     });
@@ -112,6 +122,13 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   const periodEnd = sub.current_period_end ?? null;
   const canceling = sub.cancel_at_period_end === true;
 
+  // Under info style even a member's own "resubscribe" link is a new
+  // subscription the plugin would be promoting, so it says where plans are
+  // described instead (plansAreDescribedAt).
+  const keepPro = deps.config.upsellStyle === "info"
+    ? `${plansAreDescribedAt(deps.config)}.`
+    : `Resubscribe at ${upgradeUrl} to keep Pro tools.`;
+
   let message: string;
   if (sub.tier === "pro" && sub.status === "trialing") {
     // A canceled-mid-trial subscription stays `trialing` with
@@ -119,13 +136,24 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     // auto-conversion wording would be flatly wrong for that state.
     message = canceling
       ? `Free trial active${periodEnd ? ` until ${periodEnd}` : ""}, but set not to convert — Pro access simply ends then. ` +
-        `Resubscribe at ${upgradeUrl} to keep Pro tools.`
+        keepPro
       : `Free trial active${periodEnd ? ` until ${periodEnd}` : ""} — all Pro tools are unlocked. ` +
-        `The subscription starts automatically when the trial ends unless canceled at ${upgradeUrl}.`;
+        (deps.config.upsellStyle === "info"
+          // The info link is a plans page, where nothing can be cancelled.
+          ? `The subscription starts automatically when the trial ends unless you cancel it from your Website Auditor account.`
+          : `The subscription starts automatically when the trial ends unless canceled at ${upgradeUrl}.`);
   } else if (sub.tier === "pro") {
     message = canceling
-      ? `Pro subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. Resubscribe at ${upgradeUrl} to keep Pro tools.`
+      ? `Pro subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. ${keepPro}`
       : `Pro subscription active${periodEnd ? ` (renews ${periodEnd})` : ""} — all tools are unlocked.`;
+  } else if (deps.config.upsellStyle === "info") {
+    // Never subscribed or lapsed, under info style: the account's own state
+    // and where plans are described — no price, no trial, no "subscribe at"
+    // (plansAreDescribedAt).
+    message =
+      `${sub.status === "none" ? "No active plan" : `Plan not active (status: ${sub.status})`} — audits and ` +
+      `every other tool are locked, except get_recommendations, which still lists the next steps from an ` +
+      `audit already on record. ${plansAreDescribedAt(deps.config)}.`;
   } else if (sub.status === "none") {
     message =
       `No active subscription — there is no free API tier, so audits and every other tool are locked, ` +

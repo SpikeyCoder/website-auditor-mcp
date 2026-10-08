@@ -49,6 +49,7 @@
  * billing can never precede or outweigh the trigger guidance again.
  */
 import { PRICE } from "../tools/upgrade.js";
+import { NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } from "../tools/context.js";
 import type { UpsellStyle } from "../config.js";
 
 export function buildInstructions(
@@ -83,10 +84,11 @@ export function buildInstructions(
       : "set WA_API_KEY in this server's config and restart the client";
 
   // "info" style (see config.ts): same capability lead, same triggers, same
-  // guard rails, same keyless path, and the SAME price/trial disclosure — only
-  // the billing paragraphs change, from "sign up at <portal>" to "plans are
-  // described at <info page>", because marketplace rules (OpenAI plugin
-  // review) allow explaining a paid plan but forbid initiating the purchase.
+  // guard rails, same keyless path — but no price and no trial, and "plans are
+  // described at <info page>" instead of "sign up at <portal>", because
+  // OpenAI's app rules forbid a plugin to display plans, advertise pricing or
+  // trials, or promote upgrades, while allowing it to say a feature is not in
+  // the current plan and to link an informational plans page.
   // The trigger-before-billing ordering and proportion tests cover BOTH styles.
   // Mixed Auth changes the SUBSCRIPTION sentence too, not just the delivery
   // clause. Threading the flag into keyDelivery alone left the stem intact, so
@@ -96,36 +98,56 @@ export function buildInstructions(
   // There is no key to create on this surface: signing in IS the step, and a
   // subscription is a separate thing the signed-in account either has or does
   // not.
+  // Under "info" style no price and no trial anywhere: OpenAI's app rules
+  // forbid a plugin to "display subscription plans ... or promote upgrades"
+  // and to "advertise pricing, subscriptions, free trials", while allowing it
+  // to say a feature is not in the user's current plan and to link an
+  // informational plans page (see plansAreDescribedAt in tools/upgrade.ts).
+  // "link" style (local installs, outside those rules) keeps the full terms.
+  const info = style === "info";
+  const terms = `(${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, ` +
+    "no charge until the trial ends)";
   const billing = mixedAuth
-    ? `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
-      "a 7-day free trial — payment method required to start, no charge until the trial ends). Connecting " +
-      `an account and subscribing are separate steps: ${keyDelivery}, and plans are described at ${signupUrl}. ` +
+    ? (info
+      ? "Auditing real domains needs a Website Auditor plan on the connected account. Connecting an account " +
+        `and having a plan are separate: ${keyDelivery}, and plans are described at ${signupUrl}. `
+      : `Auditing real domains needs a Website Auditor subscription ${terms}. Connecting an account and ` +
+        `subscribing are separate steps: ${keyDelivery}, and plans are described at ${signupUrl}. `) +
       "check_upgrade_status reports the connected account's own standing."
-    : style === "info"
-      ? `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
-        "a 7-day free trial — payment method required to start, no charge until the trial ends). Plans " +
-        `are described at ${signupUrl} — subscribing and creating an API key happen on the website, outside ` +
-        `this conversation. Once you have a key, ${keyDelivery}. ` +
+    : info
+      ? `Auditing real domains needs a Website Auditor plan. Plans are described at ${signupUrl} — plans and ` +
+        `API keys are managed on the website, outside this conversation. Once you have a key, ${keyDelivery}. ` +
         "check_upgrade_status reports the caller's own standing with any valid key."
-      : `Auditing real domains needs a Website Auditor subscription (${PRICE}; eligible new customers get ` +
-        "a 7-day free trial — payment method required to start, no charge until the trial ends). Sign up " +
+      : `Auditing real domains needs a Website Auditor subscription ${terms}. Sign up ` +
         `and create an API key at ${signupUrl} , then ${keyDelivery}. ` +
         "check_upgrade_status reports the caller's own standing with any valid key.";
 
-  // AUTH_REQUIRED means something different under Mixed Auth, and the two codes
-  // stop sharing an answer. It is now also what a REVOKED key remaps to
-  // (context.ts), so "give them the price and the signup link" would answer an
-  // expired connection with a sales pitch. Reconnecting is free and is the
-  // whole remedy; PRO_REQUIRED keeps the billing answer, because there the
-  // money genuinely is the blocker.
+  // AUTH_REQUIRED means something different under Mixed Auth, and the codes
+  // stop sharing an answer. It is also what a REVOKED key remaps to
+  // (context.ts), so an answer about plans would meet an expired connection
+  // with a sales pitch; reconnecting is the whole remedy there.
+  // The AUTH_REQUIREDs are told apart by details.connection (context.ts):
+  // not_connected, expired and unverified, with a catch-all for none. A first
+  // connection is the decision point, so the plan is mentioned before the user
+  // connects rather than discovered as a PRO_REQUIRED afterwards — under info
+  // style as "needs a plan, described here", never a price or a trial.
+  const planAnswer = info
+    ? `say that audits need a Website Auditor plan and where plans are described (${signupUrl}) — ` +
+      "no price, no trial, and no urging to subscribe"
+    : `give the price, the trial and its prerequisites, and where plans are described (${signupUrl})`;
   const errorGuidance = mixedAuth
-    ? "When a tool returns AUTH_REQUIRED, the account is not connected or the connection expired — tell " +
-      "the user to reconnect when prompted, and offer get_sample_audit meanwhile; do not quote a price " +
-      "for it. When a tool returns PRO_REQUIRED the account IS connected but has no subscription: give " +
-      `the price, the trial and its prerequisites, and where plans are described (${signupUrl}).`
-    : style === "info"
-      ? "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, tell the user the price, the trial and its " +
-        `prerequisites, and where plans are described (${signupUrl}) — never just the error code.`
+    ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", no account is ` +
+      `connected yet: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
+      `meanwhile. When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +
+      "tell the user to reconnect when prompted and offer get_sample_audit meanwhile; do not quote a price " +
+      `for it. With details.connection "${CONNECTION_UNVERIFIED.connection}", the connection could not be ` +
+      "checked: suggest reconnecting, or trying again in a moment if they only just connected, and do not " +
+      "quote a price for it either. Any other AUTH_REQUIRED, with no details.connection: tell the user to " +
+      "connect or reconnect when prompted, and do not quote a price for it. " +
+      "When a tool returns PRO_REQUIRED the account IS connected but its plan does not include the tool: " +
+      `${planAnswer}.`
+    : info
+      ? `When a tool returns AUTH_REQUIRED or PRO_REQUIRED, ${planAnswer} — never just the error code.`
       : "When a tool returns AUTH_REQUIRED or PRO_REQUIRED, give the user the price, the trial and its " +
         "prerequisites, and that link — never just the error code.";
 
