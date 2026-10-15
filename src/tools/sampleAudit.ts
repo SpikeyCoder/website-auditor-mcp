@@ -3,7 +3,7 @@
  *
  * The only tool a developer with no key can actually run, and the reason it
  * exists: `POST /api/keys` requires an active subscription, so there is no way
- * to obtain even a free key without paying $10/mo first. Without this, the
+ * to obtain even a free key without paying first. Without this, the
  * product is bought entirely sight-unseen.
  *
  * Deliberately does no work. No `gateProTool`, no subscription lookup, no

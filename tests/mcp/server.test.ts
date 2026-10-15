@@ -1,3 +1,4 @@
+import { PRICE } from "../../src/tools/upgrade.js";
 import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -139,7 +140,7 @@ describe("keyless discovery — what a developer with no API key can actually do
     const server = createServer(keyless());
     const instructions = (server as unknown as { server: { _instructions?: string } }).server._instructions ?? "";
     expect(instructions).toContain("get_sample_audit");
-    expect(instructions).toContain("$10");
+    expect(instructions).toContain(PRICE);
     // Must not read as a flat "everything is blocked" — that is what suppressed
     // the tool call in the first place.
     expect(instructions).not.toMatch(/Every tool requires an active Website Auditor subscription/);

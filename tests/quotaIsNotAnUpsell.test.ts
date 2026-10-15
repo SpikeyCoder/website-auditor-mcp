@@ -15,7 +15,7 @@
  * So attaching an upgrade link here offers a customer the plan they are already
  * paying for. compareCompetitors went further and told them in words to "upgrade
  * for a higher quota", which describes a product that does not exist — there is
- * one plan at $10/month.
+ * one plan.
  *
  * The codebase already reasons this through correctly one status code away, at
  * client.ts's 409/LIMIT_REACHED branch: "The caller is already Pro, so this is
@@ -156,7 +156,7 @@ describe("OVER_QUOTA carries no upgrade prompt", () => {
     if (res.ok) return;
     expect(res.error.code).toBe("OVER_QUOTA");
     expect(res.error.upgrade_url).toBeUndefined();
-    // There is one plan at $10/month. "upgrade for a higher quota" describes a
+    // There is one plan. "upgrade for a higher quota" describes a
     // product that cannot be bought.
     expect(res.error.message).not.toMatch(/upgrade/i);
   });

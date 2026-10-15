@@ -7,7 +7,6 @@
  * bearer extraction, per-key bundle reuse — is exactly what a marketplace
  * client will hit.
  */
-import { PRICE } from "../../src/tools/upgrade.js";
 import { afterEach, describe, it, expect } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
@@ -1037,7 +1036,7 @@ describe("Mixed Auth over Streamable HTTP", () => {
     const body = JSON.parse((res.content as Array<{ text: string }>)[0].text);
     expect(body.code).toBe("AUTH_REQUIRED");
     expect(body.details).toEqual({ connection: "unverified" });
-    expect(body.message).not.toContain(PRICE);
+    expect(body.message).not.toMatch(/\$\d/);
     expect(String(res._meta?.["mcp/www_authenticate"])).toContain("resource_metadata=");
     await client.close();
   });
@@ -1178,7 +1177,7 @@ describe("submitted test cases, as an anonymous reviewer sees them", () => {
     expect(error.message).toContain("get_sample_audit");
     // The allowed form only: a plan is needed, and where plans are described.
     expect(error.message).toContain("Plans are described at");
-    expect(error.message).not.toContain("$10/month");
+    expect(error.message).not.toMatch(/\$\d/);
     // The deployed box runs WA_UPSELL_STYLE=info precisely so no response
     // carries a checkout link — the OpenAI guidelines forbid one.
     expect(error.upgrade_url).toContain("website-auditor.io");

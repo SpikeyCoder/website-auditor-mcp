@@ -7,8 +7,88 @@
  */
 import type { WaConfig } from "../config.js";
 
-/** What a subscription costs. Mirrors STRIPE_PRICE_ID in website-auditor-api. */
-export const PRICE = "$10/month";
+/**
+ * The price stated when the API cannot be asked: the list price new signups
+ * pay (from 2026-10-15, $49; earlier subscribers move later and are told by
+ * email, never by this server). Overstating is the safer error: a signup is
+ * never charged more than they were shown.
+ */
+export const FALLBACK_PRICE = "$49/month";
+
+/**
+ * What a subscription costs, as the API says it (GET /pricing.json, from its
+ * PRO_PRICE_MONTHLY, which moves with STRIPE_PRICE_ID). Read at startup, and
+ * every few minutes by the hosted server (refreshPrice), so a price change
+ * reaches every surface without a release: installed servers lag releases by
+ * weeks, and a price this server states must be the price a signup pays.
+ *
+ * A live binding: every importer reads the current value.
+ */
+export let PRICE = FALLBACK_PRICE;
+
+const PRICE_SHAPE = /^\$[1-9]\d{0,3}\/month$/;
+const PRICE_TIMEOUT_MS = 2000;
+/** How old a price may be before a tool call asks again (refreshPriceIfStale). */
+export const PRICE_MAX_AGE_MS = 60 * 60 * 1000;
+/** After a failed ask, how soon a tool call may ask again. */
+export const PRICE_RETRY_MS = 5 * 60 * 1000;
+
+let lastAskedMs = 0;
+
+/**
+ * Ask the API for the price, and use it if it answers in shape; otherwise
+ * keep the last good one and say so on stderr (safe on stdio: stdout is the
+ * protocol), so a drift between the API and this check shows in the logs.
+ * Never throws: a server that cannot reach the API still starts, and says
+ * the last good price, at first the fallback.
+ */
+export async function refreshPrice(
+  config: Pick<WaConfig, "apiBaseUrl">,
+  fetchImpl: typeof fetch = fetch,
+  nowMs: number = Date.now(),
+): Promise<string> {
+  lastAskedMs = nowMs;
+  const url = `${config.apiBaseUrl}/pricing.json`;
+  let problem: string;
+  try {
+    const res = await fetchImpl(url, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(PRICE_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      problem = `answered ${res.status}`;
+    } else {
+      const body = (await res.json()) as { pro_price_label?: unknown };
+      if (typeof body.pro_price_label === "string" && PRICE_SHAPE.test(body.pro_price_label)) {
+        PRICE = body.pro_price_label;
+        return PRICE;
+      }
+      problem = "answered a price out of shape";
+    }
+  } catch (err) {
+    problem = `could not be read (${err instanceof Error ? err.name : "error"})`;
+  }
+  console.error(`[website-auditor-mcp] ${url} ${problem}; stating ${PRICE}`);
+  // Ask again sooner than an hour: an install started offline should not
+  // wait that long to learn the price.
+  lastAskedMs = nowMs - PRICE_MAX_AGE_MS + PRICE_RETRY_MS;
+  return PRICE;
+}
+
+/**
+ * refreshPrice, at most once an hour: what a tool call runs, so a server
+ * left open for days (Claude Desktop keeps it alive) states today's price in
+ * the messages it builds, without polling an idle install. An info-style
+ * server never states a price, so it never asks.
+ */
+export async function refreshPriceIfStale(
+  config: Pick<WaConfig, "apiBaseUrl" | "upsellStyle">,
+  fetchImpl: typeof fetch = fetch,
+  nowMs: number = Date.now(),
+): Promise<string> {
+  if (config.upsellStyle === "info" || nowMs - lastAskedMs < PRICE_MAX_AGE_MS) return PRICE;
+  return refreshPrice(config, fetchImpl, nowMs);
+}
 
 /**
  * The plan sentence an `upsellStyle: "info"` surface may say, and all it may

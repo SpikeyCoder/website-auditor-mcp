@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { ZodRawShape } from "zod";
 import { OUTPUT_SCHEMAS } from "./outputSchemas.js";
 import type { UpsellStyle } from "../config.js";
+import { FALLBACK_PRICE, PRICE } from "./upgrade.js";
 
 export type ToolTier = "free" | "pro";
 
@@ -351,7 +352,7 @@ export const CHECK_UPGRADE_STATUS_TOOL: ToolSpec = {
  * subscription lookup, no network call, no quota.
  *
  * Exists because minting a key requires an active subscription, so a developer
- * evaluating this server otherwise has to pay $10/mo before seeing a single
+ * evaluating this server otherwise has to pay for a subscription before seeing a single
  * byte of output. Production telemetry showed the cost of that: 102 keyless
  * sessions produced 1 tool call.
  *
@@ -444,8 +445,15 @@ const PHASE1_READ_TOOLS: ToolSpec[] = PHASE1_READ_TOOL_NAMES.map((name) => P1_TO
  * phrases stay verbatim (agents bind to those — see this file's header) and the
  * price lives in exactly one place.
  */
-const PRO_SUFFIX =
-  " Requires a Website Auditor subscription ($10/month; eligible new customers get a 7-day free trial — payment method required, no charge until the trial ends) — if the user doesn't have one, call get_sample_audit first to show them the exact output format, free and with no API key.";
+function proSuffix(price: string): string {
+  return ` Requires a Website Auditor subscription (${price}; eligible new customers get a 7-day free trial — payment method required, no charge until the trial ends) — if the user doesn't have one, call get_sample_audit first to show them the exact output format, free and with no API key.`;
+}
+
+/**
+ * The suffix as the specs carry it, at the fallback price. descriptionFor
+ * swaps it for the price the API states when the server publishes a tool.
+ */
+const PRO_SUFFIX = proSuffix(FALLBACK_PRICE);
 
 /**
  * The same suffix as an `upsellStyle: "info"` server publishes it: no price
@@ -489,7 +497,7 @@ const INFO_TITLES: Partial<Record<string, string>> = {
  * transform that appends text cannot let it through on an info server.
  */
 export function descriptionFor(spec: ToolSpec, style: UpsellStyle): string {
-  if (style !== "info") return spec.description;
+  if (style !== "info") return spec.description.split(PRO_SUFFIX).join(proSuffix(PRICE));
   let text = spec.description.split(PRO_SUFFIX).join(PRO_SUFFIX_INFO);
   for (const [from, to] of INFO_EDITS[spec.name] ?? []) text = text.split(from).join(to);
   return text;

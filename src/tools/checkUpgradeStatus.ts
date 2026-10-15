@@ -70,12 +70,14 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
             `Connect one when prompted — there is no key to paste. Audits also need ` +
             (deps.config.upsellStyle === "info"
               ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
-              : `an active subscription (${PRICE}) on the connected account: ${upgradeUrl}`)
+              : `an active subscription on the connected account: ${upgradeUrl}`)
           : deps.config.upsellStyle === "info"
           ? `No API key is configured. A key comes from a Website Auditor plan. ` +
             `${plansAreDescribedAt(deps.config)}. ${keySetupNote(deps.transport)}`
+          // No price in either: these readers include members who have not
+          // set a key, who may be on an earlier price than a new signup pays.
           : `No API key is configured. Create one at ${upgradeUrl} — minting a key requires an ` +
-            `active subscription (${PRICE}). ${keySetupNote(deps.transport)}`,
+            `active subscription. ${keySetupNote(deps.transport)}`,
     });
   }
 
@@ -158,7 +160,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     message =
       `No active subscription — there is no free API tier, so audits and every other tool are locked, ` +
       `except get_recommendations, which still lists the next steps from an audit already on record. ` +
-      `Subscribe at ${upgradeUrl} — eligible new customers get a 7-day free trial, then $10/month; ` +
+      `Subscribe at ${upgradeUrl} — eligible new customers get a 7-day free trial, then ${PRICE}; ` +
       `starting requires adding a payment method and accepting the Terms, with no charge until the trial ends.`;
   } else {
     message =
