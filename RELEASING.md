@@ -11,7 +11,8 @@ days. Nothing warns you; the versions just quietly disagree.
 | npm | `npm publish` | `npx -y website-auditor-mcp` configs (self-updating) |
 | MCP registry | `mcp-publisher publish` | the MCP registry / directory consumers |
 | `.mcpb` bundle | see below | direct/manual installs, GitHub release |
-| **Claude Desktop directory** | **a submission form + human review** | **Claude Desktop users who installed from the in-app directory** |
+| **Claude Desktop directory** (`.mcpb`) | **closed — the directory no longer accepts `.mcpb` submissions (see below)** | **Claude Desktop users who installed from the in-app directory, frozen at the last approved version** |
+| **Claude Connectors Directory** (remote) | **tools: deploy the Claude box (`website-auditor-mcp-claude`); listing text: a listing edit in claude.ai/directory/manage + review** | **Claude users on web, Desktop and mobile who added the connector** — see docs/CLAUDE-CONNECTOR.md (not yet live) |
 | **ChatGPT/Codex plugin directory** | **tools: the portal's daily scan of the hosted server (deploy it); skills and listing text: the portal's release ZIP → `npm run pack:codex` → portal upload + review** | **ChatGPT and Codex users who added the listed plugin** |
 
 **Codex has no directory of its own for MCP servers — don't go looking for
@@ -62,6 +63,14 @@ rather than assuming. The manual steps are kept for when something goes wrong.
 > ```
 > gcloud run deploy website-auditor-mcp --source . --region us-central1
 > ```
+>
+> Once the Claude connector is live there are TWO hosted services from the same
+> source, and a hosted release deploys both: `website-auditor-mcp` (ChatGPT,
+> `WA_UPSELL_STYLE=info`) and `website-auditor-mcp-claude` (Claude,
+> `WA_AUTH_CHALLENGE=http`, `WA_TOOL_COPY=neutral`). Deploying one leaves the
+> other's users on the old build. `gcloud run deploy` keeps a service's
+> existing env, so the second command is the same as the first with the
+> service name changed. Setup and checks: docs/CLAUDE-CONNECTOR.md.
 >
 > Measured 2026-09-07, after PR #76 merged to main: `curl
 > https://mcp.website-auditor.io/health` returned `{"ok":true,"version":"1.0.22"}`
@@ -148,10 +157,12 @@ rather than assuming. The manual steps are kept for when something goes wrong.
 6. `gh release create v<x.y.z> website-auditor-mcp-<x.y.z>.mcpb` so `.mcpb`
    users have a canonical download.
 
-6b. **Submit the `.mcpb` to the Claude Desktop directory** — see the section
-   below. This one is asynchronous and human-reviewed, so it will not be done
-   when the rest of the release is. Do it, then carry on; just never assume it
-   happened.
+6b. ~~Submit the `.mcpb` to the Claude Desktop directory.~~ **No longer
+   possible** (checked 2026-10-15): *"Desktop extension listings in the
+   directory are deprecated, and the directory no longer accepts MCPB
+   submissions"* (claude.com/docs/connectors/building/mcpb). Claude users are
+   reached by deploying the Claude connector box instead — see
+   docs/CLAUDE-CONNECTOR.md, including the plan for existing `.mcpb` users.
 
 7. Confirm it actually landed, rather than assuming:
 
@@ -175,6 +186,13 @@ rather than assuming. The manual steps are kept for when something goes wrong.
    reached anybody — that is the check that would have caught this.
 
 ## The Claude Desktop directory — the fourth channel
+
+> **Closed to new versions as of 2026-10-15.** Anthropic's connector docs moved
+> to claude.com/docs, and those docs say the directory no longer accepts
+> `.mcpb` submissions. The remote-server form (clau.de/mcp-directory-submission)
+> now redirects to claude.com/docs/directory/publish. The desktop-extension
+> form linked below still resolves, but don't use it. Remote servers are submitted through claude.ai/directory/manage
+> as connectors. Kept below as the record of how the listing was maintained.
 
 **Nothing in steps 1–7 touches it.** It is a curated catalogue with its own
 submission form and a human review queue, separate from npm and from

@@ -155,6 +155,22 @@ serving 14 tools; `main` now has 15 (`get_gtm_plan`).
 4. Re-run all eight in ChatGPT **web and mobile** — the rejection named both.
 5. Resubmit.
 
+## Claude reads a different signal
+
+Claude ignores everything in the runtime half above. It starts sign-in only
+from a transport-level **401** with `WWW-Authenticate`, and treats a 200 tool
+error as text for the model ("lazy authentication",
+claude.com/docs/connectors/building/lazy-authentication). The Claude box
+therefore runs with `WA_AUTH_CHALLENGE=http`: `credentialFor()` runs first, and
+then `http.ts` refuses two kinds of call before the SDK runs:
+- an account-only `tools/call` with nothing presented. The set of account-only
+  tools is `requiresAccount`, the same rule that publishes `oauth2`;
+- any `tools/call` with a token introspection says is inactive.
+
+A token that introspection could not check (an outage, or a wrong secret) keeps
+the 200 "unverified" answer, because a 401 would loop users through reconnect. The authorization server is the same one.
+See docs/CLAUDE-CONNECTOR.md.
+
 ## Verifying end to end
 
 `npm test` covers both halves in isolation and over a real socket. What tests
