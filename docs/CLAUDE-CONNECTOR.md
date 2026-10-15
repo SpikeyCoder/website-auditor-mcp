@@ -183,11 +183,20 @@ Checked against the live servers on 2026-10-15:
 
 ### API-side decisions (website-auditor-api, separate from this PR)
 
-- **Trial at connect time.** The sign-in page offers the 7-day trial only to
-  clients whose redirect host is in `OAUTH_TRIAL_OFFER_CLIENT_HOSTS`, which is
-  empty today. Adding `claude.ai` makes the trial offer appear when Claude users
-  connect. It is a repository variable plus an API deploy, so it is the owner's
-  call.
+- **Trial at connect time: DECIDED 2026-10-15, offer it.** The consent page
+  offers the 7-day trial only to clients whose redirect host is in
+  `OAUTH_TRIAL_OFFER_CLIENT_HOSTS`, a website-auditor-api repository variable
+  that `deploy.yml` passes to Cloud Run.
+  - **Set to `claude.ai` on 2026-10-15** (it was unset before). It takes
+    effect at the next API deploy, which runs on any push to `main`. Until the
+    Claude box is live, no client uses it.
+  - **Who sees the offer:** only accounts with no live subscription. Someone who
+    used a trial in the last 12 months is offered "billing starts today"
+    instead.
+  - **Fallback:** a failed or slow lookup renders the page without the offer.
+  - **Claude Code:** its loopback redirect is not `claude.ai`, so Claude Code
+    users still get the page without the offer.
+  - **ChatGPT:** refused in code whatever the variable says.
 - **Token audience.** Tokens aren't bound to a `resource` (RFC 8707), so a token
   issued through the ChatGPT box would also work on the Claude box. It is the
   same account through the same authorization server, so this is acceptable for
