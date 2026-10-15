@@ -25,13 +25,13 @@ export async function getRecommendations(
   args: GetRecommendationsArgs,
   deps: ToolDeps,
 ): Promise<ToolResult<Recommendations>> {
-  const gate = await gateKeyedTool(deps);
+  const gate = await gateKeyedTool(deps, undefined, args.domain);
   if (gate) return gate;
 
   try {
     const recommendations = await deps.client.getRecommendations({ domain: args.domain });
     return ok(recommendations);
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

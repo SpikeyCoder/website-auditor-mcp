@@ -21,13 +21,13 @@ export interface GenerateSchemaArgs {
 }
 
 export async function generateSchema(args: GenerateSchemaArgs, deps: ToolDeps): Promise<ToolResult<SchemaResult>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   try {
     const schema = await deps.client.generateSchema({ domain: args.domain, type: args.type });
     return ok(schema);
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

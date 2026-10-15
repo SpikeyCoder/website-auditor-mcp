@@ -24,7 +24,7 @@ export interface RunAuditArgs {
 }
 
 export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<ToolResult<AuditSummary>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   let response;
@@ -35,7 +35,7 @@ export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<Tool
       businessCity: args.business_location,
     });
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 
   if (detectUnreachable(response.report)) {

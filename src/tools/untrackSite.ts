@@ -22,7 +22,7 @@ export interface UntrackSiteResult {
 }
 
 export async function untrackSite(args: UntrackSiteArgs, deps: ToolDeps): Promise<ToolResult<UntrackSiteResult>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   try {
@@ -44,6 +44,6 @@ export async function untrackSite(args: UntrackSiteArgs, deps: ToolDeps): Promis
       message,
     });
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

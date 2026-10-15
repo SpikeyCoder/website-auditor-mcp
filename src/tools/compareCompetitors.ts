@@ -81,7 +81,7 @@ export async function compareCompetitors(
   args: CompareCompetitorsArgs,
   deps: ToolDeps,
 ): Promise<ToolResult<Comparison>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   if (!Array.isArray(args.competitors) || args.competitors.length === 0) {
@@ -94,7 +94,7 @@ export async function compareCompetitors(
   try {
     primaryHost = normalizeDomain(args.domain);
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 
   const seen = new Set<string>([primaryHost]);
@@ -145,7 +145,7 @@ export async function compareCompetitors(
         `The site at ${args.domain} didn't load during the audit (no page loaded), so it can't be compared. Check the domain is correct, publicly reachable and serving pages.`,
       );
     case "error":
-      return fromApiError(primaryOutcome.error, deps.config, deps.transport, deps.authVia);
+      return fromApiError(primaryOutcome.error, deps.config, deps.transport, deps.authVia, args.domain);
   }
   const primaryAv = primaryOutcome.av;
 
@@ -168,7 +168,7 @@ export async function compareCompetitors(
         // Any key rejection, however the API named it — a revoked key fails
         // every remaining domain exactly as an unrecognised one does.
         if (outcome.error instanceof WaApiError && isKeyRejection(outcome.error.code)) {
-          return fromApiError(outcome.error, deps.config, deps.transport, deps.authVia);
+          return fromApiError(outcome.error, deps.config, deps.transport, deps.authVia, args.domain);
         }
         skipped.push({
           domain: host,

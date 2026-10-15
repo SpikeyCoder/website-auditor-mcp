@@ -82,7 +82,7 @@ export async function getGtmPlan(
   args: GetGtmPlanArgs,
   deps: ToolDeps,
 ): Promise<ToolResult<GtmPlanResult>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   for (const [name, value] of [["focus", args.focus], ["constraints", args.constraints]] as const) {
@@ -101,7 +101,7 @@ export async function getGtmPlan(
   try {
     domain = normalizeDomain(args.domain);
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 
   try {
@@ -226,6 +226,6 @@ export async function getGtmPlan(
           `the API this server points at may not serve this route.`,
       );
     }
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

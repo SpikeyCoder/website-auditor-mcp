@@ -21,13 +21,13 @@ export interface GetChangesArgs {
 }
 
 export async function getChanges(args: GetChangesArgs, deps: ToolDeps): Promise<ToolResult<Changes>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   try {
     const changes = await deps.client.getChanges({ domain: args.domain, since: args.since });
     return ok(changes);
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

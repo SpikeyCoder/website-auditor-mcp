@@ -21,8 +21,8 @@ export const PRICE = "$10/month";
  * price and no trial under info style: the need for a plan, and where plans
  * are described.
  */
-export function plansAreDescribedAt(config: WaConfig): string {
-  return `Plans are described at ${upgradeLink(config)}`;
+export function plansAreDescribedAt(config: WaConfig, site?: string): string {
+  return `Plans are described at ${upgradeLink(config, site)}`;
 }
 
 /**
@@ -46,9 +46,12 @@ export function plansAreDescribedAt(config: WaConfig): string {
  * toward the paid plan flows through here, which is what makes the style a
  * config switch rather than a fork. Still tagged: on the info page the
  * parameter is inert, but a reader who continues to the portal carries it.
+ *
+ * `site` is the tool's own domain/url argument, raw: tagSite reduces it to a
+ * hostname or drops it, so no caller has to normalise it first.
  */
-export function upgradeLink(config: WaConfig): string {
-  return tagSource(config.upsellStyle === "info" ? config.upsellInfoUrl : config.upgradeUrl);
+export function upgradeLink(config: WaConfig, site?: string): string {
+  return tagSite(tagSource(config.upsellStyle === "info" ? config.upsellInfoUrl : config.upgradeUrl), site);
 }
 
 /**
@@ -67,6 +70,61 @@ export function tagSource(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
     if (!url.searchParams.has("source")) url.searchParams.set("source", "mcp");
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+/**
+ * The site a tool was asked about, as the one thing the upgrade link may say
+ * about it: its hostname. Undefined when there is none or it does not parse.
+ *
+ * The portal reads `site=` and names it on its sign-in and paywall pages
+ * ("ChatGPT sent you here to audit acme.com …"), so a ChatGPT user who hit
+ * PRO_REQUIRED before any audit ran lands on a page about their own site
+ * rather than a generic one. That page is all it is for, which is why only
+ * the hostname goes: a path or query string could carry whatever the user
+ * pasted (a token in a URL, a private page), and the portal would echo it.
+ *
+ * Tools take bare domains ("acme.com") and full URLs alike, so a scheme is
+ * supplied when there is none and WHATWG URL parsing does the rest: lowercase,
+ * no port, no userinfo, and an IDN as punycode — what the portal can validate
+ * strictly. The shape check is normalizeDomain's (api/domain.ts) with
+ * punycode TLDs allowed; it is NOT normalizeDomain itself, which strips `www.`
+ * and throws, and a link must never fail a tool. An IP address, `localhost` or
+ * anything else that is not a public hostname gives no site, not a wrong one.
+ */
+export function siteHostname(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  let host: string;
+  try {
+    host = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`).hostname;
+  } catch {
+    return undefined;
+  }
+  host = host.replace(/\.$/, "");
+  if (host.length > 253) return undefined;
+  const label = "[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?";
+  const tld = "([a-z]{2,63}|xn--[a-z0-9-]{1,59})";
+  return new RegExp(`^(${label}\\.)+${tld}$`).test(host) ? host : undefined;
+}
+
+/**
+ * Adds `site=<hostname>` (siteHostname) to an upgrade link, for the portal to
+ * name the site — the link only; the words around it never change.
+ *
+ * Same rules as tagSource: never overrides a `site` already present (so it is
+ * idempotent and cannot duplicate), and returns an unparseable link untouched.
+ * No site, or one that is not a hostname, leaves the link exactly as it was.
+ */
+export function tagSite(rawUrl: string, site?: string): string {
+  const host = siteHostname(site);
+  if (host === undefined) return rawUrl;
+  try {
+    const url = new URL(rawUrl);
+    if (!url.searchParams.has("site")) url.searchParams.set("site", host);
     return url.toString();
   } catch {
     return rawUrl;
