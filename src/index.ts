@@ -9,7 +9,7 @@ import { DefaultSubscriptionProvider } from "./auth/entitlements.js";
 import { InMemoryAuditCache } from "./auth/auditCache.js";
 import { HttpEventSink } from "./telemetry/httpSink.js";
 import { NoopEventSink } from "./telemetry/events.js";
-import { createServer } from "./mcp/server.js";
+import { createServerWithPrice } from "./mcp/priceBoot.js";
 import type { ToolDeps } from "./tools/context.js";
 
 async function main(): Promise<void> {
@@ -25,7 +25,7 @@ async function main(): Promise<void> {
     transport: "stdio",
   };
 
-  const server = createServer(deps);
+  const server = await createServerWithPrice(deps);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 

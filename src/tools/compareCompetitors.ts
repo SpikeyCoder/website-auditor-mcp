@@ -299,7 +299,7 @@ function applyQuotaDetails(quota: QuotaState, details: unknown): void {
 }
 
 /**
- * The daily audit cap is spent. NOT an upsell: there is one plan at $10/month,
+ * The daily audit cap is spent. NOT an upsell: there is one plan,
  * so "upgrade for a higher quota" — which this used to say in words — describes
  * a product nobody can buy, to a customer who is already paying. The only true
  * remedy is waiting for the reset, so that is the whole message.

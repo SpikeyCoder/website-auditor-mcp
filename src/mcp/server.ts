@@ -227,6 +227,11 @@ export function createServer(deps: ToolDeps): McpServer {
         ...(securitySchemes ? { _meta: { securitySchemes } } : {}),
       },
       async (args: Record<string, unknown>) => {
+        // Before the handler builds a message that may state the price; not
+        // counted in the tool's duration. Never for a local tool: the sample
+        // is promised to need no network, so it states the last price read.
+        // A refresh that fails is the old price, never a failed tool call.
+        if (deps.refreshPrice && spec.effect !== "local") await deps.refreshPrice().catch(() => undefined);
         const startedAt = Date.now();
         const result = await handler(args ?? {}, deps);
         // Fire-and-forget: emit() never throws, and telemetry is not awaited, so

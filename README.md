@@ -97,7 +97,7 @@ in the exact format a real run produces, so you can check the shape fits your
 needs first.
 
 **Pricing.** Auditing real domains needs a Website Auditor subscription at
-**$10/month** — eligible new customers get a **7-day free trial** (payment
+**$49/month** — eligible new customers get a **7-day free trial** (payment
 method required to start; no charge until the trial ends; customers who used
 a trial in the last 12 months are billed immediately). Sign up and create an
 API key at
@@ -175,7 +175,7 @@ Auditor account at
 **[api.website-auditor.io/admin_portal](https://api.website-auditor.io/admin_portal/?source=mcp)**
 — the admin portal, where you subscribe and manage keys.
 
-Minting a key requires an active subscription ($10/month; eligible new
+Minting a key requires an active subscription ($49/month; eligible new
 customers get a 7-day free trial — payment method required, no charge until
 the trial ends): there is no free API tier, so every tool except
 `get_sample_audit`, `check_upgrade_status` and `get_recommendations` needs one.
@@ -272,6 +272,11 @@ it sends only two things to that API:
 - the **target domain** you asked to audit or monitor, and
 - your **API key** (`WA_API_KEY`), used to authenticate the request and resolve
   your plan tier.
+
+At startup, and at most hourly while tools are in use, the server also asks
+the same API for Pro's current price (`GET /pricing.json`), so the price it
+states is never out of date. That request carries no key, no install id and no
+data about you or your sites.
 
 That's the full extent of what leaves your machine. The connector does **not**
 collect, store, or transmit your files, prompts, conversation content, or any

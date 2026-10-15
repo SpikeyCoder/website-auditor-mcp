@@ -1,7 +1,7 @@
 # Upload only what the Docker build needs: package manifests, tsconfig, src/.
 # Everything else — installs, bundles, docs, the Codex plugin — stays local.
 .git/
-node_modules/
+node_modules
 dist/
 *.mcpb
 tests/

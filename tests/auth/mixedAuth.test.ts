@@ -12,7 +12,6 @@
  * before OAuth existed, because every stdio install and every existing
  * `Authorization: Bearer wa_…` caller is on that path.
  */
-import { PRICE } from "../../src/tools/upgrade.js";
 import { describe, it, expect, vi } from "vitest";
 import {
   looksLikeApiKey,
@@ -406,7 +405,7 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.details).toEqual({ connection: "unverified" });
     expect(error.message).toContain("try again in a moment");
     expect(error.message).not.toContain("expired");
-    expect(error.message).not.toContain(PRICE);
+    expect(error.message).not.toMatch(/\$\d/);
     expect(error.wwwAuthenticate).toContain("resource_metadata=");
   });
 
@@ -540,7 +539,7 @@ describe("handshake instructions", () => {
   it("under info style, no surface of the instructions names a price or a trial", () => {
     for (const mixedAuth of [true, false]) {
       const text = buildInstructions("https://website-auditor.io/?source=mcp", "info", "http", mixedAuth);
-      expect(text).not.toContain(PRICE);
+      expect(text).not.toMatch(/\$\d/);
       expect(text).not.toMatch(/free trial/i);
     }
   });

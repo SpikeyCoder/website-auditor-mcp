@@ -27,6 +27,12 @@ export interface ToolDeps {
    */
   transport?: "stdio" | "http";
   /**
+   * Run before every tool call: brings PRICE up to date (refreshPriceIfStale
+   * in tools/upgrade.ts). Set by the entry points; absent in tests, which
+   * never touch the network.
+   */
+  refreshPrice?: () => Promise<unknown>;
+  /**
    * HOW this request authenticated, which is not the same question as whether
    * the server has OAuth configured.
    *
@@ -418,7 +424,9 @@ export async function gateKeyedTool(
         // above), so: where a replacement comes from, not what a plan is.
         ? `${base} Create a replacement key from your Website Auditor account, then replace the key. ` +
           `${keySetupNote(deps.transport)}`
-        : `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription (${PRICE}), ` +
+        // No price: this reader is most likely a member, who may still be on
+        // an earlier price than a new signup pays.
+        : `${base} Portal: ${upgradeUrl} — creating a key needs an active subscription, ` +
           `so if yours has lapsed, resubscribe there first. Then replace the key. ${keySetupNote(deps.transport)}`),
       { upgrade_url: upgradeUrl },
     );

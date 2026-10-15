@@ -17,7 +17,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
 import { createServer } from "../../src/mcp/server.js";
 import { makeDeps } from "../helpers.js";
-import { upgradeLink } from "../../src/tools/upgrade.js";
+import { upgradeLink, PRICE } from "../../src/tools/upgrade.js";
 
 const SIGNUP = "https://api.website-auditor.io/admin_portal/?source=mcp";
 const text = () => buildInstructions(SIGNUP);
@@ -36,7 +36,7 @@ describe("instructions: what the server does", () => {
   it("still names the keyless path, the price, the trial terms and the signup URL", () => {
     const t = text();
     expect(t).toContain("get_sample_audit");
-    expect(t).toContain("$10/month");
+    expect(t).toContain(PRICE);
     expect(t).toMatch(/payment method/i);
     expect(t).toContain(SIGNUP);
   });
@@ -111,7 +111,7 @@ describe("instructions: the citation evidence reaches the user", () => {
   it("keeps the evidence guidance ahead of the money", () => {
     const t = text();
     const evidence = t.search(/documents the assistants actually read/i);
-    const money = t.search(/\$10\/month/);
+    const money = t.search(/\$\d+\/month/);
     expect(evidence).toBeGreaterThanOrEqual(0);
     expect(money).toBeGreaterThan(evidence);
   });
@@ -195,7 +195,7 @@ describe("instructions: the findings offer to become a plan", () => {
   it("keeps the plan offer ahead of the money", () => {
     const t = text();
     expect(t.search(/get_gtm_plan/)).toBeGreaterThanOrEqual(0);
-    expect(t.search(/get_gtm_plan/)).toBeLessThan(t.search(/\$10\/month/));
+    expect(t.search(/get_gtm_plan/)).toBeLessThan(t.search(/\$\d+\/month/));
   });
 
   it("the offer survives every build, not just the default one", () => {
@@ -233,7 +233,7 @@ describe("instructions: billing never crowds out the trigger guidance again", ()
   it("puts the trigger block before any mention of money", () => {
     const t = text();
     const trigger = t.search(/when to offer/i);
-    const money = t.search(/\$10\/month/);
+    const money = t.search(/\$\d+\/month/);
     expect(trigger).toBeGreaterThanOrEqual(0);
     expect(money).toBeGreaterThan(trigger);
   });
