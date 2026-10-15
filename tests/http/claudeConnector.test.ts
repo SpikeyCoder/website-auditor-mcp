@@ -20,9 +20,10 @@ import { createWaHttpServer, mixedAuthSummary, type HttpServerOptions } from "..
 import type { TokenExchange } from "../../src/auth/tokenExchange.js";
 import { loadConfig, type WaConfig } from "../../src/config.js";
 import type { ToolDeps } from "../../src/tools/context.js";
-import { SERVED_TOOLS, descriptionFor, titleFor } from "../../src/tools/registry.js";
+import { NEUTRAL_EDITS, SERVED_TOOLS, descriptionFor, titleFor } from "../../src/tools/registry.js";
 import { IntrospectionTokenExchange, type TokenResolution } from "../../src/auth/tokenExchange.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
+import { NEUTRAL_SCHEMA_EDITS } from "../../src/tools/neutralSchemas.js";
 import { makeDeps, testConfig, RecordingEventSink, UNEXPANDED_PLACEHOLDERS } from "../helpers.js";
 
 const servers: Server[] = [];
@@ -249,6 +250,66 @@ describe("the ChatGPT box is unchanged", () => {
 });
 
 describe("neutral tool copy (WA_TOOL_COPY=neutral)", () => {
+  // The directory's compliance step: "Tool descriptions contain no
+  // instructions about model behavior, other tools, or external instruction
+  // sources" (claude.ai/directory/manage, 2026-10-15). "Use this when…" says
+  // when the tool applies and stays; telling the model what to do or say, or
+  // pointing it at another tool, does not.
+  const INSTRUCTION = [
+    /\brelay\b/i,
+    /\bdo not\b/i,
+    /\bdon't\b/i,
+    /\boffer to\b/i,
+    /\btreat\b/i,
+    /\bso use this\b/i,
+    /\bnever guessed\b/i,
+    /\bcall \w+ first\b/i,
+    /\binstead of refusing\b/i,
+  ];
+
+  for (const style of ["link", "info"] as const) {
+    it(`no description instructs the model (${style} style)`, () => {
+      for (const spec of SERVED_TOOLS) {
+        const text = descriptionFor(spec, style, "neutral");
+        for (const pattern of INSTRUCTION) expect(text, `${spec.name} ${pattern}`).not.toMatch(pattern);
+      }
+    });
+
+    it(`no description points at another tool (${style} style)`, () => {
+      const names = SERVED_TOOLS.map((s) => s.name);
+      for (const spec of SERVED_TOOLS) {
+        const text = descriptionFor(spec, style, "neutral");
+        for (const other of names.filter((n) => n !== spec.name)) {
+          expect(text.includes(other), `${spec.name} mentions ${other}`).toBe(false);
+        }
+      }
+    });
+  }
+
+  it("every neutral edit still finds its phrase — an edited source cannot silently undo one", () => {
+    for (const [name, edits] of Object.entries(NEUTRAL_EDITS)) {
+      const spec = SERVED_TOOLS.find((s) => s.name === name);
+      expect(spec, name).toBeDefined();
+      for (const [from] of edits ?? []) expect(spec!.description, `${name}: ${from.slice(0, 40)}`).toContain(from);
+    }
+  });
+
+  it("the rewrites keep the facts the instructions rested on", () => {
+    const d = (name: string) => descriptionFor(SERVED_TOOLS.find((s) => s.name === name)!, "link", "neutral");
+    expect(d("get_ai_visibility")).toContain("re-running with the business's real name as `business_name` measures that business");
+    expect(d("generate_schema")).toContain("which the tool does not know");
+    expect(d("get_changes")).toContain("scheduled monitoring adds weekly re-audits to the series but is not required");
+    expect(d("generate_schema")).toContain("the draft is not meant to be used as returned");
+    expect(d("track_site")).toContain("Passing enabled: false stops monitoring by deleting the enrollment.");
+  });
+
+  it("the full copy keeps its guidance — only the Claude box drops it", () => {
+    const d = (name: string) => descriptionFor(SERVED_TOOLS.find((s) => s.name === name)!, "link");
+    expect(d("generate_schema")).toContain("do not tell the user to paste the draft as returned");
+    expect(d("run_audit")).toContain("is returned by get_ai_visibility, not by this tool");
+    expect(d("get_changes")).toContain("so do not track a site just to answer a change question");
+  });
+
   const PITCH = [
     /\$\d/,
     /trial/i,
@@ -324,6 +385,134 @@ describe("neutral tool copy (WA_TOOL_COPY=neutral)", () => {
     expect(text).toContain("PRO_REQUIRED");
     expect(text).toMatch(/give the price, the trial/);
     expect(buildInstructions("https://x.example/?source=mcp", "link", "http", true)).toMatch(/\$\d/);
+  });
+
+  /** tools/list as a box with this config serves it, over a real socket. */
+  async function wireTools(config: Partial<WaConfig>) {
+    const tracking = trackingFactory();
+    const base = await listen({ config: testConfig({ apiKey: undefined, ...MIXED_AUTH, ...config }), depsFactory: tracking.factory });
+    const client = new Client({ name: "c", version: "0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    const { tools } = await client.listTools();
+    return { tools, client };
+  }
+
+  /** Every description string anywhere in a tool: its own and every schema field's. */
+  function descriptionsOf(tool: unknown, path = ""): Array<[string, string]> {
+    const out: Array<[string, string]> = [];
+    const walk = (o: unknown, at: string) => {
+      if (!o || typeof o !== "object") return;
+      for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+        if (k === "description" && typeof v === "string") out.push([at, v]);
+        else walk(v, `${at}.${k}`);
+      }
+    };
+    walk(tool, path);
+    return out;
+  }
+
+  const stripDescriptions = (o: unknown): unknown =>
+    Array.isArray(o) ? o.map(stripDescriptions)
+      : o && typeof o === "object"
+        ? Object.fromEntries(Object.entries(o).filter(([k]) => k !== "description").map(([k, v]) => [k, stripDescriptions(v)]))
+        : o;
+
+  // Schema fields state facts in the negative ("snapshots that do not record
+  // what they asked"), so there only the imperative "do not <verb>" counts.
+  const WIRE_INSTRUCTION = [
+    ...INSTRUCTION.filter((p) => p.source !== "\\bdo not\\b"),
+    /\bdo not (report|tell|track|render|present|call|use|say|show|paste)\b/i,
+    /\bmust\b/i,
+    /\bshould\b/i,
+    /\btell the user\b/i,
+    /\bask the user\b/i,
+    /\bmake sure\b/i,
+    /\bif you know\b/i,
+    /\bsupply one\b/i,
+    /\bnever (render|present)\b/i,
+    /\brender `?\w+`? instead\b/i,
+  ];
+
+  it("on the wire, no description at any depth instructs the model — schema fields included", async () => {
+    const { tools, client } = await wireTools({ toolCopy: "neutral" });
+    await client.close();
+    expect(tools).toHaveLength(SERVED_TOOLS.length);
+    for (const tool of tools) {
+      for (const [at, text] of descriptionsOf({ description: tool.description, in: tool.inputSchema, out: tool.outputSchema }, tool.name)) {
+        // Quoted user phrases ("what should I change") are what someone asks,
+        // not what the model is told. They live in a tool's own description
+        // ("Use this when someone asks …"); a schema field's quotes are kept,
+        // so an instruction cannot hide inside them.
+        const said = at === tool.name ? text.replace(/"[^"]*"/g, '""') : text;
+        for (const pattern of WIRE_INSTRUCTION) expect(said, `${at} ${pattern}`).not.toMatch(pattern);
+      }
+    }
+  });
+
+  it("the neutral schemas differ from the full ones in their words only — validation cannot change", async () => {
+    const neutral = await wireTools({ toolCopy: "neutral" });
+    const full = await wireTools({});
+    await neutral.client.close();
+    await full.client.close();
+    const shapes = (tools: typeof full.tools) =>
+      tools.map((t) => ({ name: t.name, in: stripDescriptions(t.inputSchema), out: stripDescriptions(t.outputSchema) }));
+    expect(shapes(neutral.tools)).toEqual(shapes(full.tools));
+    // And the words did change somewhere, or this proves nothing.
+    expect(JSON.stringify(neutral.tools)).not.toEqual(JSON.stringify(full.tools));
+  });
+
+  it("every schema edit still finds its phrase on the full copy — a reworded field cannot silently undo one", async () => {
+    const { tools, client } = await wireTools({});
+    await client.close();
+    const all = tools.flatMap((t) => descriptionsOf({ in: t.inputSchema, out: t.outputSchema }).map(([, d]) => d)).join("\n");
+    for (const [from] of NEUTRAL_SCHEMA_EDITS) expect(all, from.slice(0, 50)).toContain(from);
+  });
+
+  it("the walker reaches lazy, union and discriminated-union children, and they still validate", async () => {
+    const { z } = await import("zod");
+    const { neutralSchema } = await import("../../src/tools/neutralSchemas.js");
+    const leaf = () => z.string().describe("A note. Relay it.");
+    const lazy = neutralSchema(z.lazy(() => z.object({ n: leaf() })));
+    const du = neutralSchema(z.discriminatedUnion("k", [
+      z.object({ k: z.literal("a"), n: leaf() }),
+      z.object({ k: z.literal("b"), m: z.number() }),
+    ]));
+    const union = neutralSchema(z.union([leaf(), z.number()]));
+    const descOf = (s: unknown): string[] => {
+      const out: string[] = [];
+      const walk = (x: any) => {
+        if (!x || typeof x !== "object") return;
+        if (x._def) {
+          if (typeof x._def.description === "string") out.push(x._def.description);
+          for (const v of Object.values(x._def)) {
+            if (v instanceof Map) [...v.values()].forEach(walk);
+            else if (Array.isArray(v)) v.forEach(walk);
+            else if (typeof v === "function" && (x._def.shape === v)) Object.values((v as () => object)()).forEach(walk);
+            else if (typeof v === "function" && x._def.getter === v) walk((v as () => unknown)());
+            else walk(v);
+          }
+        }
+      };
+      walk(s);
+      return out;
+    };
+    for (const s of [lazy, du, union]) {
+      for (const d of descOf(s)) expect(d).not.toMatch(/Relay it/);
+    }
+    expect(lazy.safeParse({ n: "x" }).success).toBe(true);
+    expect(du.safeParse({ k: "a", n: "x" }).success).toBe(true);
+    expect(du.safeParse({ k: "b", n: "x" }).success).toBe(false);
+    expect(union.safeParse(3).success).toBe(true);
+  });
+
+  it("a neutral box still validates real results against its schemas", async () => {
+    const { client } = await wireTools({ toolCopy: "neutral" });
+    // listTools above armed the client's output validator: a schema that no
+    // longer matched what the tool returns would throw here.
+    const sample = await client.callTool({ name: "get_sample_audit", arguments: {} });
+    expect(sample.isError).toBeFalsy();
+    expect(sample.structuredContent).toBeTruthy();
+    await client.close();
   });
 
   it("reaches the wire: tools/list on a neutral box carries the neutral descriptions", async () => {

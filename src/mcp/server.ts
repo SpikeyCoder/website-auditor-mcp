@@ -7,6 +7,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { EFFECTS, SERVED_TOOLS, descriptionFor, titleFor, type ToolSpec } from "../tools/registry.js";
+import { neutralShape } from "../tools/neutralSchemas.js";
 import type { ToolResult } from "../tools/context.js";
 import type { ToolDeps } from "../tools/context.js";
 import { getAiVisibility } from "../tools/getAiVisibility.js";
@@ -195,6 +196,7 @@ export function createServer(deps: ToolDeps): McpServer {
     });
   };
 
+  const neutral = deps.config.toolCopy === "neutral";
   for (const spec of SERVED_TOOLS) {
     const handler = HANDLERS[spec.name];
     if (!handler) continue;
@@ -217,13 +219,15 @@ export function createServer(deps: ToolDeps): McpServer {
       {
         title: titleFor(spec, deps.config.upsellStyle, deps.config.toolCopy),
         description: descriptionFor(spec, deps.config.upsellStyle, deps.config.toolCopy),
-        inputSchema: spec.inputSchema,
+        // Neutral copy reaches the schemas too: the portal shows their field
+        // descriptions beside the tool's (see tools/neutralSchemas.ts).
+        inputSchema: neutral ? neutralShape(spec.inputSchema) : spec.inputSchema,
         // Declared where a tool has a stable result shape. The portal flags
         // every tool without one ("so models can better understand this tool's
         // results"); the SDK also validates `structuredContent` against it on
         // success, which is why the schemas in outputSchemas.ts are written to
         // match reality rather than to tighten it.
-        ...(spec.outputSchema ? { outputSchema: spec.outputSchema } : {}),
+        ...(spec.outputSchema ? { outputSchema: neutral ? neutralShape(spec.outputSchema) : spec.outputSchema } : {}),
         annotations,
         ...(securitySchemes ? { _meta: { securitySchemes } } : {}),
       },
