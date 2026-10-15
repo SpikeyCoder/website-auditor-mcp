@@ -277,7 +277,7 @@ export const compareCompetitorsOutput: ZodRawShape = {
   }),
   skipped: z.array(open({
     domain: z.string(),
-    reason: z.string().describe('"quota" | "unreachable" | "error".'),
+    reason: z.string().describe('"quota" | "unreachable" | "time_limit" | "error".'),
     detail: z.string().optional(),
   })),
   summary: z.string(),

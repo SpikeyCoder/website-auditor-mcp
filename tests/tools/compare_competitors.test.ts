@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
-import { compareCompetitors } from "../../src/tools/compareCompetitors.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { compareCompetitors, TOOL_CALL_BUDGET_MS } from "../../src/tools/compareCompetitors.js";
 import { makeDeps, makeQuotaClient } from "../helpers.js";
 import { reachableReport, unreachableReport } from "../fixtures/reports.js";
 import { InMemoryAuditCache } from "../../src/auth/auditCache.js";
 import { toAiVisibility } from "../../src/api/mappers.js";
-import type { AuditReport } from "../../src/api/types.js";
+import type { AuditReport, RateLimit } from "../../src/api/types.js";
 import type { AuditResponse } from "../../src/api/client.js";
 
 function reportFor(domain: string): AuditReport {
@@ -461,5 +461,224 @@ describe("compare_competitors — the market scope is the question's, not each d
       { domain: "example.com", competitors: ["rival.com"],
         business_location: "Chiang Mai, Thailand" }, deps);
     expect(runAudit.mock.calls.length).toBe(afterGlobal * 2);
+  });
+});
+
+describe("compare_competitors — fits inside one tool call", () => {
+  // Claude stops waiting for a tool after 240s and a cold audit takes ~70s, so
+  // the competitors cannot be audited one after another. These drive a fake
+  // clock: every audit "takes" the time its test gives it.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const REQUEST_TIMEOUT_MS = 120_000; // testConfig's, and production's default
+  const LATEST_START_MS = TOOL_CALL_BUDGET_MS - REQUEST_TIMEOUT_MS;
+
+  /** runAudit where each domain's audit takes `ms(domain)` of fake time. */
+  function timedAudit(ms: (domain: string) => number) {
+    return vi.fn(async ({ domain }: { domain: string }): Promise<AuditResponse> => {
+      await new Promise((r) => setTimeout(r, ms(domain)));
+      return { runId: `run-${domain}`, report: reportFor(domain), raw: {} };
+    });
+  }
+
+  /** Runs the comparison on the fake clock; returns the result and when it answered. */
+  async function runTimed(args: Parameters<typeof compareCompetitors>[0], deps: ReturnType<typeof makeDeps>) {
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    let answeredAt: number | null = null;
+    const pending = compareCompetitors(args, deps).then((r) => {
+      answeredAt = Date.now() - t0;
+      return r;
+    });
+    await vi.advanceTimersByTimeAsync(TOOL_CALL_BUDGET_MS + 60_000);
+    const res = await pending;
+    return { res, answeredAt: answeredAt as number | null };
+  }
+
+  it("audits the competitors at the same time: three cold ones answer in two audits' time", async () => {
+    const runAudit = timedAudit(() => 70_000);
+    const { res, answeredAt } = await runTimed(
+      { domain: "example.com", competitors: ["c1.com", "c2.com", "c3.com"] },
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.ranking).toHaveLength(4);
+    expect(res.data.skipped).toEqual([]);
+    // One after another this was 4 x 70s = 280s, past the 240s limit.
+    expect(answeredAt).toBe(140_000);
+  });
+
+  it("starts no competitor audit that could outlive the call, and says so", async () => {
+    // The primary answers 1ms after the last moment a 120s audit could start
+    // and still finish inside the budget.
+    const cache = new InMemoryAuditCache({ ttlMs: 60_000 });
+    cache.set("cached.com", toAiVisibility(reportFor("cached.com")));
+    const runAudit = timedAudit((d) => (d === "example.com" ? LATEST_START_MS + 1 : 70_000));
+    const { res, answeredAt } = await runTimed(
+      { domain: "example.com", competitors: ["c1.com", "cached.com", "c2.com"] },
+      makeDeps({ tier: "pro", client: { runAudit }, cache }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    // Only the primary was sent: nothing was left running past the answer.
+    expect(runAudit).toHaveBeenCalledTimes(1);
+    expect(answeredAt).toBe(LATEST_START_MS + 1);
+
+    // The cached competitor is free and instant, so it is still compared.
+    expect(res.data.ranking.map((r) => r.domain).sort()).toEqual(["cached.com", "example.com"]);
+    expect(res.data.skipped.map((s) => [s.domain, s.reason])).toEqual([
+      ["c1.com", "time_limit"],
+      ["c2.com", "time_limit"],
+    ]);
+    // Not a quota skip: the budget was not what stopped them, and nothing was spent.
+    expect(res.data.quota.audits_used).toBe(1);
+    expect(res.data.quota.audits_skipped).toBe(0);
+    expect(res.data.summary).toMatch(/2 competitors were not audited/);
+    expect(res.data.summary).toMatch(/time limit/);
+    expect(res.data.summary).toMatch(/No quota was spent/);
+    expect(res.data.summary).not.toMatch(/could not be audited/);
+  });
+
+  it("still starts them when the primary answers exactly at the last moment, and answers inside the limit", async () => {
+    // The other side of the boundary. Each competitor runs to the request
+    // timeout, the slowest a started audit can be.
+    const runAudit = timedAudit((d) => (d === "example.com" ? LATEST_START_MS : REQUEST_TIMEOUT_MS));
+    const { res, answeredAt } = await runTimed(
+      { domain: "example.com", competitors: ["c1.com", "c2.com"] },
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(runAudit).toHaveBeenCalledTimes(3);
+    expect(res.data.skipped).toEqual([]);
+    expect(answeredAt).toBe(TOOL_CALL_BUDGET_MS);
+    expect(answeredAt!).toBeLessThan(240_000);
+  });
+
+  it("an exhausted budget is reported as quota, not time, when both apply", async () => {
+    // Waiting for the reset is the remedy; a re-run now would be refused again.
+    vi.useFakeTimers();
+    const client = makeQuotaClient({ start: 1, report: reportFor });
+    const slow = client.runAudit as ReturnType<typeof vi.fn>;
+    const inner = slow.getMockImplementation()!;
+    slow.mockImplementation(async (a: { domain: string }) => {
+      await new Promise((r) => setTimeout(r, LATEST_START_MS + 1));
+      return inner(a);
+    });
+    const pending = compareCompetitors(
+      { domain: "example.com", competitors: ["c1.com"] },
+      makeDeps({ tier: "pro", client }),
+    );
+    await vi.advanceTimersByTimeAsync(TOOL_CALL_BUDGET_MS);
+    const res = await pending;
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.skipped).toEqual([{ domain: "c1.com", reason: "quota" }]);
+  });
+});
+
+describe("compare_competitors — quota stays exact when audits run at once", () => {
+  it("sends no audit the known budget cannot cover", async () => {
+    // 3 left: the primary's header says 2 remain, so exactly two competitors
+    // are sent. Sending all five would end the same way on paper — the API
+    // answers the rest 429 and charges nothing — so the test counts the calls.
+    const client = makeQuotaClient({ start: 3, report: reportFor });
+    const res = await compareCompetitors(
+      { domain: "example.com", competitors: ["c1.com", "c2.com", "c3.com", "c4.com", "c5.com"] },
+      makeDeps({ tier: "pro", client }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(client.runAudit).toHaveBeenCalledTimes(3);
+    // The list's order decides who gets the budget, as it did sequentially.
+    expect(res.data.ranking.map((r) => r.domain).sort()).toEqual(["c1.com", "c2.com", "example.com"]);
+    expect(res.data.skipped.map((s) => s.domain)).toEqual(["c3.com", "c4.com", "c5.com"]);
+    expect(res.data.quota.remaining).toBe(0);
+  });
+
+  it("with no budget known, sends every competitor and spends only what the API accepts", async () => {
+    // The primary comes from the cache, so no header says what is left. All
+    // five are sent; the API reserves two and answers the rest 429, which
+    // costs nothing. Spend and the report match the sequential loop's.
+    const cache = new InMemoryAuditCache({ ttlMs: 60_000 });
+    cache.set("example.com", toAiVisibility(reportFor("example.com")));
+    const client = makeQuotaClient({ start: 2, report: reportFor });
+    const res = await compareCompetitors(
+      { domain: "example.com", competitors: ["c1.com", "c2.com", "c3.com", "c4.com", "c5.com"] },
+      makeDeps({ tier: "pro", client, cache }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(client.runAudit).toHaveBeenCalledTimes(5);
+    expect(res.data.quota.audits_used).toBe(2);
+    expect(res.data.quota.audits_skipped).toBe(3);
+    expect(res.data.quota.cached_reused).toBe(1);
+    expect(res.data.quota.remaining).toBe(0);
+    expect(res.data.ranking).toHaveLength(3);
+    expect(res.data.skipped.every((s) => s.reason === "quota")).toBe(true);
+  });
+
+  it("compares counts within one day only, when UTC midnight falls mid-fan-out", async () => {
+    // c2 was reserved before midnight (yesterday's last slot), c1 after it.
+    // c1 answers first. Yesterday's 0 arriving later must not replace
+    // today's 9, and the reset reported is today's.
+    const D1 = "2026-10-15T23:59:59.999Z";
+    const D2 = "2026-10-16T23:59:59.999Z";
+    const headers: Record<string, RateLimit> = {
+      "example.com": { limit: 10, remaining: 2, reset: D1 },
+      "c1.com": { limit: 10, remaining: 9, reset: D2 },
+      "c2.com": { limit: 10, remaining: 0, reset: D1 },
+    };
+    const release: Record<string, () => void> = {};
+    const runAudit = vi.fn(async ({ domain }: { domain: string }): Promise<AuditResponse> => {
+      if (domain !== "example.com") await new Promise<void>((r) => { release[domain] = r; });
+      return { runId: `run-${domain}`, report: reportFor(domain), rateLimit: headers[domain]!, raw: {} };
+    });
+    const pending = compareCompetitors(
+      { domain: "example.com", competitors: ["c1.com", "c2.com"] },
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    await vi.waitFor(() => expect(Object.keys(release)).toHaveLength(2));
+    release["c1.com"]!();
+    await new Promise((r) => setTimeout(r, 0));
+    release["c2.com"]!();
+    const res = await pending;
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.quota.remaining).toBe(9);
+    expect(res.data.quota.reset).toBe(D2);
+  });
+
+  it("reports the lowest remaining seen, whatever order the answers arrive in", async () => {
+    // Like the API: each request is reserved as it arrives and its header is
+    // the count at that moment. The competitors answer in REVERSE order, so
+    // the last answer to land carries the oldest (highest) count.
+    let remaining = 10;
+    const release: Array<() => void> = [];
+    const runAudit = vi.fn(async ({ domain }: { domain: string }): Promise<AuditResponse> => {
+      remaining -= 1;
+      const rateLimit: RateLimit = { limit: 10, remaining, reset: "2026-10-15T23:59:59.999Z" };
+      if (domain !== "example.com") await new Promise<void>((r) => release.push(r));
+      return { runId: `run-${domain}`, report: reportFor(domain), rateLimit, raw: {} };
+    });
+    const pending = compareCompetitors(
+      { domain: "example.com", competitors: ["c1.com", "c2.com", "c3.com"] },
+      makeDeps({ tier: "pro", client: { runAudit } }),
+    );
+    await vi.waitFor(() => expect(release).toHaveLength(3));
+    for (const r of [...release].reverse()) {
+      r();
+      await Promise.resolve();
+    }
+    const res = await pending;
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.quota.audits_used).toBe(4);
+    expect(res.data.quota.remaining).toBe(6);
+    expect(res.data.summary).toMatch(/6 audits remain today/);
   });
 });
