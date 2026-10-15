@@ -17,7 +17,7 @@ export interface GetBenchmarkArgs {
 }
 
 export async function getBenchmark(args: GetBenchmarkArgs, deps: ToolDeps): Promise<ToolResult<Benchmark>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   try {
@@ -28,6 +28,6 @@ export async function getBenchmark(args: GetBenchmarkArgs, deps: ToolDeps): Prom
     });
     return ok(benchmark);
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

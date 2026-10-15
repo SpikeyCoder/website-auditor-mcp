@@ -15,13 +15,13 @@ export interface GetReportArgs {
 }
 
 export async function getReport(args: GetReportArgs, deps: ToolDeps): Promise<ToolResult<ReportLinks>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   try {
     const report = await deps.client.getReport({ domain: args.domain });
     return ok(report);
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

@@ -9,7 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
-import { upgradeLink, tagSource, PRICE, plansAreDescribedAt } from "./upgrade.js";
+import { upgradeLink, tagSource, tagSite, PRICE, plansAreDescribedAt } from "./upgrade.js";
 import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
 import type { EventSink } from "../telemetry/events.js";
 
@@ -192,9 +192,9 @@ function connectionUnverified(config: WaConfig, upgradeUrl: string): ToolResult<
  * ("…or free trial is required", "needs Website Auditor Pro or a trial") would
  * otherwise reach a ChatGPT reader through a relayed error.
  */
-function planNotIncludedMessage(config: WaConfig): string {
+function planNotIncludedMessage(config: WaConfig, site?: string): string {
   return `This tool is not included in this account's current Website Auditor plan. ` +
-    `${plansAreDescribedAt(config)}. ` +
+    `${plansAreDescribedAt(config, site)}. ` +
     `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
 }
 
@@ -216,12 +216,20 @@ function connectionExpired(config: WaConfig, upgradeUrl: string): ToolResult<nev
   );
 }
 
-/** Map a thrown WaApiError (or unknown error) to a ToolError result. */
+/**
+ * Map a thrown WaApiError (or unknown error) to a ToolError result.
+ *
+ * `site` is the calling tool's domain/url argument, when it has one: any
+ * upgrade link this emits carries its hostname for the portal to name (see
+ * tagSite), exactly as gateProTool's does. The API's own `upgrade_url` gets
+ * it too — the API does not know which site the MCP was asked about.
+ */
 export function fromApiError(
   e: unknown,
   config: WaConfig,
   transport?: ToolDeps["transport"],
   authVia?: ToolDeps["authVia"],
+  site?: string,
 ): ToolResult<never> {
   if (e instanceof WaApiError) {
     // Under Mixed Auth a key rejection means the CONNECTION died, not that a
@@ -248,7 +256,7 @@ export function fromApiError(
       oauthEnabled(config) &&
       isKeyRejection(e.code)
     ) {
-      return connectionExpired(config, upgradeLink(config));
+      return connectionExpired(config, upgradeLink(config, site));
     }
     // OVER_QUOTA is deliberately NOT in this list. It is the shared daily audit
     // cap, which only a subscriber can reach (there is no free API tier), so an
@@ -271,7 +279,7 @@ export function fromApiError(
     const target =
       config.upsellStyle === "info"
         ? wouldCarryLink
-          ? upgradeLink(config)
+          ? upgradeLink(config, site)
           : undefined
         : (e.upgradeUrl ?? (attachUpgrade ? config.upgradeUrl : undefined));
     // The upstream message is replaced under info style for the same reason
@@ -281,10 +289,10 @@ export function fromApiError(
     // needs before retrying, and it says nothing about plans.
     const allowanceNote = /Your daily allowance[^.]*(?:\.[^.]*?counts toward it)?\./.exec(e.message)?.[0];
     const message = config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
-      ? planNotIncludedMessage(config) + (allowanceNote ? ` ${allowanceNote}` : "")
+      ? planNotIncludedMessage(config, site) + (allowanceNote ? ` ${allowanceNote}` : "")
       : e.message;
     return err(e.code, message, {
-      upgrade_url: target === undefined ? undefined : tagSource(target),
+      upgrade_url: target === undefined ? undefined : tagSite(tagSource(target), site, config),
       details: e.details,
     });
   }
@@ -303,15 +311,18 @@ export function fromApiError(
  * get_recommendations, which the API answers for any key since
  * website-auditor-api #131 (card 227); gateProTool runs it first, so both
  * gates say the same thing about a missing or bad key.
+ *
+ * `site`: see gateProTool.
  */
 export async function gateKeyedTool(
   deps: ToolDeps,
   resolved?: TierResolution,
+  site?: string,
 ): Promise<ToolResult<never> | null> {
   const { tier, message, rejection } = resolved ?? await deps.subscriptions.resolve(
     deps.config.apiKey,
   );
-  const upgradeUrl = upgradeLink(deps.config);
+  const upgradeUrl = upgradeLink(deps.config, site);
 
   if (tier === "none") {
     // One tier, two different problems, and under Mixed Auth they need opposite
@@ -340,7 +351,7 @@ export async function gateKeyedTool(
           `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
           (deps.config.upsellStyle === "info"
             // No price or trial: see plansAreDescribedAt.
-            ? `Audits also need a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
+            ? `Audits also need a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config, site)}.`
             : `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
               `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`),
         {
@@ -359,7 +370,7 @@ export async function gateKeyedTool(
         `Try get_sample_audit instead — it needs no key and shows exactly what a real audit returns. ` +
         (deps.config.upsellStyle === "info"
           ? `Auditing real domains needs a Website Auditor plan and an API key from it. ` +
-            `${plansAreDescribedAt(deps.config)}. ${keySetupNote(deps.transport)}`
+            `${plansAreDescribedAt(deps.config, site)}. ${keySetupNote(deps.transport)}`
           : `To audit real domains, subscribe (${PRICE}; eligible new customers get a 7-day free trial — payment method required to start, no charge until the trial ends) and create a key at ${upgradeUrl} . ${keySetupNote(deps.transport)}`),
       { upgrade_url: upgradeUrl },
     );
@@ -440,16 +451,24 @@ export async function gateKeyedTool(
  * service was unreachable and we defaulted to free → SUBSCRIPTION_UNVERIFIED, a
  * retryable signal) so a genuine subscriber isn't wrongly told to upgrade
  * during an outage. No key at all is AUTH_REQUIRED, not an upsell.
+ *
+ * `site` is the tool's domain/url argument, raw, for tools that have one; a
+ * tool about no particular site (list_tracked_sites) passes nothing. Every
+ * link this returns then carries `site=<hostname>` (tagSite), so the portal
+ * page a ChatGPT user lands on names the site they asked about — usually
+ * before any audit of it has run, since this gate is what stops it. Only the
+ * URL changes: the words are the same with or without a site, under both
+ * upsell styles.
  */
-export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | null> {
+export async function gateProTool(deps: ToolDeps, site?: string): Promise<ToolResult<never> | null> {
   const resolved = await deps.subscriptions.resolve(deps.config.apiKey);
   if (isPro(resolved.tier)) return null;
 
-  const keyed = await gateKeyedTool(deps, resolved);
+  const keyed = await gateKeyedTool(deps, resolved, site);
   if (keyed) return keyed;
 
   const { verified } = resolved;
-  const upgradeUrl = upgradeLink(deps.config);
+  const upgradeUrl = upgradeLink(deps.config, site);
 
   if (!verified) {
     return err(
@@ -462,7 +481,7 @@ export async function gateProTool(deps: ToolDeps): Promise<ToolResult<never> | n
   if (deps.config.upsellStyle === "info") {
     // The allowed form only (plansAreDescribedAt): this feature is not in the
     // account's current plan, and where plans are described.
-    return err("PRO_REQUIRED", planNotIncludedMessage(deps.config), { upgrade_url: upgradeUrl });
+    return err("PRO_REQUIRED", planNotIncludedMessage(deps.config, site), { upgrade_url: upgradeUrl });
   }
   return err(
     "PRO_REQUIRED",

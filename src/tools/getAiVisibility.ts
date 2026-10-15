@@ -51,7 +51,7 @@ async function attachTrend(result: AiVisibility, domain: string, runId: string, 
 }
 
 export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps): Promise<ToolResult<AiVisibility>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   let response;
@@ -62,7 +62,7 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
       businessCity: args.business_location,
     });
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 
   if (detectUnreachable(response.report)) {

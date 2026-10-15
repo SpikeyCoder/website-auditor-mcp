@@ -35,7 +35,7 @@ export interface TrackSiteResult {
 }
 
 export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<ToolResult<TrackSiteResult>> {
-  const gate = await gateProTool(deps);
+  const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
   if (args.cadence && args.cadence !== "weekly") {
@@ -56,7 +56,7 @@ export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<To
         message: `Stopped weekly monitoring for ${res.domain}.`,
       });
     } catch (e) {
-      return fromApiError(e, deps.config, deps.transport, deps.authVia);
+      return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
     }
   }
 
@@ -75,6 +75,6 @@ export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<To
       message,
     });
   } catch (e) {
-    return fromApiError(e, deps.config, deps.transport, deps.authVia);
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

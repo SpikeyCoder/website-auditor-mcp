@@ -200,7 +200,8 @@ identical to the key not working.
 | `WA_API_KEY` | _(required)_ | Per-user API key (starts with `wa_`). |
 | `WA_API_BASE_URL` | `https://api.website-auditor.io` | The Website Auditor API this server wraps. |
 | `WA_SITE_URL` | `https://website-auditor.io` | Used to build shareable report links. |
-| `WA_UPGRADE_URL` | `https://api.website-auditor.io/admin_portal/` | Where auth and subscription errors point you. `?source=mcp` is appended so a signup that started here is attributable; set your own `source` to override. Not surfaced on quota errors — the daily cap is not an upsell. |
+| `WA_UPGRADE_URL` | `https://api.website-auditor.io/admin_portal/` | Where auth and subscription errors point you. `?source=mcp` is appended so a signup that started here is attributable; set your own `source` to override. For tools that take a domain, `site=<hostname>` (the hostname only — no path or query) is added too, so the portal can name the site — but only when the link points at the portal (the host of `WA_API_BASE_URL`), never at another host. Not surfaced on quota errors — the daily cap is not an upsell. |
+| `WA_UPSELL_STYLE` / `WA_UPSELL_INFO_URL` | `link` / `WA_SITE_URL` | `info` style (the hosted ChatGPT server) links every auth and plan error to `WA_UPSELL_INFO_URL`, an informational plans page, instead of `WA_UPGRADE_URL`, with no price or trial in the text. `?source=mcp` is appended unless a `source` is set; `site=<hostname>` is added for tools that take a domain only when this URL points at the portal (the host of `WA_API_BASE_URL`) — not at the homepage default or any other host. |
 | `WA_REQUEST_TIMEOUT_MS` | `120000` | Timeout for API calls. |
 | `WA_AUDIT_CACHE_TTL_MS` | `86400000` | Reuse a domain's audit within this window instead of spending quota (used by `compare_competitors`). Defaults to 24h. |
 | `WA_SUBSCRIPTION_CACHE_TTL_MS` | `60000` | How long a resolved Pro/free tier is cached per key before re-checking the subscription. |
