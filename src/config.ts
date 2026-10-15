@@ -28,6 +28,40 @@ export type Tier = "none" | "free" | "pro" | "invalid";
  */
 export type UpsellStyle = "link" | "info";
 
+/**
+ * How a hosted server asks a caller with no usable credential to sign in, when
+ * a protected tool is called. Only meaningful over HTTP with Mixed Auth on.
+ *
+ *   "result" — the default, and what the ChatGPT server serves: a 200 tool
+ *              result (AUTH_REQUIRED) carrying the challenge in
+ *              `_meta["mcp/www_authenticate"]`, which is where the OpenAI Apps
+ *              SDK reads it.
+ *   "http"   — for Claude, which starts sign-in ONLY when the HTTP request
+ *              itself fails with 401 and a WWW-Authenticate header, and
+ *              ignores the header on a 200 ("lazy authentication",
+ *              claude.com/docs/connectors/building/lazy-authentication). A 200
+ *              AUTH_REQUIRED there reaches the model as text and the user never
+ *              gets a Connect button.
+ */
+export type AuthChallenge = "result" | "http";
+
+/**
+ * How tool descriptions and the server instructions talk about the plan.
+ *
+ *   "full"    — the default: every gated description carries the price, the
+ *               trial and a pointer to get_sample_audit (see proSuffix in
+ *               tools/registry.ts).
+ *   "neutral" — for Anthropic's connector directory, whose review rejects tool
+ *               descriptions that "promote products and services" or tell
+ *               Claude to call tools the user didn't request. Descriptions say
+ *               only that a subscription is needed. Whatever the paywall
+ *               ANSWERS say is left to upsellStyle, which governs them: under
+ *               "link" (the Claude box) they state the price and the trial
+ *               when a caller actually meets one; under "info" they state
+ *               neither.
+ */
+export type ToolCopy = "full" | "neutral";
+
 export interface WaConfig {
   /** Base URL of the website-auditor-api portal (the service we wrap). */
   apiBaseUrl: string;
@@ -45,6 +79,10 @@ export interface WaConfig {
    * that default is the checkout the style exists to avoid.
    */
   upsellInfoUrl: string;
+  /** See AuthChallenge. Absent means "result". */
+  authChallenge?: AuthChallenge;
+  /** See ToolCopy. Absent means "full". */
+  toolCopy?: ToolCopy;
   /** Timeout (ms) for calls to the API portal. */
   requestTimeoutMs: number;
   /**
@@ -133,6 +171,17 @@ function parseTier(value: string | undefined): Tier | undefined {
 
 function parseUpsellStyle(value: string | undefined): UpsellStyle {
   return value?.trim().toLowerCase() === "info" ? "info" : "link";
+}
+
+// Same shape as parseUpsellStyle: anything but the one opt-in value is the
+// default, so an unset, blank or misspelt variable leaves a server exactly as
+// it was rather than half-switching it.
+function parseAuthChallenge(value: string | undefined): AuthChallenge {
+  return value?.trim().toLowerCase() === "http" ? "http" : "result";
+}
+
+function parseToolCopy(value: string | undefined): ToolCopy {
+  return value?.trim().toLowerCase() === "neutral" ? "neutral" : "full";
 }
 
 /**
@@ -245,6 +294,8 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     upgradeUrl: normalizeEnvValue(env.WA_UPGRADE_URL) || "https://api.website-auditor.io/admin_portal/",
     upsellStyle: parseUpsellStyle(env.WA_UPSELL_STYLE),
     upsellInfoUrl: stripTrailingSlash(normalizeEnvValue(env.WA_UPSELL_INFO_URL) || "") || siteUrl,
+    authChallenge: parseAuthChallenge(normalizeEnvValue(env.WA_AUTH_CHALLENGE)),
+    toolCopy: parseToolCopy(normalizeEnvValue(env.WA_TOOL_COPY)),
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),

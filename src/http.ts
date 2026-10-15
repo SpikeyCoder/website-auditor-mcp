@@ -45,8 +45,17 @@ import { createServer } from "./mcp/server.js";
 import { refreshPrice } from "./tools/upgrade.js";
 import { SERVER_VERSION } from "./version.js";
 import type { ToolDeps } from "./tools/context.js";
-import { looksLikeApiKey, oauthEnabled, protectedResourceMetadata, resourceMetadataPaths } from "./auth/oauth.js";
-import { IntrospectionTokenExchange, type TokenExchange } from "./auth/tokenExchange.js";
+import {
+  looksLikeApiKey,
+  oauthEnabled,
+  protectedResourceMetadata,
+  requiresAccount,
+  resourceMetadataPaths,
+  wwwAuthenticateChallenge,
+} from "./auth/oauth.js";
+import { IntrospectionTokenExchange, type TokenExchange, type TokenResolution } from "./auth/tokenExchange.js";
+import { SERVED_TOOLS } from "./tools/registry.js";
+import { classifyAgentOrigin } from "./telemetry/events.js";
 
 const MCP_PATH = "/mcp";
 const CHALLENGE_PATH = "/.well-known/openai-apps-challenge";
@@ -349,6 +358,37 @@ function allowedOriginFor(
   return lendsAmbientIdentity ? undefined : "*";
 }
 
+/**
+ * The tools a caller must be signed in to call — the same rule that publishes
+ * `oauth2` in their securitySchemes (requiresAccount), over the tools this
+ * server actually serves. One source for both halves: a tool that advertised
+ * sign-in but was not gated would answer a 200 AUTH_REQUIRED that Claude shows
+ * as text, and one gated without advertising it would refuse a caller the
+ * listing told it could proceed.
+ */
+const ACCOUNT_TOOLS: ReadonlySet<string> = new Set(SERVED_TOOLS.filter(requiresAccount).map((s) => s.name));
+
+/**
+ * The first tool this JSON-RPC body calls — or, with `accountToolsOnly`, the
+ * first account-only one — if any.
+ *
+ * A body is one message or a batch; a batch that calls ANY account-only tool
+ * is refused whole, because an HTTP status belongs to the response, not to one
+ * message inside it — there is no way to answer one call 401 and its sibling
+ * 200. `initialize`, `tools/list` and calls to the open tools fall through, so
+ * the connector works before sign-in (Claude's lazy authentication).
+ */
+function toolCalledBy(body: unknown, accountToolsOnly: boolean): string | undefined {
+  for (const msg of Array.isArray(body) ? body : [body]) {
+    if (!msg || typeof msg !== "object") continue;
+    const { method, params } = msg as { method?: unknown; params?: { name?: unknown } };
+    if (method !== "tools/call") continue;
+    const name = params && typeof params === "object" ? params.name : undefined;
+    if (typeof name === "string" && (!accountToolsOnly || ACCOUNT_TOOLS.has(name))) return name;
+  }
+  return undefined;
+}
+
 export function createWaHttpServer(options: HttpServerOptions): Server {
   // devTier is stripped for the same reason apiKey is, and it is the more
   // dangerous of the two. WA_DEV_TIER is a local escape hatch that grants a
@@ -408,6 +448,9 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
   const tokenExchange: TokenExchange | undefined = oauthEnabled(base)
     ? (options.tokenExchange ?? new IntrospectionTokenExchange(base))
     : undefined;
+  // The 401 gate needs Mixed Auth: without an authorization server there is no
+  // login for a 401 to start, and the challenge would point nowhere.
+  const challengeOverHttp = tokenExchange !== undefined && base.authChallenge === "http";
   const tenants = new TenantDeps(
     base,
     options.depsFactory ?? defaultDepsFactory,
@@ -448,7 +491,9 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
    * key are indistinguishable here — and the two possible answers cannot both
    * be right. It resolves to authVia "unresolved_token" — a "could not verify
    * the connection: reconnect, or retry if only just connected" answer carrying
-   * the login challenge — rather than to the malformed-key sentence. On a Mixed Auth
+   * the login challenge, or on an "http"-challenge box a 401 when the
+   * authorization server rejected the token (see the gate in handle()) —
+   * rather than to the malformed-key sentence. On a Mixed Auth
    * endpoint the overwhelming majority of callers never paste a key at all, and
    * that answer is at worst imprecise for the curl user while
    * "Invalid API key format. Keys start with wa_." is actively wrong for the
@@ -457,7 +502,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
    */
   async function credentialFor(
     req: IncomingMessage,
-  ): Promise<{ key: string | undefined; authVia: ToolDeps["authVia"] }> {
+  ): Promise<{
+    key: string | undefined;
+    authVia: ToolDeps["authVia"];
+    /** For an unresolved token only: whether signing in again could help. */
+    unresolved?: "inactive" | "unavailable";
+  }> {
     const presented = apiKeyFrom(req);
     // Presented nothing: the default identity applies, exactly as before. A
     // caller who DID present something never lands on the box's account.
@@ -469,12 +519,18 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     if (!tokenExchange || looksLikeApiKey(presented)) {
       return { key: presented, authVia: "key" };
     }
-    const resolved = await tokenExchange.resolve(presented);
+    const resolution = tokenExchange.resolveDetailed
+      ? await tokenExchange.resolveDetailed(presented)
+      : await tokenExchange.resolve(presented).then((key): TokenResolution =>
+          key ? { status: "active", key } : { status: "inactive" },
+        );
     // Unresolved is not authenticated, and not a first visit either: a token
     // seconds old, expired or revoked, an introspection outage, or a typo'd
     // key. Its own state (ToolDeps.authVia), so the reader is told to retry or
     // reconnect rather than pitched the plan as if they had never signed in.
-    return resolved ? { key: resolved, authVia: "oauth" } : { key: undefined, authVia: "unresolved_token" };
+    return resolution.status === "active"
+      ? { key: resolution.key, authVia: "oauth" }
+      : { key: undefined, authVia: "unresolved_token", unresolved: resolution.status };
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -602,7 +658,68 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    const { key, authVia } = await credentialFor(req);
+    const { key, authVia, unresolved } = await credentialFor(req);
+
+    // Claude's sign-in starts ONLY from a transport-level 401 — a 200 carrying
+    // the same challenge reaches the model as text and the user never sees a
+    // Connect button (see AuthChallenge in config.ts). So on an "http"-challenge
+    // server, an account-only tool called with no usable credential is refused
+    // HERE, before the SDK runs: once a handler is running, whatever it returns
+    // is wrapped in a 200.
+    //
+    // "No usable credential" is `key === undefined`: nothing presented (and no
+    // box default), or a token the authorization server says is not active —
+    // expired, revoked, or without the audit scope. The second must be a 401
+    // too: it is the signal Claude refreshes on, and it retries the same call
+    // with the new token. A token that could not be CHECKED (introspection
+    // down, or its secret wrong) is not gated: a 401 there makes Claude refresh,
+    // fail the same way and ask the user to reconnect, which cannot help while
+    // the endpoint is down — so it falls through to the 200 "could not verify,
+    // try again" answer every other box gives. A presented `wa_` key is
+    // NOT gated, even a wrong one — it is a key, not a login, and its answer is
+    // the INVALID_KEY that names it. A signed-in account without the plan is
+    // not gated either: that is PRO_REQUIRED, a plan answer, and a 401 would
+    // send a paying-in-waiting member round a login they already completed.
+    //
+    // Which calls: with NOTHING presented, only the account-only tools — the
+    // open ones are the point of lazy authentication. With a token the
+    // authorization server rejected, every tool call: the caller is mid-session
+    // with a dead credential, and the 401 is what lets Claude refresh it. Letting
+    // an open tool answer 200 instead would leave check_upgrade_status telling a
+    // signed-in member it "could not verify" the connection with nothing in the
+    // client ever offering to fix it.
+    const gatedTool = !challengeOverHttp || key !== undefined || unresolved === "unavailable"
+      ? undefined
+      : toolCalledBy(parsedBody, authVia !== "unresolved_token");
+    if (gatedTool) {
+      const description = authVia === "unresolved_token"
+        ? "The Website Auditor connection could not be verified. Sign in again to continue."
+        : "Sign in to Website Auditor to use this tool.";
+      // Recorded like the 200 path records its AUTH_REQUIRED, so the sign-in
+      // funnel reads the same on this server as on the others. Client identity
+      // is unknown here (stateless: it arrives only on initialize).
+      try {
+        tenants.forKey(undefined).events.emit({
+          event_type: "tool_call",
+          tool_name: gatedTool,
+          is_agent_originated: classifyAgentOrigin(undefined),
+          success: false,
+          error_code: "AUTH_REQUIRED",
+          duration_ms: 0,
+          transport: "http",
+        });
+      } catch {
+        /* telemetry must never change the answer */
+      }
+      res.setHeader("WWW-Authenticate", wwwAuthenticateChallenge(base, description)!);
+      // A browser-based client (the MCP Inspector) cannot read the challenge
+      // cross-origin unless it is exposed; server-side clients ignore this.
+      res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
+      // The OAuth error shape RFC 6750 §3 describes. The status and header carry
+      // the signal; the body is advisory.
+      sendJson(res, 401, { error: "invalid_token", error_description: description });
+      return;
+    }
     // Spread, not mutate: the bundle is CACHED and shared across every request
     // for this key, while authVia describes THIS request. The copy is shallow
     // on purpose — client, caches and sink stay the same objects, which is the
@@ -713,7 +830,13 @@ export function mixedAuthSummary(config: WaConfig): string {
     `introspection ${config.oauthIntrospectionUrl} ` +
     (secret
       ? `(secret set, ${secret.length} chars — it must match the API's byte for byte)`
-      : "(WA_OAUTH_INTROSPECTION_SECRET MISSING — every login will fail at introspection)")
+      : "(WA_OAUTH_INTROSPECTION_SECRET MISSING — every login will fail at introspection)") +
+    // Which sign-in signal this box sends. The two are not interchangeable — a
+    // Claude box on "result" never shows a Connect button, and nothing else in
+    // the logs would say why — so the boot line names it.
+    (config.authChallenge === "http"
+      ? "; sign-in challenge: HTTP 401 (Claude)"
+      : "; sign-in challenge: in the tool result (ChatGPT)")
   );
 }
 
@@ -743,7 +866,7 @@ async function main(): Promise<void> {
   const server = createWaHttpServer(options);
   server.listen(port, () => {
     console.error(
-      `[website-auditor-mcp] http ready on :${port} — POST ${MCP_PATH}, API ${options.config.apiBaseUrl}, upsell style ${options.config.upsellStyle}`,
+      `[website-auditor-mcp] http ready on :${port} — POST ${MCP_PATH}, API ${options.config.apiBaseUrl}, upsell style ${options.config.upsellStyle}, tool copy ${options.config.toolCopy ?? "full"}`,
     );
     // Mixed Auth fails SILENTLY in both directions — an unconfigured server
     // serves a 404 at the metadata path and publishes no scheme, which is

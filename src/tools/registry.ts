@@ -12,7 +12,7 @@
 import { z } from "zod";
 import type { ZodRawShape } from "zod";
 import { OUTPUT_SCHEMAS } from "./outputSchemas.js";
-import type { UpsellStyle } from "../config.js";
+import type { ToolCopy, UpsellStyle } from "../config.js";
 import { FALLBACK_PRICE, PRICE } from "./upgrade.js";
 
 export type ToolTier = "free" | "pro";
@@ -492,20 +492,68 @@ const INFO_TITLES: Partial<Record<string, string>> = {
 };
 
 /**
- * A tool's description as this server's upsell style may publish it. The
- * priced suffix is replaced wherever it sits, not only at the end, so a later
- * transform that appends text cannot let it through on an info server.
+ * The suffix as a `toolCopy: "neutral"` server publishes it — the Claude
+ * connector. Anthropic's review rejects descriptions that "promote products and
+ * services" or tell Claude to call tools the user didn't request
+ * (claude.com/docs/connectors/building/review-criteria), and the full suffix
+ * does both: a price and a trial pitch, then "call get_sample_audit first".
+ *
+ * The dead end the full suffix was written to avoid (a model reading a bare
+ * "requires a subscription" declines and stops) does not arise on that server:
+ * there the model calls the tool, and the HTTP 401 gate turns the call into a
+ * Connect button, and a signed-in account without the plan gets the
+ * PRO_REQUIRED answer, which states the price itself. So this says what the
+ * tool needs and nothing more. Per style: "info" keeps saying "plan", never
+ * "subscription".
  */
-export function descriptionFor(spec: ToolSpec, style: UpsellStyle): string {
-  if (style !== "info") return spec.description.split(PRO_SUFFIX).join(proSuffix(PRICE));
-  let text = spec.description.split(PRO_SUFFIX).join(PRO_SUFFIX_INFO);
-  for (const [from, to] of INFO_EDITS[spec.name] ?? []) text = text.split(from).join(to);
+const PRO_SUFFIX_NEUTRAL: Record<UpsellStyle, string> = {
+  link: " Requires a Website Auditor subscription.",
+  info: " Requires a Website Auditor plan.",
+};
+
+/**
+ * Phrase-level edits a neutral server applies, for the same reason as the
+ * suffix: "before suggesting an upgrade" tells the model when to raise an
+ * upgrade, which is promotion, not a description of the tool. Applied after
+ * INFO_EDITS, which already removes it on an info server — harmless twice.
+ */
+const NEUTRAL_EDITS: Partial<Record<string, Array<[string, string]>>> = {
+  check_upgrade_status: [[',\" or before suggesting an upgrade.', '.\"']],
+  // "worth subscribing to" frames the sample as a sales step, and "INSTEAD of
+  // refusing" instructs the model rather than describing the tool. What stays
+  // is the fact the instruction rested on: the sample works with no account.
+  get_sample_audit: [
+    [" or is deciding whether Website Auditor is worth subscribing to", " or is deciding whether Website Auditor fits"],
+    [" — and use it INSTEAD of refusing when no API key is configured.", ". It works with no account connected."],
+  ],
+};
+
+/** Titles a neutral server publishes instead: a status check, not an upgrade prompt. */
+const NEUTRAL_TITLES: Partial<Record<string, string>> = {
+  check_upgrade_status: "Check subscription status",
+};
+
+/**
+ * A tool's description as this server's upsell style and tool copy may publish
+ * it. The priced suffix is replaced wherever it sits, not only at the end, so a
+ * later transform that appends text cannot let it through on an info server.
+ */
+export function descriptionFor(spec: ToolSpec, style: UpsellStyle, copy: ToolCopy = "full"): string {
+  const suffix = copy === "neutral"
+    ? PRO_SUFFIX_NEUTRAL[style]
+    : style === "info" ? PRO_SUFFIX_INFO : proSuffix(PRICE);
+  let text = spec.description.split(PRO_SUFFIX).join(suffix);
+  const edits = [
+    ...(style === "info" ? INFO_EDITS[spec.name] ?? [] : []),
+    ...(copy === "neutral" ? NEUTRAL_EDITS[spec.name] ?? [] : []),
+  ];
+  for (const [from, to] of edits) text = text.split(from).join(to);
   return text;
 }
 
-/** A tool's title as this server's upsell style may publish it. */
-export function titleFor(spec: ToolSpec, style: UpsellStyle): string {
-  return (style === "info" && INFO_TITLES[spec.name]) || spec.title;
+/** A tool's title as this server's upsell style and tool copy may publish it. */
+export function titleFor(spec: ToolSpec, style: UpsellStyle, copy: ToolCopy = "full"): string {
+  return (style === "info" && INFO_TITLES[spec.name]) || (copy === "neutral" && NEUTRAL_TITLES[spec.name]) || spec.title;
 }
 
 function withProSuffix(spec: ToolSpec): ToolSpec {

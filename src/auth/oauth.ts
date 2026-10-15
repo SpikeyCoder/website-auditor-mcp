@@ -255,6 +255,20 @@ export function wwwAuthenticateChallenge(config: WaConfig, description: string):
 }
 
 /**
+ * Does calling this tool need a connected account?
+ *
+ * A tier alone, or the tool's spec: a free tool can still need an account
+ * (get_recommendations: no subscription, but a key the API answers) —
+ * ToolSpec.needsAccount. THE rule, here only: Pro, or flagged. Both the
+ * declarative scheme below and the HTTP 401 gate in http.ts read it, so the
+ * tools a listing advertises as needing sign-in and the tools that actually
+ * refuse without one cannot drift apart.
+ */
+export function requiresAccount(tool: ToolTier | { tier: ToolTier; needsAccount?: boolean }): boolean {
+  return typeof tool === "string" ? tool === "pro" : tool.tier === "pro" || tool.needsAccount === true;
+}
+
+/**
  * A tool's declared authentication policy, as the Apps SDK reads it.
  *
  * Derived from the registry's existing `tier` rather than a parallel list. The
@@ -265,16 +279,11 @@ export function wwwAuthenticateChallenge(config: WaConfig, description: string):
  * but advertises itself as open.
  */
 export function securitySchemesFor(
-  // A tier alone, or the tool's spec: a free tool can still need an account
-  // (get_recommendations: no subscription, but a key the API answers) —
-  // ToolSpec.needsAccount. THE rule, here only: Pro, or flagged.
   tool: ToolTier | { tier: ToolTier; needsAccount?: boolean },
   config: WaConfig,
   transport?: "stdio" | "http",
 ): unknown[] | undefined {
-  const needsAccount = typeof tool === "string"
-    ? tool === "pro"
-    : tool.tier === "pro" || tool.needsAccount === true;
+  const needsAccount = requiresAccount(tool);
   // Transport-gated for the same reason the runtime challenge is, and it was a
   // real gap that only this half was not: a stdio process that happens to have
   // the OAuth variables set advertised `oauth2` on thirteen tools while being
