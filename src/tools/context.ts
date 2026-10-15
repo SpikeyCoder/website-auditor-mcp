@@ -286,7 +286,7 @@ export function fromApiError(
       ? planNotIncludedMessage(config, site) + (allowanceNote ? ` ${allowanceNote}` : "")
       : e.message;
     return err(e.code, message, {
-      upgrade_url: target === undefined ? undefined : tagSite(tagSource(target), site),
+      upgrade_url: target === undefined ? undefined : tagSite(tagSource(target), site, config),
       details: e.details,
     });
   }

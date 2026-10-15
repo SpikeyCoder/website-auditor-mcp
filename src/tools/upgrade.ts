@@ -51,7 +51,7 @@ export function plansAreDescribedAt(config: WaConfig, site?: string): string {
  * hostname or drops it, so no caller has to normalise it first.
  */
 export function upgradeLink(config: WaConfig, site?: string): string {
-  return tagSite(tagSource(config.upsellStyle === "info" ? config.upsellInfoUrl : config.upgradeUrl), site);
+  return tagSite(tagSource(config.upsellStyle === "info" ? config.upsellInfoUrl : config.upgradeUrl), site, config);
 }
 
 /**
@@ -75,6 +75,11 @@ export function tagSource(rawUrl: string): string {
     return rawUrl;
   }
 }
+
+/** `co` in co.uk, `com` in com.au: see the `www.` rule in siteHostname. */
+const SECOND_LEVEL_SUFFIX_LABELS = new Set([
+  "ac", "co", "com", "edu", "gob", "gov", "govt", "ltd", "me", "mil", "net", "nhs", "nom", "or", "org", "plc", "sch",
+]);
 
 /**
  * The site a tool was asked about, as the one thing the upgrade link may say
@@ -105,9 +110,20 @@ export function siteHostname(raw: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+  host = host.replace(/\.$/, "");
   // `www.` goes, as normalizeDomain drops it: the site's report summary names
-  // domains without it, and the portal should name the site the same way.
-  host = host.replace(/\.$/, "").replace(/^www\./, "");
+  // domains without it, and the portal should name the site the same way. But
+  // only where a registrable-looking name is left: `www.com` and `www.co.uk`
+  // stay as they are rather than becoming a bare suffix. There is no public
+  // suffix list here, so the second case is a short list of the usual
+  // second-level suffix labels; a suffix it misses is stripped to like any
+  // other name, which is normalizeDomain's behaviour for every one of them.
+  const rest = host.replace(/^www\./, "");
+  if (rest !== host) {
+    const labels = rest.split(".");
+    const bareSuffix = labels.length === 2 && SECOND_LEVEL_SUFFIX_LABELS.has(labels[0]!);
+    if (labels.length >= 2 && !bareSuffix) host = rest;
+  }
   if (host.length > 253) return undefined;
   const label = "[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?";
   // A punycode TLD ends on a letter or digit like any label: the portal's
@@ -121,18 +137,35 @@ export function siteHostname(raw: string | undefined): string | undefined {
  * Adds `site=<hostname>` (siteHostname) to an upgrade link, for the portal to
  * name the site — the link only; the words around it never change.
  *
+ * ONLY on a link to our own portal: one whose host is the configured API's
+ * (`apiBaseUrl`, which serves /admin_portal/). The site a user asked about is
+ * theirs to tell us, not anyone's to log. The marketing homepage — the
+ * default info page — runs GoatCounter over its full query string, and
+ * WA_UPGRADE_URL / WA_UPSELL_INFO_URL may name any host an operator likes;
+ * neither reads `site=`, so neither gets it.
+ *
  * Same rules as tagSource: never overrides a `site` already present (so it is
  * idempotent and cannot duplicate), and returns an unparseable link untouched.
  * No site, or one that is not a hostname, leaves the link exactly as it was.
  */
-export function tagSite(rawUrl: string, site?: string): string {
+export function tagSite(rawUrl: string, site: string | undefined, config: Pick<WaConfig, "apiBaseUrl">): string {
   const host = siteHostname(site);
   if (host === undefined) return rawUrl;
   try {
     const url = new URL(rawUrl);
+    if (url.host !== portalHost(config)) return rawUrl;
     if (!url.searchParams.has("site")) url.searchParams.set("site", host);
     return url.toString();
   } catch {
     return rawUrl;
+  }
+}
+
+/** The host of the configured API, which serves the portal; undefined if unparseable. */
+function portalHost(config: Pick<WaConfig, "apiBaseUrl">): string | undefined {
+  try {
+    return new URL(config.apiBaseUrl).host;
+  } catch {
+    return undefined;
   }
 }

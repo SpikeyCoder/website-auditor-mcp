@@ -21,7 +21,8 @@ import { describe, it, expect } from "vitest";
 import { fromApiError, gateProTool, type ToolDeps, type ToolResult } from "../src/tools/context.js";
 import { siteHostname, tagSite, tagSource, upgradeLink } from "../src/tools/upgrade.js";
 import { WaApiError } from "../src/api/errors.js";
-import { makeDeps, testConfig } from "./helpers.js";
+import { makeDeps, testConfig, makeClient } from "./helpers.js";
+import type { WaApiClientLike } from "../src/api/client.js";
 import { runAudit } from "../src/tools/runAudit.js";
 import { getAiVisibility } from "../src/tools/getAiVisibility.js";
 import { getReport } from "../src/tools/getReport.js";
@@ -89,6 +90,11 @@ describe("siteHostname: the hostname, or nothing", () => {
     ["münchen.de", "xn--mnchen-3ya.de"],
     ["https://bücher.example/", "xn--bcher-kva.example"],
     ["shop.xn--p1ai", "shop.xn--p1ai"],
+    // `www.` goes only where a registrable-looking name is left.
+    ["www.acme.co.uk", "acme.co.uk"],
+    ["www.co.uk", "www.co.uk"],
+    ["www.com.au", "www.com.au"],
+    ["www.com", "www.com"],
   ])("%s → %s", (raw, host) => {
     expect(siteHostname(raw)).toBe(host);
   });
@@ -103,7 +109,6 @@ describe("siteHostname: the hostname, or nothing", () => {
     ["http://[::1]/"],
     ["https://"],
     ["acme"],
-    ["www.com"],
     ["a.xn--abc-"], // the portal refuses a label ending in a hyphen
     [`${"a".repeat(64)}.com`],
     [`${"abcdefghi.".repeat(26)}com`], // 263 characters: past 253
@@ -120,27 +125,45 @@ describe("siteHostname: the hostname, or nothing", () => {
 
 describe("tagSite", () => {
   const BASE = "https://api.website-auditor.io/admin_portal/?source=mcp";
+  const PORTAL_CFG = testConfig();
+
+  it("only on a link to our own portal: the configured API's host", () => {
+    expect(tagSite(BASE, ASKED, PORTAL_CFG)).toBe(`${BASE}&site=${HOST}`);
+    // The marketing homepage (the default info page) logs its query string.
+    expect(tagSite("https://website-auditor.io/?source=mcp", ASKED, PORTAL_CFG))
+      .toBe("https://website-auditor.io/?source=mcp");
+    // Whatever third party an operator configured.
+    expect(tagSite("https://example.org/buy?source=mcp", ASKED, PORTAL_CFG))
+      .toBe("https://example.org/buy?source=mcp");
+    // Same host on another port is another origin.
+    expect(tagSite("https://api.website-auditor.io:8443/admin_portal/", ASKED, PORTAL_CFG))
+      .toBe("https://api.website-auditor.io:8443/admin_portal/");
+    // It follows WA_API_BASE_URL, not a hard-coded host.
+    const staging = testConfig({ apiBaseUrl: "https://staging-api.example.net" });
+    expect(siteParams(tagSite("https://staging-api.example.net/admin_portal/", ASKED, staging))).toEqual([HOST]);
+    expect(tagSite(BASE, ASKED, staging)).toBe(BASE);
+  });
 
   it("appends the hostname alone", () => {
-    expect(tagSite(BASE, ASKED)).toBe(`${BASE}&site=${HOST}`);
+    expect(tagSite(BASE, ASKED, PORTAL_CFG)).toBe(`${BASE}&site=${HOST}`);
   });
 
   it("leaves the link untouched with no site, or one that does not parse", () => {
-    expect(tagSite(BASE)).toBe(BASE);
-    expect(tagSite(BASE, "")).toBe(BASE);
-    expect(tagSite(BASE, "not a domain")).toBe(BASE);
+    expect(tagSite(BASE, undefined, PORTAL_CFG)).toBe(BASE);
+    expect(tagSite(BASE, "", PORTAL_CFG)).toBe(BASE);
+    expect(tagSite(BASE, "not a domain", PORTAL_CFG)).toBe(BASE);
   });
 
   it("never overrides an existing site, so it cannot duplicate", () => {
     const already = `${BASE}&site=other.com`;
-    expect(tagSite(already, ASKED)).toBe(already);
-    const once = tagSite(BASE, ASKED);
-    expect(tagSite(once, ASKED)).toBe(once);
-    expect(siteParams(tagSite(once, "different.com"))).toEqual([HOST]);
+    expect(tagSite(already, ASKED, PORTAL_CFG)).toBe(already);
+    const once = tagSite(BASE, ASKED, PORTAL_CFG);
+    expect(tagSite(once, ASKED, PORTAL_CFG)).toBe(once);
+    expect(siteParams(tagSite(once, "different.com", PORTAL_CFG))).toEqual([HOST]);
   });
 
   it("returns an unparseable link untouched rather than throwing", () => {
-    expect(tagSite("not a url", ASKED)).toBe("not a url");
+    expect(tagSite("not a url", ASKED, PORTAL_CFG)).toBe("not a url");
   });
 
   it("does not change what tagSource does: source=mcp when absent, never over an existing source", () => {
@@ -200,6 +223,156 @@ describe.each(STYLES)("%s style: PRO_REQUIRED names the site", (_style, config) 
     );
     expect(recs.code).toBe("AUTH_REQUIRED");
     expect(siteParams(recs.upgrade_url)).toEqual([HOST]);
+  });
+});
+
+describe("no site leaves for a host other than the portal", () => {
+  it.each([
+    ["the homepage as info page", { upsellStyle: "info" as const, upsellInfoUrl: "https://website-auditor.io" }],
+    ["a third-party info page", { upsellStyle: "info" as const, upsellInfoUrl: "https://plans.example.org/" }],
+    ["a third-party upgrade URL", { upgradeUrl: "https://example.org/buy" }],
+  ])("%s: gate and fromApiError", async (_name, config) => {
+    const gated = errorOf(await runAudit({ domain: ASKED }, makeDeps({ tier: "free", config })));
+    expect(gated.code).toBe("PRO_REQUIRED");
+    expect(siteParams(gated.upgrade_url)).toEqual([]);
+    expect(gated.message).not.toContain("site=");
+    const relayed = errorOf(fromApiError(new WaApiError("PRO_REQUIRED", "x"), testConfig(config), undefined, undefined, ASKED));
+    expect(siteParams(relayed.upgrade_url)).toEqual([]);
+  });
+
+  it("an API-supplied link to another host is passed on without it", () => {
+    const e = errorOf(fromApiError(
+      new WaApiError("PRO_REQUIRED", "x", { upgradeUrl: "https://checkout.example.com/pay" }),
+      testConfig(), undefined, undefined, ASKED,
+    ));
+    expect(e.upgrade_url).toBe("https://checkout.example.com/pay?source=mcp");
+  });
+});
+
+/**
+ * Each site tool's own catch → fromApiError path, by stubbing the one client
+ * method it calls to answer PRO_REQUIRED. Pro tier, so the gate passes and
+ * only the tool's pass-through of its domain can put the site on the link.
+ */
+const PRO_REQUIRED = () => { throw new WaApiError("PRO_REQUIRED", "Subscription required."); };
+const CATCH_PATHS: Array<[string, Partial<WaApiClientLike>, SiteTool]> = [
+  ["run_audit", { runAudit: PRO_REQUIRED }, (d, deps) => runAudit({ domain: d }, deps)],
+  ["get_ai_visibility", { runAudit: PRO_REQUIRED }, (d, deps) => getAiVisibility({ domain: d }, deps)],
+  ["get_report", { getReport: PRO_REQUIRED }, (d, deps) => getReport({ domain: d }, deps)],
+  ["track_site (start)", { trackSite: PRO_REQUIRED }, (d, deps) => trackSite({ domain: d }, deps)],
+  ["track_site (enabled: false)", { untrackSite: PRO_REQUIRED }, (d, deps) => trackSite({ domain: d, enabled: false }, deps)],
+  ["untrack_site", { untrackSite: PRO_REQUIRED }, (d, deps) => untrackSite({ domain: d }, deps)],
+  ["get_changes", { getChanges: PRO_REQUIRED }, (d, deps) => getChanges({ domain: d }, deps)],
+  ["get_gtm_plan", { getGtmPlan: PRO_REQUIRED }, (d, deps) => getGtmPlan({ domain: d }, deps)],
+  ["get_benchmark", { getBenchmark: PRO_REQUIRED }, (d, deps) => getBenchmark({ domain: d }, deps)],
+  ["compare_competitors (primary audit)", { runAudit: PRO_REQUIRED },
+    (d, deps) => compareCompetitors({ domain: d, competitors: ["rival.com"] }, deps)],
+  ["generate_schema", { generateSchema: PRO_REQUIRED }, (d, deps) => generateSchema({ domain: d }, deps)],
+  ["get_recommendations", { getRecommendations: PRO_REQUIRED }, (d, deps) => getRecommendations({ domain: d }, deps)],
+];
+
+describe.each(STYLES)("%s style: each tool's own fromApiError carries its site", (_style, config) => {
+  it.each(CATCH_PATHS)("%s", async (_name, client, tool) => {
+    const deps = makeDeps({ tier: "pro", config, client });
+    const e = errorOf(await tool(ASKED, deps));
+    expect(e.code).toBe("PRO_REQUIRED");
+    expect(e.upgrade_url).toBe(upgradeLink(deps.config, ASKED));
+    expect(siteParams(e.upgrade_url)).toEqual([HOST]);
+  });
+
+  it("compare_competitors: a competitor refused for a revoked key carries the PRIMARY site", async () => {
+    const base = makeClient();
+    const deps = makeDeps({
+      tier: "pro",
+      config,
+      client: {
+        runAudit: async (req) => {
+          if (req.domain === "rival.com") throw new WaApiError("REVOKED_KEY", "This API key has been revoked.");
+          return base.runAudit(req);
+        },
+      },
+    });
+    const e = errorOf(await compareCompetitors({ domain: ASKED, competitors: ["rival.com"] }, deps));
+    expect(e.code).toBe("REVOKED_KEY");
+    expect(siteParams(e.upgrade_url)).toEqual([HOST]);
+  });
+
+  it("an unparseable primary domain is INVALID_INPUT with no link at all, site or not", async () => {
+    // The normalizeDomain catches in compare_competitors and get_gtm_plan pass
+    // the site too, for uniformity; INVALID_INPUT carries no link, so there
+    // is nothing for it to appear on.
+    for (const tool of [
+      (deps: ToolDeps) => compareCompetitors({ domain: "acme.com:8443", competitors: ["rival.com"] }, deps),
+      (deps: ToolDeps) => getGtmPlan({ domain: "acme.com:8443" }, deps),
+    ]) {
+      const e = errorOf(await tool(makeDeps({ tier: "pro", config })));
+      expect(e.code).toBe("INVALID_INPUT");
+      expect(e.upgrade_url).toBeUndefined();
+    }
+  });
+});
+
+/** Mixed Auth, as the hosted ChatGPT server runs it. */
+const OAUTH: Partial<WaConfig> = {
+  oauthIssuer: "https://api.website-auditor.io",
+  oauthResourceUrl: "https://mcp.website-auditor.io/mcp",
+};
+const INFO_OAUTH: Partial<WaConfig> = { upsellStyle: "info", upsellInfoUrl: CHATGPT_INFO, ...OAUTH };
+const hosted = (deps: ToolDeps, authVia?: ToolDeps["authVia"]): ToolDeps => ({ ...deps, transport: "http", authVia });
+const SITE_LINK = `${CHATGPT_INFO}&site=${HOST}`;
+
+describe("info style under Mixed Auth: every gate branch carries the site", () => {
+  it("not connected (AUTH_REQUIRED): message and upgrade_url", async () => {
+    const deps = hosted(makeDeps({ tier: "none", config: { ...INFO_OAUTH, apiKey: undefined } }));
+    const e = errorOf(await runAudit({ domain: ASKED }, deps));
+    expect(e.code).toBe("AUTH_REQUIRED");
+    expect((e.details as { connection: string }).connection).toBe("not_connected");
+    expect(e.upgrade_url).toBe(SITE_LINK);
+    expect(e.message).toContain(`Plans are described at ${SITE_LINK}.`);
+  });
+
+  it("connection unverified: upgrade_url", async () => {
+    const deps = hosted(makeDeps({ tier: "none", config: { ...INFO_OAUTH, apiKey: undefined } }), "unresolved_token");
+    const e = errorOf(await runAudit({ domain: ASKED }, deps));
+    expect((e.details as { connection: string }).connection).toBe("unverified");
+    expect(e.upgrade_url).toBe(SITE_LINK);
+  });
+
+  it("connection expired, from the gate (connectionExpired)", async () => {
+    const deps = hosted(makeDeps({ tier: "invalid", config: INFO_OAUTH }), "oauth");
+    const e = errorOf(await runAudit({ domain: ASKED }, deps));
+    expect(e.code).toBe("AUTH_REQUIRED");
+    expect((e.details as { connection: string }).connection).toBe("expired");
+    expect(e.upgrade_url).toBe(SITE_LINK);
+  });
+
+  it("connection expired, from the tool's own call (fromApiError → connectionExpired)", async () => {
+    const deps = hosted(makeDeps({
+      tier: "pro",
+      config: INFO_OAUTH,
+      client: { runAudit: async () => { throw new WaApiError("REVOKED_KEY", "This API key has been revoked."); } },
+    }), "oauth");
+    const e = errorOf(await runAudit({ domain: ASKED }, deps));
+    expect((e.details as { connection: string }).connection).toBe("expired");
+    expect(e.upgrade_url).toBe(SITE_LINK);
+  });
+
+  it("a rejected pasted key (key-rejection branch): upgrade_url, message unchanged", async () => {
+    const deps = makeDeps({ tier: "invalid", config: { upsellStyle: "info", upsellInfoUrl: CHATGPT_INFO } });
+    const e = errorOf(await runAudit({ domain: ASKED }, deps));
+    expect(e.code).toBe("INVALID_KEY");
+    expect(e.upgrade_url).toBe(SITE_LINK);
+    const plain = errorOf(await runAudit({ domain: "not a domain" }, makeDeps({
+      tier: "invalid", config: { upsellStyle: "info", upsellInfoUrl: CHATGPT_INFO },
+    })));
+    expect(e.message).toBe(plain.message);
+  });
+
+  it("no key, no OAuth (AUTH_REQUIRED stdio): message and upgrade_url", async () => {
+    const deps = makeDeps({ tier: "none", config: { upsellStyle: "info", upsellInfoUrl: CHATGPT_INFO, apiKey: undefined } });
+    const e = errorOf(await runAudit({ domain: ASKED }, deps));
+    expect(e.upgrade_url).toBe(SITE_LINK);
+    expect(e.message).toContain(`Plans are described at ${SITE_LINK}.`);
   });
 });
 
