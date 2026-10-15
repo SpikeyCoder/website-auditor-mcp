@@ -84,6 +84,15 @@ first". So on the Claude box:
   - Descriptions: removes the price, the trial, "call get_sample_audit first",
     "before suggesting an upgrade", "worth subscribing to" and "use it INSTEAD of
     refusing". `check_upgrade_status` is titled "Check subscription status".
+  - Descriptions also state facts instead of instructing the model. The portal's
+    compliance step asks the submitter to confirm "no instructions about model
+    behavior, other tools, or external instruction sources". So "relay that
+    caveat…", "treat `competitor` rows as…", "do not track a site just to…",
+    "do not tell the user to paste…" and every mention of another tool become
+    plain statements (NEUTRAL_EDITS). The same goes for every field description
+    in the input and output schemas, which the portal also shows ("Relay it",
+    "do not report it as 0", "supply one only when…"; NEUTRAL_SCHEMA_EDITS in
+    src/tools/neutralSchemas.ts). "Use this when…" stays.
   - Instructions: the terms leave the billing paragraph. The three prescriptive
     blocks are replaced with descriptive ones:
     - "WHEN TO OFFER THIS without being asked" (raise it unasked) and "WHEN NOT
@@ -235,7 +244,7 @@ the docs. It needs an account on a paid Claude plan.
 >
 > Use it to audit your own site, compare your AI visibility with named
 > competitors, track a site weekly and see what changed, and turn the findings
-> into prioritised fixes, ready-to-paste JSON-LD schema, a shareable report, or
+> into prioritised fixes, ready-to-edit JSON-LD schema, a shareable report, or
 > a sequenced plan for getting recommended.
 >
 > Connect a Website Auditor account to audit real domains; audits need a Pro

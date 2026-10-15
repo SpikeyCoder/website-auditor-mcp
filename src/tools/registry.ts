@@ -517,7 +517,7 @@ const PRO_SUFFIX_NEUTRAL: Record<UpsellStyle, string> = {
  * upgrade, which is promotion, not a description of the tool. Applied after
  * INFO_EDITS, which already removes it on an info server — harmless twice.
  */
-const NEUTRAL_EDITS: Partial<Record<string, Array<[string, string]>>> = {
+export const NEUTRAL_EDITS: Partial<Record<string, Array<[string, string]>>> = {
   check_upgrade_status: [[',\" or before suggesting an upgrade.', '.\"']],
   // "worth subscribing to" frames the sample as a sales step, and "INSTEAD of
   // refusing" instructs the model rather than describing the tool. What stays
@@ -525,6 +525,44 @@ const NEUTRAL_EDITS: Partial<Record<string, Array<[string, string]>>> = {
   get_sample_audit: [
     [" or is deciding whether Website Auditor is worth subscribing to", " or is deciding whether Website Auditor fits"],
     [" — and use it INSTEAD of refusing when no API key is configured.", ". It works with no account connected."],
+  ],
+  // The directory's compliance step asks the submitter to confirm that tool
+  // descriptions "contain no instructions about model behavior, other tools,
+  // or external instruction sources" (claude.ai/directory/manage, 2026-10-15).
+  // So on a neutral server every such clause becomes the fact it rested on:
+  // "relay that caveat" becomes what the caveat means, "do not track a site
+  // just to…" becomes "tracking is not required", and a pointer to another
+  // tool becomes a statement about this one. "Use this when…" stays — it says
+  // when the tool applies, which the review criteria ask descriptions to do.
+  get_ai_visibility: [
+    [" — treat `competitor` rows as context, not as placement targets;", " — `competitor` rows are rivals' own pages, context rather than places to get listed;"],
+    [" — relay that caveat rather than presenting the score as settled fact, and offer to re-run with an explicit business name.",
+      " — the score may describe a different business, and re-running with the business's real name as `business_name` measures that business."],
+  ],
+  run_audit: [
+    [" The ranked cited-`sources` evidence behind the AI-visibility number is returned by get_ai_visibility, not by this tool.",
+      " It does not include the ranked cited-`sources` evidence behind the AI-visibility number."],
+    [" — relay that caveat rather than presenting the score as settled fact.", " — the score may describe a different business."],
+  ],
+  get_changes: [
+    [" — track_site adds the weekly re-audits to the series, it is not a precondition, so do not track a site just to answer a change question.",
+      "; scheduled monitoring adds weekly re-audits to the series but is not required."],
+  ],
+  track_site: [
+    [" Adds weekly re-audits to the history that get_changes reads from — a history every audit already accrues, tracked or not — so use this to be watched on a schedule, not to make get_changes work. Passing enabled: false stops monitoring by deleting the enrollment, as untrack_site does.",
+      " Adds weekly re-audits to the domain's AI-visibility history, which every audit already adds to, tracked or not. Passing enabled: false stops monitoring by deleting the enrollment."],
+  ],
+  generate_schema: [
+    [" that the owner must replace with real names confirmed with them, never guessed from the domain or copied from an audit. `placement_notes` says what to replace first, then where to embed the finished snippet, so relay the whole ask and do not tell the user to paste the draft as returned.",
+      " meant to be replaced with the business's real names, which the tool does not know; a name an audit detected is not confirmed by the owner. `placement_notes` says what to replace first, then where to embed the finished snippet; the draft is not meant to be used as returned."],
+  ],
+  get_gtm_plan: [
+    [" Pass `focus` or `constraints` to steer it, and `prior_plan` (the markdown from an earlier call) to refine rather than start over.",
+      " `focus` and `constraints` steer it; `prior_plan` (the markdown from an earlier call) refines a plan rather than starting over."],
+  ],
+  get_monitoring_status: [
+    ["; a newer measured snapshot outside the series is not shown, and get_changes names it)", "; a newer measured snapshot outside the series is not shown)"],
+    ["; like get_changes, a change carries competitor_changes", "; a change carries competitor_changes"],
   ],
 };
 
