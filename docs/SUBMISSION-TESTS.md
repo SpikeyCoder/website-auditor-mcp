@@ -392,8 +392,10 @@ one you expected.
 300s tool budget, typical 15–30s") was never a measurement. A live audit queries
 four assistants in sequence, so this is the slowest tool **this protocol
 exercises** — not the slowest in the set. `get_ai_visibility` (P2) runs the same
-audit plus a history lookup; `compare_competitors` awaits one `auditDomain` per
-domain in sequence, so it costs roughly N+1 audits; and `get_gtm_plan` carries
+audit plus a history lookup; `compare_competitors` audits the site, then all
+uncached competitors at once, so it costs roughly two audits' time (and holds
+itself to 225 s: a competitor that could not finish by then is not started and
+is listed as `time_limit`); and `get_gtm_plan` carries
 its own 270 s budget (`GROWTH_PLAN_TIMEOUT_MS`, `src/api/client.ts`), more than
 double the ceiling below. Time P2 alongside P3 and quote the larger. Two
 ceilings sit above P3:
@@ -425,7 +427,9 @@ to the answer. Mobile separately: the rejection named mobile.
   client timeout that a slow day will trip it.
 - ≥ 110 s, or a `TIMEOUT` **at ~110 s or later** → **do not quote a more
   optimistic sentence.** The client abort tripped; move this case to a smaller
-  domain, or raise `WA_REQUEST_TIMEOUT_MS`. A number that is wrong under load is
+  domain, or raise `WA_REQUEST_TIMEOUT_MS`. Raising it shortens
+  `compare_competitors`' window for starting competitors (it starts one only
+  with that long left before its 225 s deadline), so re-time that tool too. A number that is wrong under load is
   the same class of error as the No Auth mismatch.
 - a `TIMEOUT` arriving **well before** 110 s → upstream, and raising
   `WA_REQUEST_TIMEOUT_MS` will not touch it. `src/api/client.ts` raises this

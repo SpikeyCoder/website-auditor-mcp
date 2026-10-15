@@ -20,6 +20,16 @@
  *     actionable OVER_QUOTA error carrying the reset time. Not an upgrade
  *     prompt: the cap applies to every subscription, so there is nothing to
  *     upgrade to — see the 429 branch in api/client.ts.
+ *
+ * It also has to finish inside one tool call. Claude stops waiting for a tool
+ * after 240 seconds, and a cold audit takes about 70s at p50, so auditing the
+ * competitors one after another passed that limit at three uncached sites. The
+ * primary is still audited first and alone (its failure fails the comparison,
+ * and its rate-limit header sizes the rest), then every competitor is started
+ * at once. A competitor audit starts only if it can run to its own request
+ * timeout before the deadline; one that can't is not started, costs nothing,
+ * and is listed in `skipped` as "time_limit". Nothing in flight is ever
+ * abandoned, because the API charges an audit once it has dispatched it.
  */
 import type {
   Comparison,
@@ -44,6 +54,19 @@ export interface CompareCompetitorsArgs {
 
 const ENGINES = ["chatgpt", "perplexity", "claude", "gemini"] as const;
 
+/**
+ * The whole call must answer inside this. Claude's limit on one tool call
+ * (claude.com/docs/connectors/building) is 240s. The clock starts when this
+ * function is entered, so the Pro gate is inside the budget; the margin covers
+ * what runs before it (sign-in, the price refresh) and the trip back.
+ *
+ * Only competitor audits are held to it. The primary is audited however long
+ * the gate took, and a gate that needed a slow subscription lookup can still
+ * push one call past the limit: that takes a degraded upstream, not a cold
+ * cache.
+ */
+export const TOOL_CALL_BUDGET_MS = 240_000 - 15_000;
+
 /** Mutable quota tracker shared across the fan-out. */
 interface QuotaState {
   limit: number | null;
@@ -51,12 +74,20 @@ interface QuotaState {
   reset: string | null;
   auditsUsed: number;
   cachedReused: number;
+  /**
+   * Audits sent and not yet answered. The API reserves a slot for each one as
+   * it arrives, so the budget left to start another is `remaining - inFlight`;
+   * without it a parallel start would send every competitor against a budget
+   * that only covers some of them.
+   */
+  inFlight: number;
 }
 
 type AuditOutcome =
   | { kind: "scored"; av: AiVisibility; fromCache: boolean }
   | { kind: "unreachable" }
   | { kind: "skip_quota" } // known-zero budget: not attempted
+  | { kind: "skip_time" } // could not finish before the deadline: not attempted
   | { kind: "quota_error" } // attempted, API returned 429
   | { kind: "error"; error: unknown };
 
@@ -81,6 +112,7 @@ export async function compareCompetitors(
   args: CompareCompetitorsArgs,
   deps: ToolDeps,
 ): Promise<ToolResult<Comparison>> {
+  const deadline = Date.now() + TOOL_CALL_BUDGET_MS;
   const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
 
@@ -113,7 +145,9 @@ export async function compareCompetitors(
     competitorHosts.push(host);
   }
 
-  const quota: QuotaState = { limit: null, remaining: null, reset: null, auditsUsed: 0, cachedReused: 0 };
+  const quota: QuotaState = {
+    limit: null, remaining: null, reset: null, auditsUsed: 0, cachedReused: 0, inFlight: 0,
+  };
 
   // Pre-flight: read remaining quota without spending an audit, if possible.
   const preflight = await safeRemaining(deps);
@@ -146,16 +180,38 @@ export async function compareCompetitors(
       );
     case "error":
       return fromApiError(primaryOutcome.error, deps.config, deps.transport, deps.authVia, args.domain);
+    case "skip_time":
+      // Unreachable: the primary is given no latest start. It is audited first,
+      // and without it there is nothing to compare.
+      throw new Error("compare_competitors: the primary audit was skipped for time");
   }
   const primaryAv = primaryOutcome.av;
 
-  // Competitors. We always route through auditDomain even after the quota is
-  // exhausted: it consults the cache FIRST (a cache hit is free regardless of
-  // budget) and only returns skip_quota on a genuine cache miss with no budget.
-  // So a cached competitor is still served for free rather than dropped.
+  // Competitors, all started at once. We always route through auditDomain even
+  // after the quota is exhausted: it consults the cache FIRST (a cache hit is
+  // free regardless of budget and time) and only returns skip_quota or
+  // skip_time on a genuine cache miss. So a cached competitor is still served
+  // for free rather than dropped.
+  //
+  // Every start decision is made in list order before any answer arrives:
+  // auditDomain runs synchronously up to its runAudit call, so each map step
+  // sees the in-flight count the previous ones left. When the primary's header
+  // gave a budget, earlier competitors get it first, as they did when this loop
+  // was sequential. When it gave none (the primary came from the cache), every
+  // uncached competitor is sent and the API decides which fit: the ones it
+  // refuses get a 429, which costs nothing, and are reported as quota skips.
+  //
+  // An audit may start only if it can reach its own request timeout before the
+  // deadline, so nothing started here is still running when the call answers.
+  // That makes WA_REQUEST_TIMEOUT_MS part of this tool's budget: at 120s a
+  // competitor can start up to 105s in, and raised past 225s none ever could.
+  const latestStart = deadline - deps.config.requestTimeoutMs;
+  const outcomes = await Promise.all(
+    competitorHosts.map((host) => auditDomain(deps, host, quota, market || undefined, latestStart)),
+  );
   const audited: Array<{ host: string; av: AiVisibility }> = [];
-  for (const host of competitorHosts) {
-    const outcome = await auditDomain(deps, host, quota, market || undefined);
+  for (const [i, host] of competitorHosts.entries()) {
+    const outcome = outcomes[i]!;
     switch (outcome.kind) {
       case "scored":
         audited.push({ host, av: outcome.av });
@@ -181,6 +237,13 @@ export async function compareCompetitors(
         // Budget is now known-zero; subsequent cache misses fall here too (no
         // network), while cached competitors still resolve via auditDomain.
         skipped.push({ domain: host, reason: "quota" });
+        break;
+      case "skip_time":
+        skipped.push({
+          domain: host,
+          reason: "time_limit",
+          detail: "Not started: an audit could not finish inside the time limit on one tool call. No quota was spent.",
+        });
         break;
     }
   }
@@ -219,7 +282,8 @@ export async function compareCompetitors(
     comparedCount: audited.length,
     requestedCount: competitorHosts.length,
     quotaSkipped,
-    otherSkipped: skipped.filter((s) => s.reason !== "quota"),
+    timeSkipped: skipped.filter((s) => s.reason === "time_limit").length,
+    otherSkipped: skipped.filter((s) => s.reason !== "quota" && s.reason !== "time_limit"),
     remaining: quota.remaining,
     reset: quota.reset,
     cachedReused: quota.cachedReused,
@@ -233,14 +297,18 @@ export async function compareCompetitors(
 }
 
 /**
- * Obtain an audit for a domain, honoring the cache and the known quota budget.
- * Mutates `quota` (auditsUsed, cachedReused, and the learned remaining/limit/reset).
+ * Obtain an audit for a domain, honoring the cache, the known quota budget and,
+ * when `latestStart` is given, the time left: an uncached audit is not started
+ * after that instant.
+ * Mutates `quota` (auditsUsed, cachedReused, inFlight, and the learned
+ * remaining/limit/reset).
  */
 async function auditDomain(
   deps: ToolDeps,
   host: string,
   quota: QuotaState,
   businessCity?: string,
+  latestStart?: number,
 ): Promise<AuditOutcome> {
   // KEYED WITH THE LOCATION, not by host alone. The same domain scored
   // against "Chiang Mai, Thailand" and against nothing are two different
@@ -253,18 +321,37 @@ async function auditDomain(
     return { kind: "scored", av: cached, fromCache: true };
   }
 
-  // We know the budget is exhausted — don't attempt (avoids a wasted 429).
-  if (quota.remaining !== null && quota.remaining <= 0) {
+  // We know the budget is exhausted, counting the audits already sent — don't
+  // attempt (avoids a wasted 429).
+  if (quota.remaining !== null && quota.remaining - quota.inFlight <= 0) {
     return { kind: "skip_quota" };
   }
 
+  // Quota before time: an exhausted budget is the reason that tells the caller
+  // to wait for the reset, where a re-run now would only be refused again.
+  if (latestStart !== undefined && Date.now() > latestStart) {
+    return { kind: "skip_time" };
+  }
+
+  quota.inFlight += 1;
   try {
     const res = await deps.client.runAudit({ domain: host, businessCity });
     quota.auditsUsed += 1;
     if (res.rateLimit) {
-      if (res.rateLimit.remaining !== null) quota.remaining = res.rateLimit.remaining;
+      // The LOWEST remaining seen, not the last one to arrive. Each header is
+      // the count when that request was reserved; parallel answers arrive in
+      // any order, and the last to land can carry a count from before its
+      // siblings were reserved. Compared only within one day: a header naming
+      // a LATER reset was reserved after UTC midnight and replaces the count,
+      // and one naming an EARLIER reset is yesterday's and is ignored.
+      const { remaining: r, reset } = res.rateLimit;
+      const newerDay = !!reset && !!quota.reset && reset > quota.reset;
+      const olderDay = !!reset && !!quota.reset && reset < quota.reset;
+      if (r !== null && !olderDay) {
+        quota.remaining = quota.remaining === null || newerDay ? r : Math.min(quota.remaining, r);
+      }
       if (res.rateLimit.limit !== null) quota.limit = res.rateLimit.limit;
-      if (res.rateLimit.reset) quota.reset = res.rateLimit.reset;
+      if (reset && !olderDay) quota.reset = reset;
     }
     if (detectUnreachable(res.report)) return { kind: "unreachable" };
     const av = toAiVisibility(res.report);
@@ -277,6 +364,8 @@ async function auditDomain(
       return { kind: "quota_error" };
     }
     return { kind: "error", error: e };
+  } finally {
+    quota.inFlight -= 1;
   }
 }
 
@@ -318,6 +407,7 @@ function buildSummary(p: {
   comparedCount: number;
   requestedCount: number;
   quotaSkipped: number;
+  timeSkipped: number;
   otherSkipped: SkippedDomain[];
   remaining: number | null;
   reset: string | null;
@@ -339,6 +429,13 @@ function buildSummary(p: {
     );
   } else if (p.remaining !== null) {
     parts.push(`${p.remaining} audit${p.remaining === 1 ? "" : "s"} remain today.`);
+  }
+
+  if (p.timeSkipped > 0) {
+    const them = p.timeSkipped === 1 ? "it" : "them";
+    parts.push(
+      `${p.timeSkipped} competitor${p.timeSkipped === 1 ? " was" : "s were"} not audited because too little time was left for another audit to finish inside the time limit on one tool call. No quota was spent on ${them}; run the comparison again to include ${them}.`,
+    );
   }
 
   if (p.cachedReused > 0) {

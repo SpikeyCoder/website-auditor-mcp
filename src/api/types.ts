@@ -472,7 +472,11 @@ export interface RateLimit {
   reset: string | null;
 }
 
-export type SkipReason = "quota" | "unreachable" | "error";
+/**
+ * "time_limit": not started, because the audit could not have finished inside
+ * one tool call's time limit (compare_competitors). Costs no quota.
+ */
+export type SkipReason = "quota" | "unreachable" | "time_limit" | "error";
 
 export interface SkippedDomain {
   domain: string;
