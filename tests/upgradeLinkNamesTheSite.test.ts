@@ -88,6 +88,7 @@ describe("siteHostname: the hostname, or nothing", () => {
     ["acme.com.", "acme.com"],
     ["münchen.de", "xn--mnchen-3ya.de"],
     ["https://bücher.example/", "xn--bcher-kva.example"],
+    ["shop.xn--p1ai", "shop.xn--p1ai"],
   ])("%s → %s", (raw, host) => {
     expect(siteHostname(raw)).toBe(host);
   });
@@ -103,6 +104,7 @@ describe("siteHostname: the hostname, or nothing", () => {
     ["https://"],
     ["acme"],
     ["www.com"],
+    ["a.xn--abc-"], // the portal refuses a label ending in a hyphen
     [`${"a".repeat(64)}.com`],
     [`${"abcdefghi.".repeat(26)}com`], // 263 characters: past 253
   ])("%s → undefined", (raw) => {

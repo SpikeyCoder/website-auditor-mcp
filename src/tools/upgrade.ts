@@ -110,7 +110,10 @@ export function siteHostname(raw: string | undefined): string | undefined {
   host = host.replace(/\.$/, "").replace(/^www\./, "");
   if (host.length > 253) return undefined;
   const label = "[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?";
-  const tld = "([a-z]{2,63}|xn--[a-z0-9-]{1,59})";
+  // A punycode TLD ends on a letter or digit like any label: the portal's
+  // check (HOST_LABEL in website-auditor-api) refuses a trailing hyphen, and a
+  // site it refuses is dropped silently rather than named.
+  const tld = "([a-z]{2,63}|xn--[a-z0-9-]{0,58}[a-z0-9])";
   return new RegExp(`^(${label}\\.)+${tld}$`).test(host) ? host : undefined;
 }
 
