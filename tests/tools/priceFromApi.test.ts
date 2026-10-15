@@ -158,6 +158,7 @@ describe("the entry points ask before they serve", () => {
     await Promise.all([server.connect(a), client.connect(b)]);
     const res = await client.callTool({ name: "check_upgrade_status", arguments: {} });
     expect(res.isError).toBeFalsy();
+    expect(JSON.stringify(res)).toContain(FALLBACK_PRICE);
     await client.close();
   });
 
