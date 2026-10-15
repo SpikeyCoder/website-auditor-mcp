@@ -30,6 +30,8 @@ const PRICE_SHAPE = /^\$[1-9]\d{0,3}\/month$/;
 const PRICE_TIMEOUT_MS = 2000;
 /** How old a price may be before a tool call asks again (refreshPriceIfStale). */
 export const PRICE_MAX_AGE_MS = 60 * 60 * 1000;
+/** After a failed ask, how soon a tool call may ask again. */
+export const PRICE_RETRY_MS = 5 * 60 * 1000;
 
 let lastAskedMs = 0;
 
@@ -67,6 +69,9 @@ export async function refreshPrice(
     problem = `could not be read (${err instanceof Error ? err.name : "error"})`;
   }
   console.error(`[website-auditor-mcp] ${url} ${problem}; stating ${PRICE}`);
+  // Ask again sooner than an hour: an install started offline should not
+  // wait that long to learn the price.
+  lastAskedMs = nowMs - PRICE_MAX_AGE_MS + PRICE_RETRY_MS;
   return PRICE;
 }
 

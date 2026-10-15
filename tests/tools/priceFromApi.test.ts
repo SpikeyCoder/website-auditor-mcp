@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
-  FALLBACK_PRICE, PRICE, PRICE_MAX_AGE_MS, refreshPrice, refreshPriceIfStale,
+  FALLBACK_PRICE, PRICE, PRICE_MAX_AGE_MS, PRICE_RETRY_MS, refreshPrice, refreshPriceIfStale,
 } from "../../src/tools/upgrade.js";
 import { SERVED_TOOLS, descriptionFor } from "../../src/tools/registry.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
@@ -73,6 +73,19 @@ describe("refreshPriceIfStale", () => {
     await refreshPriceIfStale({ ...config, upsellStyle: "info" }, f, 9e12);
     expect(f.calls).toBe(2);
   });
+
+  it("after a failed ask, asks again in minutes, not an hour", async () => {
+    quiet();
+    const t0 = 2e12;
+    const down = Object.assign((async () => { throw new Error("offline"); }) as unknown as typeof fetch, { calls: 0 });
+    await refreshPriceIfStale(config, down, t0);
+    const f = answering({ pro_price_label: TWELVE });
+    await refreshPriceIfStale(config, f, t0 + PRICE_RETRY_MS - 1);
+    expect(f.calls).toBe(0);
+    await refreshPriceIfStale(config, f, t0 + PRICE_RETRY_MS);
+    expect(f.calls).toBe(1);
+    expect(PRICE).toBe(TWELVE);
+  });
 });
 
 describe("every surface states the current price", () => {
@@ -93,6 +106,9 @@ describe("every surface states the current price", () => {
     const gate = await gateProTool(makeDeps({ tier: "free", config: { apiKey: "wa_free_key_for_tests" } }));
     expect(gate && !gate.ok && gate.error.code).toBe("PRO_REQUIRED");
     expect(gate && !gate.ok && gate.error.message).toContain(TWELVE);
+    const keyless = await gateProTool(makeDeps({ tier: "none" }));
+    expect(keyless && !keyless.ok && keyless.error.code).toBe("AUTH_REQUIRED");
+    expect(keyless && !keyless.ok && keyless.error.message).toContain(TWELVE);
   });
 
   it("messages a member may read state no price: they may still be on an earlier one", async () => {
@@ -116,15 +132,32 @@ describe("the entry points ask before they serve", () => {
     await client.close();
   });
 
-  it("a tool call runs deps.refreshPrice before the handler", async () => {
-    const order: string[] = [];
-    const deps = { ...makeDeps({}), refreshPrice: async () => { order.push("price"); } };
+  it("a tool call refreshes the price before its handler states it; a local tool never asks", async () => {
+    let refreshed = 0;
+    const deps = {
+      ...makeDeps({ config: { apiBaseUrl: config.apiBaseUrl } }),
+      refreshPrice: async () => { refreshed += 1; await refreshPrice(config, answering({ pro_price_label: TWELVE })); },
+    };
     const server = createServer(deps);
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "t", version: "0" });
     await Promise.all([server.connect(a), client.connect(b)]);
     await client.callTool({ name: "get_sample_audit", arguments: {} });
-    expect(order).toEqual(["price"]);
+    expect(refreshed).toBe(0);
+    const res = await client.callTool({ name: "check_upgrade_status", arguments: {} });
+    expect(refreshed).toBe(1);
+    expect(JSON.stringify(res)).toContain(TWELVE);
+    await client.close();
+  });
+
+  it("a refresh that fails is the old price, never a failed tool call", async () => {
+    const deps = { ...makeDeps({}), refreshPrice: async () => { throw new Error("boom"); } };
+    const server = createServer(deps);
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "t", version: "0" });
+    await Promise.all([server.connect(a), client.connect(b)]);
+    const res = await client.callTool({ name: "check_upgrade_status", arguments: {} });
+    expect(res.isError).toBeFalsy();
     await client.close();
   });
 
