@@ -718,16 +718,28 @@ export function mixedAuthSummary(config: WaConfig): string {
 }
 
 /** How often the hosted server asks the API for the price. */
-const PRICE_REFRESH_MS = 5 * 60 * 1000;
+export const PRICE_REFRESH_MS = 5 * 60 * 1000;
+
+/**
+ * Each request builds its own server, which reads PRICE then: ask the API at
+ * boot and every few minutes, so a price change reaches new sessions without
+ * a redeploy. An info-style server states no price, so it never asks (null).
+ */
+export async function startPriceRefresh(
+  config: Pick<WaConfig, "apiBaseUrl" | "upsellStyle">,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ReturnType<typeof setInterval> | null> {
+  if (config.upsellStyle === "info") return null;
+  await refreshPrice(config, fetchImpl);
+  const timer = setInterval(() => { void refreshPrice(config, fetchImpl); }, PRICE_REFRESH_MS);
+  timer.unref();
+  return timer;
+}
 
 async function main(): Promise<void> {
   const options = httpOptionsFromEnv(process.env);
   const port = portFromEnv(process.env);
-  // Each session builds its own server, which reads the price then: refresh
-  // it at boot and every few minutes, so a price change in the API reaches
-  // new sessions without a redeploy.
-  await refreshPrice(options.config);
-  setInterval(() => { void refreshPrice(options.config); }, PRICE_REFRESH_MS).unref();
+  await startPriceRefresh(options.config);
   const server = createWaHttpServer(options);
   server.listen(port, () => {
     console.error(

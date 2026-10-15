@@ -21,7 +21,6 @@
 import { describe, it, expect } from "vitest";
 import { gateProTool, RESTART_NOTE } from "../src/tools/context.js";
 import { checkUpgradeStatus } from "../src/tools/checkUpgradeStatus.js";
-import { PRICE } from "../src/tools/upgrade.js";
 import { makeDeps } from "./helpers.js";
 
 /** Pull the message off a gate result, failing loudly if the gate let it pass. */
@@ -151,6 +150,8 @@ describe("check_upgrade_status does not imply a key is free", () => {
     if (!res.ok) return;
     expect(res.data.message).not.toMatch(/free account/i);
     expect(res.data.message).toMatch(/subscription/i);
-    expect(res.data.message).toContain(PRICE);
+    // No price: a member who has not set a key reads this too, and may still
+    // be on an earlier price than a new signup pays.
+    expect(res.data.message).not.toMatch(/\$\d/);
   });
 });

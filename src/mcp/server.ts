@@ -227,6 +227,9 @@ export function createServer(deps: ToolDeps): McpServer {
         ...(securitySchemes ? { _meta: { securitySchemes } } : {}),
       },
       async (args: Record<string, unknown>) => {
+        // Before the handler builds a message that may state the price; not
+        // counted in the tool's duration.
+        if (deps.refreshPrice) await deps.refreshPrice();
         const startedAt = Date.now();
         const result = await handler(args ?? {}, deps);
         // Fire-and-forget: emit() never throws, and telemetry is not awaited, so

@@ -272,6 +272,11 @@ it sends only two things to that API:
 - your **API key** (`WA_API_KEY`), used to authenticate the request and resolve
   your plan tier.
 
+At startup, and at most hourly while tools are in use, the server also asks
+the same API for Pro's current price (`GET /pricing.json`), so the price it
+states is never out of date. That request carries no key, no install id and no
+data about you or your sites.
+
 That's the full extent of what leaves your machine. The connector does **not**
 collect, store, or transmit your files, prompts, conversation content, or any
 other personal data, and it does not send data to any third party beyond the

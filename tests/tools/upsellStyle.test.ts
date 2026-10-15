@@ -77,7 +77,7 @@ describe("gateProTool under info style", () => {
     // blocker the message says where plans are described; a rejected key
     // usually belongs to a paying member, so it says where keys come from.
     if (result.error.code !== "INVALID_KEY") expect(result.error.message).toContain("Plans are described at");
-    expect(result.error.message).not.toContain(PRICE);
+    expect(result.error.message).not.toMatch(/\$\d/);
     expect(result.error.message).not.toMatch(/free trial/i);
   });
 
@@ -118,7 +118,7 @@ describe("instructions under info style", () => {
   const infoText = buildInstructions(`${INFO}?source=mcp`, "info");
 
   it("says a plan is needed and links the info page — no price, no trial (OpenAI's app rules)", () => {
-    expect(infoText).not.toContain(PRICE);
+    expect(infoText).not.toMatch(/\$\d/);
     expect(infoText).not.toMatch(/free trial/i);
     expect(infoText).toMatch(/Website Auditor plan/);
     expect(infoText).toContain(`${INFO}?source=mcp`);
@@ -196,7 +196,7 @@ describe("info style says no price and no trial anywhere (OpenAI's app rules)", 
     // Reporting the member's OWN trial ("Free trial active") is their account's
     // state, which the rules allow; selling one is not. So: no price, no
     // purchase link, and no trial offered to someone without one.
-    expect(res.data.message).not.toContain(PRICE);
+    expect(res.data.message).not.toMatch(/\$\d/);
     expect(res.data.message).not.toMatch(/subscribe at/i);
     if (sub.status !== "trialing") expect(res.data.message).not.toMatch(/free trial/i);
   });

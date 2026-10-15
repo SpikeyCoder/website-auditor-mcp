@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { SERVED_TOOLS, labelFor } from "../src/tools/registry.js";
 import { PROMPT_SPECS } from "../src/mcp/prompts.js";
 import { annotationsFor, SERVER_VERSION } from "../src/mcp/server.js";
+import { FALLBACK_PRICE } from "../src/tools/upgrade.js";
 
 /**
  * Drift guards over the three files that describe this server to the outside
@@ -30,6 +31,20 @@ const server = read("server.json");
 const manifest = read("manifest.json");
 
 describe("published manifests stay in sync with the code", () => {
+  it("every listing states the fallback price, and no other", () => {
+    // The listings publish with a release, and say what a new signup pays;
+    // a running server states the API's price instead (tools/upgrade.ts).
+    for (const [name, text] of [
+      ["manifest.json", JSON.stringify(manifest)],
+      ["server.json", JSON.stringify(server)],
+      ["README.md", readFileSync(join(root, "README.md"), "utf8")],
+    ] as const) {
+      const prices = [...text.matchAll(/\$\d+(?:\.\d+)?\/(?:month|mo)\b/g)].map((m) => m[0]);
+      expect(prices.length, name).toBeGreaterThan(0);
+      expect(new Set(prices), name).toEqual(new Set([FALLBACK_PRICE]));
+    }
+  });
+
   it("every version string agrees", () => {
     expect(server.version).toBe(pkg.version);
     expect(manifest.version).toBe(pkg.version);

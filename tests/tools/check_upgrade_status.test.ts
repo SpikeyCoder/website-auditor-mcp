@@ -212,7 +212,7 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.message).toContain("could not verify");
-    expect(res.data.message).not.toContain(PRICE);
+    expect(res.data.message).not.toMatch(/\$\d/);
   });
 
   it("still says no account is connected yet to a caller who sent nothing", async () => {
