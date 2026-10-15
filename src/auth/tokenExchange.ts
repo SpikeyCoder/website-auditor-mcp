@@ -40,9 +40,37 @@ function warnIntrospection(reason: string, now: number = Date.now()): void {
   console.warn(`[website-auditor-mcp http] OAuth introspection ${reason}; treating the token as unresolved`);
 }
 
+/**
+ * Why a token did not resolve, for the one caller that must tell them apart.
+ *
+ *   "inactive"    — the authorization server answered and said no: expired,
+ *                   revoked, unknown, or a grant without the audit scope. Signing
+ *                   in again is the remedy.
+ *   "unavailable" — it could not answer: unreachable, timed out, non-2xx (a
+ *                   wrong WA_OAUTH_INTROSPECTION_SECRET answers 401 for
+ *                   everyone), or a body that is not JSON. Signing in again
+ *                   fixes nothing.
+ *
+ * The Claude box needs the difference: it answers "inactive" with an HTTP 401,
+ * which makes Claude refresh and then ask the user to reconnect. Answering an
+ * outage the same way would push every connected user round a reconnect loop
+ * that cannot succeed while the endpoint is down; it gets the 200 "could not
+ * verify, try again" answer instead, as on every other box.
+ */
+export type TokenResolution =
+  | { status: "active"; key: string }
+  | { status: "inactive" }
+  | { status: "unavailable" };
+
 /** The seam tools and tests depend on: a token in, a `wa_` key or nothing out. */
 export interface TokenExchange {
   resolve(token: string): Promise<string | undefined>;
+  /**
+   * The same lookup, saying why when there is no key. Optional so a test double
+   * can stay a one-line `resolve`; a caller without it reads every miss as
+   * "inactive", which is what an exchange that cannot tell would have to mean.
+   */
+  resolveDetailed?(token: string): Promise<TokenResolution>;
 }
 
 /** Positive results live this long — same 60s reasoning as the subscription cache. */
@@ -70,7 +98,7 @@ const NEGATIVE_TTL_MS = 5_000;
 const MAX_ENTRIES = 5_000;
 
 interface CacheEntry {
-  key?: string;
+  resolution: TokenResolution;
   expiresAt: number;
 }
 
@@ -85,11 +113,16 @@ export class IntrospectionTokenExchange implements TokenExchange {
   ) {}
 
   async resolve(token: string): Promise<string | undefined> {
+    const resolution = await this.resolveDetailed(token);
+    return resolution.status === "active" ? resolution.key : undefined;
+  }
+
+  async resolveDetailed(token: string): Promise<TokenResolution> {
     const at = this.now();
     const cached = this.cache.get(token);
-    if (cached && cached.expiresAt > at) return cached.key;
+    if (cached && cached.expiresAt > at) return cached.resolution;
 
-    const key = await this.introspect(token);
+    const resolution = await this.introspect(token);
     // Re-sampled AFTER the await, not reused from before it. The introspection
     // call can take up to requestTimeoutMs (120s by default), and dating the
     // entry from before it meant a degraded endpoint wrote negatives that were
@@ -98,11 +131,13 @@ export class IntrospectionTokenExchange implements TokenExchange {
     // precisely when the endpoint was least able to absorb it.
     const storedAt = this.now();
     this.evict(storedAt);
+    // Both kinds of miss take the short TTL: it is the flood bound for junk
+    // tokens, and an outage should be re-tried within seconds of recovering.
     this.cache.set(token, {
-      key,
-      expiresAt: storedAt + (key ? this.ttlMs : NEGATIVE_TTL_MS),
+      resolution,
+      expiresAt: storedAt + (resolution.status === "active" ? this.ttlMs : NEGATIVE_TTL_MS),
     });
-    return key;
+    return resolution;
   }
 
   /** Live entry count, post-eviction. For tests. */
@@ -128,16 +163,21 @@ export class IntrospectionTokenExchange implements TokenExchange {
    * file's header.
    *
    * Every failure — unreachable, non-2xx, unparseable, inactive, no key —
-   * answers `undefined`, which lands the caller on the keyless surface. That is
-   * the safe direction and the same one DefaultSubscriptionProvider takes on a
-   * cold-cache outage: never fail OPEN into someone else's account. The caller
-   * then answers "could not verify the connection — try again, or reconnect"
-   * (http.ts, authVia "unresolved_token"), which is right for an outage and a
-   * token seconds old alike; this cannot tell those apart, so neither can it.
+   * yields no key, which lands the caller on the keyless surface. That is the
+   * safe direction and the same one DefaultSubscriptionProvider takes on a
+   * cold-cache outage: never fail OPEN into someone else's account.
+   *
+   * What it does say is which KIND of failure (TokenResolution): "inactive"
+   * when the authorization server answered no, "unavailable" when it could not
+   * answer. A "result"-challenge box answers both the same way, "could not
+   * verify the connection — try again, or reconnect" (http.ts, authVia
+   * "unresolved_token"); an "http"-challenge box (Claude) answers "inactive"
+   * with a 401 so the client refreshes, and keeps the 200 for "unavailable".
    */
-  private async introspect(token: string): Promise<string | undefined> {
+  private async introspect(token: string): Promise<TokenResolution> {
     const endpoint = this.cfg.oauthIntrospectionUrl;
-    if (!endpoint) return undefined;
+    // Nothing to ask: a configuration fault, not the user's sign-in.
+    if (!endpoint) return { status: "unavailable" };
 
     const headers: Record<string, string> = {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -164,17 +204,28 @@ export class IntrospectionTokenExchange implements TokenExchange {
         // WA_OAUTH_INTROSPECTION_SECRET answers 401 for every connected user,
         // and their "could not verify, try again" looks like a passing glitch.
         warnIntrospection(`answered HTTP ${resp.status}`);
-        return undefined;
+        return { status: "unavailable" };
       }
-      const body = (await resp.json()) as { active?: unknown; api_key?: unknown };
-      if (body?.active !== true) return undefined;
-      return typeof body.api_key === "string" && body.api_key ? body.api_key : undefined;
+      let body: { active?: unknown; api_key?: unknown } | null;
+      try {
+        body = (await resp.json()) as typeof body;
+      } catch {
+        warnIntrospection("answered a body that is not JSON");
+        return { status: "unavailable" };
+      }
+      // A clear answer from the authorization server: only these mean "sign in
+      // again". Active without a key is a grant lacking the audit scope, which
+      // a fresh sign-in (asking for the scopes the challenge names) fixes.
+      if (body?.active !== true) return { status: "inactive" };
+      return typeof body.api_key === "string" && body.api_key
+        ? { status: "active", key: body.api_key }
+        : { status: "inactive" };
     } catch (err) {
       // fetch wraps the network cause (ENOTFOUND, ECONNREFUSED, a TLS code) in
       // err.cause, and the bare name reads TypeError for all of them.
       const cause = err instanceof Error ? (err.cause as { code?: string } | undefined)?.code : undefined;
       warnIntrospection(`failed: ${cause ?? (err instanceof Error ? err.name : "unknown error")}`);
-      return undefined;
+      return { status: "unavailable" };
     } finally {
       clearTimeout(timer);
     }

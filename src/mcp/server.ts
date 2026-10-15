@@ -175,6 +175,7 @@ export function createServer(deps: ToolDeps): McpServer {
         deps.config.upsellStyle,
         deps.transport,
         deps.transport === "http" && oauthEnabled(deps.config),
+        deps.config.toolCopy,
       ),
     },
   );
@@ -200,7 +201,7 @@ export function createServer(deps: ToolDeps): McpServer {
     // Every tool carries a human `title` plus all three hint annotations —
     // required by the Claude connector directory and the OpenAI plugin review
     // alike. The values are per-tool; see annotationsFor above.
-    const annotations = annotationsFor({ ...spec, title: titleFor(spec, deps.config.upsellStyle) });
+    const annotations = annotationsFor({ ...spec, title: titleFor(spec, deps.config.upsellStyle, deps.config.toolCopy) });
     // The declarative half of Mixed Auth: which tools need a connected account
     // and for what scope. Undefined unless OAuth is configured, so an
     // unconfigured server publishes no `_meta` at all and its tool list is
@@ -214,8 +215,8 @@ export function createServer(deps: ToolDeps): McpServer {
     server.registerTool(
       spec.name,
       {
-        title: titleFor(spec, deps.config.upsellStyle),
-        description: descriptionFor(spec, deps.config.upsellStyle),
+        title: titleFor(spec, deps.config.upsellStyle, deps.config.toolCopy),
+        description: descriptionFor(spec, deps.config.upsellStyle, deps.config.toolCopy),
         inputSchema: spec.inputSchema,
         // Declared where a tool has a stable result shape. The portal flags
         // every tool without one ("so models can better understand this tool's
