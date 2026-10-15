@@ -90,6 +90,7 @@ describe("siteHostname: the hostname, or nothing", () => {
     ["münchen.de", "xn--mnchen-3ya.de"],
     ["https://bücher.example/", "xn--bcher-kva.example"],
     ["shop.xn--p1ai", "shop.xn--p1ai"],
+    ["www.co.acme.com", "co.acme.com"], // a listed label only matters as a bare two-label suffix
     // `www.` goes only where a registrable-looking name is left.
     ["www.acme.co.uk", "acme.co.uk"],
     ["www.co.uk", "www.co.uk"],
@@ -127,7 +128,7 @@ describe("tagSite", () => {
   const BASE = "https://api.website-auditor.io/admin_portal/?source=mcp";
   const PORTAL_CFG = testConfig();
 
-  it("only on a link to our own portal: the configured API's host", () => {
+  it("only on a link to our own portal: the configured API's origin", () => {
     expect(tagSite(BASE, ASKED, PORTAL_CFG)).toBe(`${BASE}&site=${HOST}`);
     // The marketing homepage (the default info page) logs its query string.
     expect(tagSite("https://website-auditor.io/?source=mcp", ASKED, PORTAL_CFG))
@@ -138,6 +139,9 @@ describe("tagSite", () => {
     // Same host on another port is another origin.
     expect(tagSite("https://api.website-auditor.io:8443/admin_portal/", ASKED, PORTAL_CFG))
       .toBe("https://api.website-auditor.io:8443/admin_portal/");
+    // Same host over plain http would carry the site in clear.
+    expect(tagSite("http://api.website-auditor.io/admin_portal/", ASKED, PORTAL_CFG))
+      .toBe("http://api.website-auditor.io/admin_portal/");
     // It follows WA_API_BASE_URL, not a hard-coded host.
     const staging = testConfig({ apiBaseUrl: "https://staging-api.example.net" });
     expect(siteParams(tagSite("https://staging-api.example.net/admin_portal/", ASKED, staging))).toEqual([HOST]);

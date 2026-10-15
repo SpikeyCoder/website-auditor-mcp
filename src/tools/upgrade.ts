@@ -153,7 +153,7 @@ export function tagSite(rawUrl: string, site: string | undefined, config: Pick<W
   if (host === undefined) return rawUrl;
   try {
     const url = new URL(rawUrl);
-    if (url.host !== portalHost(config)) return rawUrl;
+    if (url.origin !== portalOrigin(config)) return rawUrl;
     if (!url.searchParams.has("site")) url.searchParams.set("site", host);
     return url.toString();
   } catch {
@@ -161,10 +161,14 @@ export function tagSite(rawUrl: string, site: string | undefined, config: Pick<W
   }
 }
 
-/** The host of the configured API, which serves the portal; undefined if unparseable. */
-function portalHost(config: Pick<WaConfig, "apiBaseUrl">): string | undefined {
+/**
+ * The origin (scheme, host and port) of the configured API, which serves the
+ * portal; undefined if unparseable. The scheme counts too: a plain-http link
+ * to the same host would send the site in clear.
+ */
+function portalOrigin(config: Pick<WaConfig, "apiBaseUrl">): string | undefined {
   try {
-    return new URL(config.apiBaseUrl).host;
+    return new URL(config.apiBaseUrl).origin;
   } catch {
     return undefined;
   }
