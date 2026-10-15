@@ -38,7 +38,7 @@ import { getMonitoringStatus } from "../src/tools/getMonitoringStatus.js";
 import type { WaConfig } from "../src/config.js";
 
 const ASKED = "https://www.Acme.com:8443/pricing?ref=secret#plans";
-const HOST = "www.acme.com";
+const HOST = "acme.com";
 /** What the hosted ChatGPT deployment links under info style. */
 const CHATGPT_INFO = "https://api.website-auditor.io/admin_portal/?source=chatgpt";
 
@@ -77,7 +77,10 @@ describe("siteHostname: the hostname, or nothing", () => {
   it.each([
     ["acme.com", "acme.com"],
     ["Acme.COM", "acme.com"],
-    ["https://www.Acme.com/pricing", "www.acme.com"],
+    ["https://www.Acme.com/pricing", "acme.com"],
+    ["WWW.acme.com", "acme.com"],
+    ["www2.acme.com", "www2.acme.com"],
+    ["shop.www.acme.com", "shop.www.acme.com"],
     ["http://acme.com:8080/a?b=c#d", "acme.com"],
     ["acme.com/some/path?token=x", "acme.com"],
     ["  shop.acme.co.uk  ", "shop.acme.co.uk"],
@@ -99,6 +102,7 @@ describe("siteHostname: the hostname, or nothing", () => {
     ["http://[::1]/"],
     ["https://"],
     ["acme"],
+    ["www.com"],
     [`${"a".repeat(64)}.com`],
     [`${"abcdefghi.".repeat(26)}com`], // 263 characters: past 253
   ])("%s → undefined", (raw) => {

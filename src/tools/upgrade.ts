@@ -90,9 +90,10 @@ export function tagSource(rawUrl: string): string {
  * Tools take bare domains ("acme.com") and full URLs alike, so a scheme is
  * supplied when there is none and WHATWG URL parsing does the rest: lowercase,
  * no port, no userinfo, and an IDN as punycode — what the portal can validate
- * strictly. The shape check is normalizeDomain's (api/domain.ts) with
- * punycode TLDs allowed; it is NOT normalizeDomain itself, which strips `www.`
- * and throws, and a link must never fail a tool. An IP address, `localhost` or
+ * strictly, with a leading `www.` dropped. The shape check is normalizeDomain's
+ * (api/domain.ts) with punycode TLDs allowed; it is NOT normalizeDomain itself,
+ * which throws (a link must never fail a tool), parses only http(s) URLs, and
+ * leaves a bare IDN or a bare `host:port` to fail its check. An IP address, `localhost` or
  * anything else that is not a public hostname gives no site, not a wrong one.
  */
 export function siteHostname(raw: string | undefined): string | undefined {
@@ -104,7 +105,9 @@ export function siteHostname(raw: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
-  host = host.replace(/\.$/, "");
+  // `www.` goes, as normalizeDomain drops it: the site's report summary names
+  // domains without it, and the portal should name the site the same way.
+  host = host.replace(/\.$/, "").replace(/^www\./, "");
   if (host.length > 253) return undefined;
   const label = "[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?";
   const tld = "([a-z]{2,63}|xn--[a-z0-9-]{1,59})";
