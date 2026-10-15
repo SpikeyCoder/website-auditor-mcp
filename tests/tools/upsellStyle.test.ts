@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { loadConfig } from "../../src/config.js";
-import { upgradeLink } from "../../src/tools/upgrade.js";
+import { upgradeLink, PRICE } from "../../src/tools/upgrade.js";
 import { fromApiError, gateProTool } from "../../src/tools/context.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
 import { checkUpgradeStatus } from "../../src/tools/checkUpgradeStatus.js";
@@ -77,7 +77,7 @@ describe("gateProTool under info style", () => {
     // blocker the message says where plans are described; a rejected key
     // usually belongs to a paying member, so it says where keys come from.
     if (result.error.code !== "INVALID_KEY") expect(result.error.message).toContain("Plans are described at");
-    expect(result.error.message).not.toContain("$10/month");
+    expect(result.error.message).not.toContain(PRICE);
     expect(result.error.message).not.toMatch(/free trial/i);
   });
 
@@ -118,7 +118,7 @@ describe("instructions under info style", () => {
   const infoText = buildInstructions(`${INFO}?source=mcp`, "info");
 
   it("says a plan is needed and links the info page — no price, no trial (OpenAI's app rules)", () => {
-    expect(infoText).not.toContain("$10/month");
+    expect(infoText).not.toContain(PRICE);
     expect(infoText).not.toMatch(/free trial/i);
     expect(infoText).toMatch(/Website Auditor plan/);
     expect(infoText).toContain(`${INFO}?source=mcp`);
@@ -132,7 +132,7 @@ describe("instructions under info style", () => {
   it("keeps the trigger block before any mention of plans or money, in both styles", () => {
     for (const [text, billing] of [
       [infoText, /Website Auditor plan/],
-      [buildInstructions("https://x.example/?source=mcp", "link"), /\$10\/month/],
+      [buildInstructions("https://x.example/?source=mcp", "link"), /\$\d+\/month/],
     ] as const) {
       const trigger = text.search(/when to offer/i);
       const money = text.search(billing);
@@ -165,7 +165,7 @@ describe("check_upgrade_status under info style", () => {
 
 describe("info style says no price and no trial anywhere (OpenAI's app rules)", () => {
   // Any amount, any trial, any invitation to buy. Wider than the literal
-  // "$10" / "free trial" so a rephrasing ("start your 7-day trial") is caught.
+  // the price / "free trial" so a rephrasing ("start your 7-day trial") is caught.
   const NO_MONEY = (text: string) => {
     expect(text).not.toMatch(/\$\d/);
     expect(text).not.toMatch(/\btrial\b/i);
@@ -181,7 +181,7 @@ describe("info style says no price and no trial anywhere (OpenAI's app rules)", 
       NO_MONEY(text.replace('"is my trial still active,"', ""));
     }
     // Link style keeps the terms on the Pro tools, as before.
-    expect(SERVED_TOOLS.some((s) => descriptionFor(s, "link").includes("$10"))).toBe(true);
+    expect(SERVED_TOOLS.some((s) => descriptionFor(s, "link").includes(PRICE))).toBe(true);
   });
 
   it.each([
@@ -196,7 +196,7 @@ describe("info style says no price and no trial anywhere (OpenAI's app rules)", 
     // Reporting the member's OWN trial ("Free trial active") is their account's
     // state, which the rules allow; selling one is not. So: no price, no
     // purchase link, and no trial offered to someone without one.
-    expect(res.data.message).not.toContain("$10");
+    expect(res.data.message).not.toContain(PRICE);
     expect(res.data.message).not.toMatch(/subscribe at/i);
     if (sub.status !== "trialing") expect(res.data.message).not.toMatch(/free trial/i);
   });

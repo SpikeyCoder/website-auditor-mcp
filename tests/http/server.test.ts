@@ -1178,7 +1178,7 @@ describe("submitted test cases, as an anonymous reviewer sees them", () => {
     expect(error.message).toContain("get_sample_audit");
     // The allowed form only: a plan is needed, and where plans are described.
     expect(error.message).toContain("Plans are described at");
-    expect(error.message).not.toContain("$10/month");
+    expect(error.message).not.toContain(PRICE);
     // The deployed box runs WA_UPSELL_STYLE=info precisely so no response
     // carries a checkout link — the OpenAI guidelines forbid one.
     expect(error.upgrade_url).toContain("website-auditor.io");

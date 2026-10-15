@@ -7,8 +7,58 @@
  */
 import type { WaConfig } from "../config.js";
 
-/** What a subscription costs. Mirrors STRIPE_PRICE_ID in website-auditor-api. */
-export const PRICE = "$10/month";
+/**
+ * The price stated when the API cannot be asked: the list price new signups
+ * pay (from 2026-10-15, $49; earlier subscribers move later and are told by
+ * email, never by this server). Overstating is the safer error: a signup is
+ * never charged more than they were shown.
+ */
+export const FALLBACK_PRICE = "$49/month";
+
+/**
+ * What a subscription costs, as the API says it (GET /pricing.json, from its
+ * PRO_PRICE_MONTHLY, which moves with STRIPE_PRICE_ID). Read at startup, and
+ * every few minutes by the hosted server (refreshPrice), so a price change
+ * reaches every surface without a release: installed servers lag releases by
+ * weeks, and a price this server states must be the price a signup pays.
+ *
+ * A live binding: every importer reads the current value.
+ */
+export let PRICE = FALLBACK_PRICE;
+
+const PRICE_SHAPE = /^\$[1-9]\d{0,3}\/month$/;
+const PRICE_TIMEOUT_MS = 2000;
+
+/**
+ * Ask the API for the price, and use it if it answers in shape; otherwise
+ * keep the last good one. Never throws: a server that cannot reach the API
+ * at startup still starts, and says the fallback.
+ */
+export async function refreshPrice(
+  config: Pick<WaConfig, "apiBaseUrl">,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  try {
+    const res = await fetchImpl(`${config.apiBaseUrl}/pricing.json`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(PRICE_TIMEOUT_MS),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { pro_price_label?: unknown };
+      if (typeof body.pro_price_label === "string" && PRICE_SHAPE.test(body.pro_price_label)) {
+        PRICE = body.pro_price_label;
+      }
+    }
+  } catch {
+    // Keep the last good price.
+  }
+  return PRICE;
+}
+
+/** Tests only: set the price as if the API had said it. */
+export function __setPriceForTests(price: string): void {
+  PRICE = price;
+}
 
 /**
  * The plan sentence an `upsellStyle: "info"` surface may say, and all it may

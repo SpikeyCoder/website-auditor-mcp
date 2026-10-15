@@ -97,7 +97,7 @@ in the exact format a real run produces, so you can check the shape fits your
 needs first.
 
 **Pricing.** Auditing real domains needs a Website Auditor subscription at
-**$10/month** — eligible new customers get a **7-day free trial** (payment
+**$49/month** — eligible new customers get a **7-day free trial** (payment
 method required to start; no charge until the trial ends; customers who used
 a trial in the last 12 months are billed immediately). Sign up and create an
 API key at
@@ -175,7 +175,7 @@ Auditor account at
 **[api.website-auditor.io/admin_portal](https://api.website-auditor.io/admin_portal/?source=mcp)**
 — the admin portal, where you subscribe and manage keys.
 
-Minting a key requires an active subscription ($10/month; eligible new
+Minting a key requires an active subscription ($49/month; eligible new
 customers get a 7-day free trial — payment method required, no charge until
 the trial ends): there is no free API tier, so every tool except
 `get_sample_audit`, `check_upgrade_status` and `get_recommendations` needs one.

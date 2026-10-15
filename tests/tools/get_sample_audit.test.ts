@@ -1,3 +1,4 @@
+import { PRICE } from "../../src/tools/upgrade.js";
 import { describe, it, expect } from "vitest";
 import { getSampleAudit } from "../../src/tools/sampleAudit.js";
 import { makeDeps, testConfig } from "../helpers.js";
@@ -67,7 +68,7 @@ describe("get_sample_audit [Free, no key]", () => {
     const res = await getSampleAudit({}, explodingDeps());
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.price).toContain("$10");
+    expect(res.data.price).toContain(PRICE);
     expect(res.data.upgrade_url).toContain("admin_portal");
   });
 

@@ -158,7 +158,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     message =
       `No active subscription — there is no free API tier, so audits and every other tool are locked, ` +
       `except get_recommendations, which still lists the next steps from an audit already on record. ` +
-      `Subscribe at ${upgradeUrl} — eligible new customers get a 7-day free trial, then $10/month; ` +
+      `Subscribe at ${upgradeUrl} — eligible new customers get a 7-day free trial, then ${PRICE}; ` +
       `starting requires adding a payment method and accepting the Terms, with no charge until the trial ends.`;
   } else {
     message =

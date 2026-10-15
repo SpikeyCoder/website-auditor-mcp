@@ -10,6 +10,7 @@ import { InMemoryAuditCache } from "./auth/auditCache.js";
 import { HttpEventSink } from "./telemetry/httpSink.js";
 import { NoopEventSink } from "./telemetry/events.js";
 import { createServer } from "./mcp/server.js";
+import { refreshPrice } from "./tools/upgrade.js";
 import type { ToolDeps } from "./tools/context.js";
 
 async function main(): Promise<void> {
@@ -25,6 +26,9 @@ async function main(): Promise<void> {
     transport: "stdio",
   };
 
+  // Before the server is built: its instructions and tool descriptions state
+  // the price, so they must state the one the API charges today.
+  await refreshPrice(config);
   const server = createServer(deps);
   const transport = new StdioServerTransport();
   await server.connect(transport);

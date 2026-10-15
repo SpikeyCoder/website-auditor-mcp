@@ -6,7 +6,7 @@
  * `audit` (chaos_tester's `TestRun.to_dict()`), including the `ai_visibility`
  * block from modules/ai_visibility.py. That fidelity is the entire point: the
  * demo exists so someone can judge whether this JSON fits their needs BEFORE
- * paying $10/mo, and a simplified stub would misrepresent what they'd buy.
+ * paying, and a simplified stub would misrepresent what they'd buy.
  *
  * Lives in src/ rather than tests/ because package.json `files` ships only
  * `dist/**` — anything under tests/ is excluded from the published package.

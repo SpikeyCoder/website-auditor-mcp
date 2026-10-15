@@ -42,6 +42,7 @@ import { InMemoryAuditCache } from "./auth/auditCache.js";
 import { HttpEventSink } from "./telemetry/httpSink.js";
 import { NoopEventSink } from "./telemetry/events.js";
 import { createServer } from "./mcp/server.js";
+import { refreshPrice } from "./tools/upgrade.js";
 import { SERVER_VERSION } from "./version.js";
 import type { ToolDeps } from "./tools/context.js";
 import { looksLikeApiKey, oauthEnabled, protectedResourceMetadata, resourceMetadataPaths } from "./auth/oauth.js";
@@ -716,9 +717,17 @@ export function mixedAuthSummary(config: WaConfig): string {
   );
 }
 
+/** How often the hosted server asks the API for the price. */
+const PRICE_REFRESH_MS = 5 * 60 * 1000;
+
 async function main(): Promise<void> {
   const options = httpOptionsFromEnv(process.env);
   const port = portFromEnv(process.env);
+  // Each session builds its own server, which reads the price then: refresh
+  // it at boot and every few minutes, so a price change in the API reaches
+  // new sessions without a redeploy.
+  await refreshPrice(options.config);
+  setInterval(() => { void refreshPrice(options.config); }, PRICE_REFRESH_MS).unref();
   const server = createWaHttpServer(options);
   server.listen(port, () => {
     console.error(

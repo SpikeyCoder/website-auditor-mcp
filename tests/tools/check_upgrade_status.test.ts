@@ -75,7 +75,7 @@ describe("check_upgrade_status [Free]", () => {
     // without the price, the payment-method requirement and the Terms — the
     // card sentence is what keeps "free trial" distinct from a free tier.
     expect(res.data.message).toContain("7-day free trial");
-    expect(res.data.message).toContain("$10/month");
+    expect(res.data.message).toContain(PRICE);
     expect(res.data.message).toContain("payment method");
     expect(res.data.message).toContain("Terms");
     // "eligible" — the endpoint cannot see trial_used_at, so the message may
