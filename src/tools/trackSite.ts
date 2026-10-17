@@ -9,7 +9,8 @@
  *
  * Product rules surfaced as clean structured errors:
  *   - Pro-gated (PRO_REQUIRED for free/no key)
- *   - at most 5 tracked domains (LIMIT_REACHED on the 6th — untrack one first)
+ *   - at most 3 tracked domains, or 5 for a subscription started before
+ *     2026-10-18 (LIMIT_REACHED past the cap — untrack one first)
  *   - weekly cadence only in v1 (INVALID_INPUT for anything else)
  */
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";

@@ -85,7 +85,7 @@ describe("track_site [Pro]", () => {
 
   it("the 5-domain cap surfaces as a clean LIMIT_REACHED error (no upgrade prompt)", async () => {
     const trackSiteFn = vi.fn(async () => {
-      throw new WaApiError("LIMIT_REACHED", "You can track up to 5 domains. Untrack one before adding another.", {
+      throw new WaApiError("LIMIT_REACHED", "You can track up to 3 domains. Untrack one before adding another.", {
         status: 409,
       });
     });
