@@ -320,7 +320,7 @@ describe("WaApiClient tracked-domains (track_site enrollment)", () => {
   });
 
   it("maps HTTP 409 (cap reached) to LIMIT_REACHED", async () => {
-    const fetchMock = makeFetch(409, { success: false, code: "LIMIT_REACHED", error: "You can track up to 5 domains. Untrack one before adding another." });
+    const fetchMock = makeFetch(409, { success: false, code: "LIMIT_REACHED", error: "You can track up to 3 domains. Untrack one before adding another." });
     const client = new WaApiClient(baseCfg, { fetch: fetchMock as unknown as typeof fetch });
     await expect(client.trackSite({ domain: "sixth.com" })).rejects.toMatchObject({ code: "LIMIT_REACHED" });
   });
