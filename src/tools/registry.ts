@@ -318,7 +318,7 @@ export const MONITORING_TOOLS: ToolSpec[] = [
     effect: "stored",
     title: "List monitored sites",
     description:
-      'List the websites currently being monitored for AI visibility on a schedule. Use this when someone asks "what am I tracking," "which sites am I monitoring," "how many monitoring slots am I using," or wants to see their tracked domains. Returns each tracked domain with its cadence and active state, plus slots used and remaining (out of 5).',
+      'List the websites currently being monitored for AI visibility on a schedule. Use this when someone asks "what am I tracking," "which sites am I monitoring," "how many monitoring slots am I using," or wants to see their tracked domains. Returns each tracked domain with its cadence and active state, plus slots used and remaining out of the account\'s limit (3 sites, or 5 for a subscription started before 18 October 2026).',
     inputSchema: {},
   },
   {
