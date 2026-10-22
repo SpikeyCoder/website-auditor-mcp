@@ -158,6 +158,17 @@ function safeEmit(events: EventSink, event: McpEvent): void {
   }
 }
 
+/*
+ * Upper bound on array elements plus object members in one tools/call
+ * `arguments` payload. Without it, a single request inside the HTTP body cap
+ * (a ~1 MB `competitors` array of numbers) made zod validate and report every
+ * element: ~700 MB peak memory, seconds of CPU and a ~29 MB error response.
+ * SDK 1.32 added the option for GHSA-46jr-4wx8-v453 but leaves it off by
+ * default. 1000 is far above any real call (compare_competitors with a few
+ * dozen domains is the largest).
+ */
+export const MAX_TOOL_INPUT_ELEMENTS = 1000;
+
 export function createServer(deps: ToolDeps): McpServer {
   // Config-derived, and carries ?source=mcp so a key minted from this link is
   // attributable to the MCP (website-auditor-api stamps acquisition_channel).
@@ -166,6 +177,7 @@ export function createServer(deps: ToolDeps): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
+      maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
       // Injected into the model's system prompt at handshake, which makes this
       // the highest-leverage copy in the package — and twice now the reason the
       // funnel leaked. The full history, and why the string is shaped the way it
