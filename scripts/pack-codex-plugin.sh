@@ -41,16 +41,14 @@
 # npx) is refused by the portal (mcp_configuration_excluded), and so is a
 # different URL (the update flow cannot change it).
 #
-# AUTH IS DECLARED EVERY TIME. The portal reads auth settings from the
-# package's MCP config on every upload, so the server carries
-# extensions["com.openai"].auth = { type: "mixed", client: { mode: "dcr" } }:
-# Mixed Auth, as connected, with Dynamic Client Registration found through the
-# server's discovery documents. No client id, secret, endpoints or scopes:
-# OpenAI forbids client credentials in a dcr client, and discovery supplies the
-# rest. A kept .mcp.json without auth gets this added; one declaring auth
-# "none" or "api_key" is refused (the server is protected, and the portal has
-# no API-key flow). After uploading, open MCPs and confirm Mixed / DCR and a
-# live connection before submitting.
+# NO AUTH IN THE PACKAGE. The existing app already holds the connection's auth
+# (Mixed Auth, shown read-only in MCPs -> MCP actions -> Reconnect), and the
+# portal refuses a ZIP that declares any: "This app already has authentication
+# configured. Remove the ZIP's auth override to reuse that connection; edit
+# authentication through the existing app." (2.1.2's first upload,
+# 2026-10-25). So the declaration is the URL alone, and an
+# extensions["com.openai"].auth in a kept .mcp.json is removed, with a warning.
+# Change auth in the portal, never here.
 #
 # ONLY MERGED SKILLS SHIP. Skills come from HEAD (git archive, so a .DS_Store
 # or an unsaved edit cannot ship), and HEAD's skills must equal origin/main's:
@@ -180,7 +178,6 @@ MCP_KEY="$MCP_KEY" MCP_KEY_SET="$MCP_KEY_SET" MCP_URL="$MCP_URL" node -e '
   const { MCP_KEY: key, MCP_KEY_SET: keySet, MCP_URL: url } = process.env;
   const fail = (msg) => { console.error("pack:codex: " + msg); process.exit(1); };
   if (!key.trim()) fail("PACK_CODEX_MCP_KEY is empty: set it to the server name the portal shows under MCPs");
-  const AUTH = { type: "mixed", client: { mode: "dcr" } };
   const m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   if (m.mcpServers !== undefined && !["./.mcp.json", ".mcp.json"].includes(m.mcpServers)) {
     fail(`the release declares mcpServers at ${JSON.stringify(m.mcpServers)}; the portal takes only ./.mcp.json`);
@@ -201,17 +198,14 @@ MCP_KEY="$MCP_KEY" MCP_KEY_SET="$MCP_KEY_SET" MCP_URL="$MCP_URL" node -e '
     if (s.url !== url) fail(`the release .mcp.json points ${name} at ${s.url}, not ${url}; the update flow cannot change the URL`);
     if (keySet && name !== key) fail(`the release .mcp.json names the server ${name}, but PACK_CODEX_MCP_KEY is ${key}`);
     const ext = s.extensions && s.extensions["com.openai"];
-    const auth = ext && ext.auth;
-    if (auth !== undefined) {
-      if (!auth || typeof auth !== "object") fail(`the release .mcp.json server ${name} has an auth that is not an object`);
-      if (auth.type === "none" || auth.type === "api_key") {
-        fail(`the release .mcp.json server ${name} declares auth ${auth.type}; the connected server is Mixed Auth (OAuth)`);
-      }
-    } else {
-      s.extensions = { ...(s.extensions || {}), "com.openai": { ...(ext || {}), auth: AUTH } };
+    if (ext && typeof ext === "object" && "auth" in ext) {
+      console.error(`warning: removed the auth override on the release .mcp.json server ${name}; the portal keeps the existing app authentication`);
+      delete ext.auth;
+      if (!Object.keys(ext).length) delete s.extensions["com.openai"];
+      if (s.extensions && !Object.keys(s.extensions).length) delete s.extensions;
     }
   } else {
-    cfg = { mcpServers: { [key]: { url, extensions: { "com.openai": { auth: AUTH } } } } };
+    cfg = { mcpServers: { [key]: { url } } };
   }
   fs.writeFileSync(mcpPath, JSON.stringify(cfg, null, 2) + "\n");
   m.mcpServers = "./.mcp.json";

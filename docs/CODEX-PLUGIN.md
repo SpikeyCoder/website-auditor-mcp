@@ -266,16 +266,16 @@ From OpenAI's submission guide (read 2026-10-04):
   publishing. Removing the MCP isn't supported."* The script now sets the
   manifest's `"mcpServers": "./.mcp.json"` and writes a root `.mcp.json`:
 
-      { "mcpServers": { "website-auditor": {
-          "url": "https://mcp.website-auditor.io/mcp",
-          "extensions": { "com.openai": { "auth": { "type": "mixed", "client": { "mode": "dcr" } } } } } } }
+      { "mcpServers": { "website-auditor": { "url": "https://mcp.website-auditor.io/mcp" } } }
 
-  **Auth is declared on every upload**, because the portal reads auth
-  settings from the package's MCP config each time and what it does with a
-  config that has none is undocumented. Mixed Auth with Dynamic Client
-  Registration is how the server is connected. No client id, secret,
-  endpoints or scopes go in: OpenAI forbids client credentials in a `dcr`
-  client, and the server's discovery documents supply the rest.
+  **No auth goes in the package.** The existing app already holds the
+  connection's authentication: Mixed Auth, shown read-only under **MCPs** →
+  **MCP actions** (…) → **Reconnect**. The card's "No authentication" label
+  does not reflect it. The portal refuses a ZIP that declares auth for an
+  existing app: *"This app already has authentication configured. Remove the
+  ZIP's auth override to reuse that connection; edit authentication through
+  the existing app."* (2.1.2's first upload, 2026-10-25). Change auth in the
+  portal, never in the package.
 
   Before packing, open the plugin → **MCPs** and check the connected
   server's name and URL. If the name is not `website-auditor`, pack with
@@ -283,14 +283,13 @@ From OpenAI's submission guide (read 2026-10-04):
   only OpenAI support changes it, and the script refuses any other.
 
   **After uploading, before submitting**, open **MCPs** again and confirm
-  the server still shows Mixed Auth, DCR and a live connection. If it does
-  not, reconnect there before submitting.
+  the server is still Configured, with the same URL.
 
   A release that already carries a remote `.mcp.json` at that URL keeps it,
-  with Mixed / DCR auth added if it declares none. The script refuses a
-  bundled stdio server (`codex-plugin/.mcp.json`'s `npx`; the portal's
-  `mcp_configuration_excluded`), more than one server, headers, auth `none`
-  or `api_key`, a different URL, and a server name other than an explicit
+  minus any auth override, which the script removes with a warning. The
+  script refuses a bundled stdio server (`codex-plugin/.mcp.json`'s `npx`;
+  the portal's `mcp_configuration_excluded`), more than one server, headers,
+  a different URL, and a server name other than an explicit
   `PACK_CODEX_MCP_KEY`.
 
   `scripts/pack-codex-plugin.sh` keeps that package. It replaces `skills/`
