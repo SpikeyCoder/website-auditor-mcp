@@ -28,8 +28,9 @@ import { join } from "node:path";
  * was approved and then refused at publish (2026-10-25): "This package omits
  * the plugin's existing MCP. … Removing the MCP isn't supported." So the
  * manifest gets mcpServers: "./.mcp.json" and a root .mcp.json names the
- * hosted server with Mixed Auth / DCR declared, unless the release already
- * carries a remote one at the same URL (which gets the auth if it lacks it). It refuses skills that differ from origin/main,
+ * hosted server by URL alone, unless the release already carries a remote one
+ * at the same URL. No auth: the existing app keeps its own, and the portal
+ * refuses a ZIP that overrides it. It refuses skills that differ from origin/main,
  * a version not above the release's, and listing fields over OpenAI's
  * submission limits, and warns when the listing text still names SEO.
  */
@@ -37,10 +38,9 @@ const root = join(__dirname, "..");
 const script = join(root, "scripts/pack-codex-plugin.sh");
 
 const MCP_URL = "https://mcp.website-auditor.io/mcp";
-// Mixed Auth with DCR, as the server is connected: the portal reads auth from
-// the package's MCP config on every upload, so it is always declared.
-const AUTH = { type: "mixed", client: { mode: "dcr" } };
-const MCP_JSON = (key = "website-auditor") => ({ mcpServers: { [key]: { url: MCP_URL, extensions: { "com.openai": { auth: AUTH } } } } });
+// The URL alone: the existing app keeps its auth, and the portal refuses a
+// ZIP that declares any ("Remove the ZIP's auth override", 2026-10-25).
+const MCP_JSON = (key = "website-auditor") => ({ mcpServers: { [key]: { url: MCP_URL } } });
 const RELEASE_MANIFEST = {
   author: { name: "Example Publisher" },
   description: "Portal description",
@@ -332,15 +332,15 @@ describe("pack:codex — the update for the published listing", { timeout: 30_00
     expect(r.status, r.stderr).toBe(0);
     expect(entries(join(dir, "out", `website-auditor-codex-plugin-${REPO_VERSION}.zip`))).not.toContain(".DS_Store");
   });
-  it("declares the connected MCP server, with its auth, which the release ZIP omits", () => {
+  it("declares the connected MCP server, without auth, which the release ZIP omits", () => {
     // 2.1.1 was approved and then refused at publish for omitting it.
     const named = pack([release(), join(dir, "out")], { env: { PACK_CODEX_MCP_KEY: "portal-key" } });
     expect(named.status, named.stderr).toBe(0);
     const zip = join(dir, "out", `website-auditor-codex-plugin-${REPO_VERSION}.zip`);
     expect(JSON.parse(read(zip, ".mcp.json"))).toEqual(MCP_JSON("portal-key"));
     expect(JSON.parse(read(zip, ".codex-plugin/plugin.json")).mcpServers).toBe("./.mcp.json");
-    // No client id, secret, endpoints or scopes: DCR finds them by discovery.
-    expect(read(zip, ".mcp.json")).not.toMatch(/clientId|clientSecret|registrationUrl|Scopes/);
+    // No auth override at all: the portal refuses one for an existing app.
+    expect(read(zip, ".mcp.json")).not.toMatch(/auth|extensions|clientId/);
     for (const blank of ["", " "]) {
       const r = pack([release(), join(dir, `out-blank${blank.length}`)], { env: { PACK_CODEX_MCP_KEY: blank } });
       expect(r.status, JSON.stringify(blank)).not.toBe(0);
@@ -359,21 +359,24 @@ describe("pack:codex — the update for the published listing", { timeout: 30_00
     }
   });
 
-  it("keeps a remote .mcp.json the release already carries, adding auth only when it has none", () => {
+  it("keeps a remote .mcp.json the release already carries, removing any auth override", () => {
     const own = { mcpServers: { "portal-name": { url: MCP_URL, type: "streamable-http" } } };
-    const withAuth = { mcpServers: { "portal-name": { url: MCP_URL, extensions: { "com.openai": { auth: { type: "oauth", client: { mode: "dcr" } } } } } } };
-    const cases: Array<[object, object]> = [
-      [own, { mcpServers: { "portal-name": { ...own.mcpServers["portal-name"], extensions: { "com.openai": { auth: AUTH } } } } }],
-      [withAuth, withAuth],
+    const auth = { type: "mixed", client: { mode: "dcr" } };
+    const cases: Array<[object, object, boolean]> = [
+      [own, own, false],
+      [{ mcpServers: { "portal-name": { ...own.mcpServers["portal-name"], extensions: { "com.openai": { auth } } } } }, own, true],
+      [{ mcpServers: { "portal-name": { url: MCP_URL, extensions: { "com.openai": { auth, test_cases: [] }, "org.other": { x: 1 } } } } },
+       { mcpServers: { "portal-name": { url: MCP_URL, extensions: { "com.openai": { test_cases: [] }, "org.other": { x: 1 } } } } }, true],
     ];
-    cases.forEach(([given, expected], n) => {
+    cases.forEach(([given, expected, warns], n) => {
       const src = releaseDir({ ...RELEASE_MANIFEST, mcpServers: "./.mcp.json" });
       writeFileSync(join(src, ".mcp.json"), JSON.stringify(given));
       const out = join(dir, `out-${n}`);
       const r = pack([src, out]);
       expect(r.status, r.stderr).toBe(0);
-      // Nothing is said about the MCP: no refusal and no warning.
-      expect(r.stderr).not.toMatch(/mcp|pack:codex:/i);
+      expect(r.stderr).not.toMatch(/pack:codex:/);
+      if (warns) expect(r.stderr).toContain("warning: removed the auth override on the release .mcp.json server portal-name");
+      else expect(r.stderr).not.toMatch(/mcp/i);
       expect(JSON.parse(read(join(out, `website-auditor-codex-plugin-${REPO_VERSION}.zip`), ".mcp.json"))).toEqual(expected);
       rmSync(src, { recursive: true, force: true });
     });
@@ -388,9 +391,6 @@ describe("pack:codex — the update for the published listing", { timeout: 30_00
       [{ servers: {} }, /no mcpServers object/],
       ["{ not json", /not valid JSON/],
       [server({ url: "https://other.example.com/mcp" }), /cannot change the URL/],
-      [server({ extensions: { "com.openai": { auth: { type: "none" } } } }), /declares auth none/],
-      [server({ extensions: { "com.openai": { auth: { type: "api_key" } } } }), /declares auth api_key/],
-      [server({ extensions: { "com.openai": { auth: null } } }), /auth that is not an object/],
       [server({}), /names the server website-auditor, but PACK_CODEX_MCP_KEY is portal-key/, { PACK_CODEX_MCP_KEY: "portal-key" }],
     ];
     cases.forEach(([cfg, why, env], n) => {
