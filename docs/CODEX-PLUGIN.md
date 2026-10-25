@@ -124,8 +124,10 @@ reads it from the uploaded manifest, and `npm run pack:codex` writes this one
 there, so every portal version matches a commit. It sat at 0.1.0 through a
 new skill, a relicence and the mcp#88 rewording; 0.2.0 was the first bump, and
 2.1.0 is the update built from the portal's 1.0.16 release (2.0.0 was in
-review then). 2.1.1 was approved but refused at publish for
-omitting the MCP declaration; 2.1.2 is the same update with it.
+review then). 2.1.1 was built by hand outside the repo (no
+commit carries it), approved, and refused at publish for omitting the MCP
+declaration. The repo skips from 2.1.0 to 2.1.2, which is that update with
+the declaration, built by `pack:codex`.
 
 ## Phase 2 — the hosted server
 
@@ -264,16 +266,32 @@ From OpenAI's submission guide (read 2026-10-04):
   publishing. Removing the MCP isn't supported."* The script now sets the
   manifest's `"mcpServers": "./.mcp.json"` and writes a root `.mcp.json`:
 
-      { "mcpServers": { "website-auditor": { "url": "https://mcp.website-auditor.io/mcp" } } }
+      { "mcpServers": { "website-auditor": {
+          "url": "https://mcp.website-auditor.io/mcp",
+          "extensions": { "com.openai": { "auth": { "type": "mixed", "client": { "mode": "dcr" } } } } } } }
+
+  **Auth is declared on every upload**, because the portal reads auth
+  settings from the package's MCP config each time and what it does with a
+  config that has none is undocumented. Mixed Auth with Dynamic Client
+  Registration is how the server is connected. No client id, secret,
+  endpoints or scopes go in: OpenAI forbids client credentials in a `dcr`
+  client, and the server's discovery documents supply the rest.
 
   Before packing, open the plugin → **MCPs** and check the connected
   server's name and URL. If the name is not `website-auditor`, pack with
-  `PACK_CODEX_MCP_KEY=<that name> npm run pack:codex -- …`. The URL is fixed
-  (only OpenAI support changes it). No OAuth settings are written: the
-  server's discovery documents advertise DCR, and client secrets never go in
-  the package. A release that already carries a remote `.mcp.json` keeps it;
-  `codex-plugin/.mcp.json`'s bundled `npx` server is never used here, since
-  the portal refuses stdio servers (`mcp_configuration_excluded`).
+  `PACK_CODEX_MCP_KEY=<that name> npm run pack:codex -- …`. The URL is fixed:
+  only OpenAI support changes it, and the script refuses any other.
+
+  **After uploading, before submitting**, open **MCPs** again and confirm
+  the server still shows Mixed Auth, DCR and a live connection. If it does
+  not, reconnect there before submitting.
+
+  A release that already carries a remote `.mcp.json` at that URL keeps it,
+  with Mixed / DCR auth added if it declares none. The script refuses a
+  bundled stdio server (`codex-plugin/.mcp.json`'s `npx`; the portal's
+  `mcp_configuration_excluded`), more than one server, headers, auth `none`
+  or `api_key`, a different URL, and a server name other than an explicit
+  `PACK_CODEX_MCP_KEY`.
 
   `scripts/pack-codex-plugin.sh` keeps that package. It replaces `skills/`
   with `codex-plugin/skills` as committed, so added and removed skills follow
