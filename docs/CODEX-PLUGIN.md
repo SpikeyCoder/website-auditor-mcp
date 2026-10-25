@@ -10,8 +10,11 @@
    and Codex (browse, one-click install, `@website-auditor`). This is a
    submission-and-review channel like the Claude Desktop directory. It takes
    **a hosted Streamable HTTP MCP server** only, never a bundled stdio one:
-   https://mcp.website-auditor.io/mcp is connected in the portal dashboard,
-   and the portal's own package carries no `.mcp.json`.
+   https://mcp.website-auditor.io/mcp is connected in the portal dashboard.
+   The portal's own release package carries no `.mcp.json`, but an update
+   must declare the server anyway (see
+   [Updating the published listing](#updating-the-published-listing)), so
+   `npm run pack:codex` adds one.
 
 Status: **PUBLISHED.** On 2026-10-04 the portal showed version 1.0.16
 published, 2.0.0 in review, and the MCP configuration "Configured". The
@@ -121,7 +124,10 @@ reads it from the uploaded manifest, and `npm run pack:codex` writes this one
 there, so every portal version matches a commit. It sat at 0.1.0 through a
 new skill, a relicence and the mcp#88 rewording; 0.2.0 was the first bump, and
 2.1.0 is the update built from the portal's 1.0.16 release (2.0.0 was in
-review then).
+review then). 2.1.1 was built by hand outside the repo (no
+commit carries it), approved, and refused at publish for omitting the MCP
+declaration. The repo skips from 2.1.0 to 2.1.2, which is that update with
+the declaration, built by `pack:codex`.
 
 ## Phase 2 — the hosted server
 
@@ -252,6 +258,40 @@ From OpenAI's submission guide (read 2026-10-04):
   built on an older release undoes whatever came after it: a 2.1.0 built from
   1.0.16 while 2.0.0 is in review is right only if 2.0.0 is cancelled. If
   2.0.0 is published first, download its release and pack again.
+
+  **The package must declare the connected MCP server, though the release
+  ZIP does not.** 2.1.1, packed from 1.0.16's release, was approved and then
+  refused at publish (2026-10-25): *"This package omits the plugin's existing
+  MCP. Restore its MCP declaration and connection before submitting or
+  publishing. Removing the MCP isn't supported."* The script now sets the
+  manifest's `"mcpServers": "./.mcp.json"` and writes a root `.mcp.json`:
+
+      { "mcpServers": { "website-auditor": {
+          "url": "https://mcp.website-auditor.io/mcp",
+          "extensions": { "com.openai": { "auth": { "type": "mixed", "client": { "mode": "dcr" } } } } } } }
+
+  **Auth is declared on every upload**, because the portal reads auth
+  settings from the package's MCP config each time and what it does with a
+  config that has none is undocumented. Mixed Auth with Dynamic Client
+  Registration is how the server is connected. No client id, secret,
+  endpoints or scopes go in: OpenAI forbids client credentials in a `dcr`
+  client, and the server's discovery documents supply the rest.
+
+  Before packing, open the plugin → **MCPs** and check the connected
+  server's name and URL. If the name is not `website-auditor`, pack with
+  `PACK_CODEX_MCP_KEY=<that name> npm run pack:codex -- …`. The URL is fixed:
+  only OpenAI support changes it, and the script refuses any other.
+
+  **After uploading, before submitting**, open **MCPs** again and confirm
+  the server still shows Mixed Auth, DCR and a live connection. If it does
+  not, reconnect there before submitting.
+
+  A release that already carries a remote `.mcp.json` at that URL keeps it,
+  with Mixed / DCR auth added if it declares none. The script refuses a
+  bundled stdio server (`codex-plugin/.mcp.json`'s `npx`; the portal's
+  `mcp_configuration_excluded`), more than one server, headers, auth `none`
+  or `api_key`, a different URL, and a server name other than an explicit
+  `PACK_CODEX_MCP_KEY`.
 
   `scripts/pack-codex-plugin.sh` keeps that package. It replaces `skills/`
   with `codex-plugin/skills` as committed, so added and removed skills follow
