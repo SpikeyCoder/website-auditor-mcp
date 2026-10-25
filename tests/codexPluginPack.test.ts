@@ -20,16 +20,23 @@ import { join } from "node:path";
  * repo's (a 93-character subtitle where the limit is 30) and added a stdio
  * .mcp.json the portal does not take.
  *
- * So the script keeps the release package and changes two things: skills/
+ * So the script keeps the release package and changes three things: skills/
  * becomes codex-plugin/skills as committed (added, changed and removed skills
- * all follow), and the version becomes the repo plugin's, so every portal
- * version matches a commit. It refuses skills that differ from origin/main,
+ * all follow), the version becomes the repo plugin's, so every portal
+ * version matches a commit, and the package declares the connected MCP
+ * server. The release ZIP omits that declaration, and 2.1.1, packed from it,
+ * was approved and then refused at publish (2026-10-25): "This package omits
+ * the plugin's existing MCP. … Removing the MCP isn't supported." So the
+ * manifest gets mcpServers: "./.mcp.json" and a root .mcp.json names the
+ * hosted server, unless the release already carries a remote one. It refuses skills that differ from origin/main,
  * a version not above the release's, and listing fields over OpenAI's
  * submission limits, and warns when the listing text still names SEO.
  */
 const root = join(__dirname, "..");
 const script = join(root, "scripts/pack-codex-plugin.sh");
 
+const MCP_URL = "https://mcp.website-auditor.io/mcp";
+const MCP_JSON = (key = "website-auditor") => ({ mcpServers: { [key]: { url: MCP_URL } } });
 const RELEASE_MANIFEST = {
   author: { name: "Example Publisher" },
   description: "Portal description",
@@ -114,6 +121,9 @@ const headWithEditedSkill = () => {
   const skill = committedSkills()[0]!;
   return commitLikeHead(`codex-plugin/${skill}`, committed(skill) + "\nedited on another branch\n");
 };
+// What every packed manifest is: the release's, at the repo's version, declaring the MCP.
+const packed = (manifest: object = RELEASE_MANIFEST) => ({ ...manifest, version: REPO_VERSION, mcpServers: "./.mcp.json" });
+const PACKED_ENTRIES = () => [".codex-plugin/plugin.json", ".mcp.json", ...committedSkills()].sort();
 const withInterface = (patch: Record<string, unknown>) =>
   ({ ...RELEASE_MANIFEST, interface: { ...RELEASE_MANIFEST.interface, ...patch } });
 const entries = (zip: string) => execFileSync("unzip", ["-Z1", zip], { encoding: "utf8" }).split("\n").filter(Boolean).sort();
@@ -130,9 +140,10 @@ describe("pack:codex — the update for the published listing", { timeout: 30_00
     expect(r.status, r.stderr).toBe(0);
     const zip = join(dir, "out", `website-auditor-codex-plugin-${REPO_VERSION}.zip`);
     expect(r.stdout.trim()).toBe(zip);
-    expect(JSON.parse(read(zip, ".codex-plugin/plugin.json"))).toEqual({ ...RELEASE_MANIFEST, version: REPO_VERSION });
+    expect(JSON.parse(read(zip, ".codex-plugin/plugin.json"))).toEqual(packed());
+    expect(JSON.parse(read(zip, ".mcp.json"))).toEqual(MCP_JSON());
     // Changed, added and removed skills all follow the repo; nothing else is added.
-    expect(entries(zip)).toEqual([".codex-plugin/plugin.json", ...committedSkills()].sort());
+    expect(entries(zip)).toEqual(PACKED_ENTRIES());
     for (const s of committedSkills()) expect(read(zip, s), s).toBe(committed(s));
     // The fixture's retired skill is named as removed; nothing else is said.
     expect(r.stderr).toContain(REMOVES_RETIRED);
@@ -233,8 +244,8 @@ describe("pack:codex — the update for the published listing", { timeout: 30_00
     const r = pack([src, join(dir, "out")]);
     expect(r.status, r.stderr).toBe(0);
     const zip = join(dir, "out", `website-auditor-codex-plugin-${REPO_VERSION}.zip`);
-    expect(JSON.parse(read(zip, ".codex-plugin/plugin.json"))).toEqual({ ...edited, version: REPO_VERSION });
-    expect(entries(zip)).toEqual([".codex-plugin/plugin.json", ...committedSkills()].sort());
+    expect(JSON.parse(read(zip, ".codex-plugin/plugin.json"))).toEqual(packed(edited));
+    expect(entries(zip)).toEqual(PACKED_ENTRIES());
     const tooLong = releaseDir(withInterface({ shortDescription: "x".repeat(31) }));
     expect(pack([tooLong, join(dir, "out2")]).status).not.toBe(0);
   });
@@ -261,7 +272,7 @@ describe("pack:codex — the update for the published listing", { timeout: 30_00
     const r = pack([src, src]);
     expect(r.status, r.stderr).toBe(0);
     expect(entries(join(src, `website-auditor-codex-plugin-${REPO_VERSION}.zip`)))
-      .toEqual([".codex-plugin/plugin.json", ...committedSkills()].sort());
+      .toEqual(PACKED_ENTRIES());
   });
 
   it("unwraps a release that Finder compressed into one folder, litter and all", () => {
@@ -316,5 +327,47 @@ describe("pack:codex — the update for the published listing", { timeout: 30_00
     const r = pack([zip, join(dir, "out")]);
     expect(r.status, r.stderr).toBe(0);
     expect(entries(join(dir, "out", `website-auditor-codex-plugin-${REPO_VERSION}.zip`))).not.toContain(".DS_Store");
+  });
+  it("declares the connected MCP server, which the release ZIP omits", () => {
+    // 2.1.1 was approved and then refused at publish for omitting it.
+    const named = pack([release(), join(dir, "out")], { env: { PACK_CODEX_MCP_KEY: "portal-key" } });
+    expect(named.status, named.stderr).toBe(0);
+    const zip = join(dir, "out", `website-auditor-codex-plugin-${REPO_VERSION}.zip`);
+    expect(JSON.parse(read(zip, ".mcp.json"))).toEqual(MCP_JSON("portal-key"));
+    expect(JSON.parse(read(zip, ".codex-plugin/plugin.json")).mcpServers).toBe("./.mcp.json");
+    const empty = pack([release(), join(dir, "out2")], { env: { PACK_CODEX_MCP_KEY: " " } });
+    expect(empty.status).not.toBe(0);
+    expect(empty.stderr).toMatch(/PACK_CODEX_MCP_KEY is empty/);
+  });
+
+  it("keeps a remote .mcp.json the release already carries", () => {
+    const src = releaseDir({ ...RELEASE_MANIFEST, mcpServers: "./.mcp.json" });
+    const own = { mcpServers: { "portal-name": { url: MCP_URL, type: "streamable-http" } } };
+    writeFileSync(join(src, ".mcp.json"), JSON.stringify(own));
+    const r = pack([src, join(dir, "out")]);
+    expect(r.status, r.stderr).toBe(0);
+    const zip = join(dir, "out", `website-auditor-codex-plugin-${REPO_VERSION}.zip`);
+    expect(JSON.parse(read(zip, ".mcp.json"))).toEqual(own);
+    expect(r.stderr).not.toMatch(/not https|pack:codex:/);
+  });
+
+  it("refuses an MCP declaration the portal would refuse", () => {
+    const cases: Array<[object, RegExp]> = [
+      [{ mcpServers: { "website-auditor": { command: "npx", args: ["-y", "website-auditor-mcp"] } } }, /not a remote https url/],
+      [{ mcpServers: { a: { url: MCP_URL }, b: { url: MCP_URL } } }, /declares 2 servers/],
+      [{ mcpServers: { a: { url: MCP_URL, headers: { Authorization: "Bearer x" } } } }, /has headers/],
+      [{ servers: {} }, /no mcpServers object/],
+    ];
+    for (const [cfg, why] of cases) {
+      const src = releaseDir();
+      writeFileSync(join(src, ".mcp.json"), JSON.stringify(cfg));
+      const r = pack([src, join(dir, "out")]);
+      expect(r.status, JSON.stringify(cfg)).not.toBe(0);
+      expect(r.stderr, JSON.stringify(cfg)).toMatch(why);
+      rmSync(src, { recursive: true, force: true });
+    }
+    const elsewhere = pack([release({ ...RELEASE_MANIFEST, mcpServers: "./config/mcp.json" }), join(dir, "out")]);
+    expect(elsewhere.status).not.toBe(0);
+    expect(elsewhere.stderr).toMatch(/takes only \.\/\.mcp\.json/);
   });
 });

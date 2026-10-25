@@ -22,8 +22,25 @@
 # components you intend to keep". The portal's package is not codex-plugin/:
 # its manifest is named for the portal's app id and carries the portal's
 # listing text, and it has no .mcp.json (the server is connected in the
-# dashboard) and no assets. So this keeps that package and changes two
-# things: skills/ becomes codex-plugin/skills, and the version.
+# dashboard) and no assets. So this keeps that package and changes three
+# things: skills/ becomes codex-plugin/skills, the version, and the MCP
+# declaration (below).
+#
+# THE PACKAGE MUST DECLARE THE CONNECTED MCP SERVER. The portal's release ZIP
+# omits it, but publishing a package without it fails: "This package omits
+# the plugin's existing MCP. Restore its MCP declaration and connection before
+# submitting or publishing. Removing the MCP isn't supported." (2.1.1, approved
+# and then refused at publish, 2026-10-25). So the manifest gets
+# "mcpServers": "./.mcp.json", and a root .mcp.json naming the hosted server
+# is written when the release has none. The server is the one already
+# connected in the portal: https://mcp.website-auditor.io/mcp, whose URL only
+# OpenAI support can change. Its key defaults to website-auditor; set
+# PACK_CODEX_MCP_KEY to the name the portal shows under MCPs if that differs.
+# A release that does carry .mcp.json keeps it, provided it declares exactly
+# one remote (url) server: a bundled stdio server (codex-plugin/.mcp.json's
+# npx) is refused by the portal (mcp_configuration_excluded). No OAuth
+# settings are written: the server's discovery documents advertise DCR, and
+# client credentials never go in the package.
 #
 # ONLY MERGED SKILLS SHIP. Skills come from HEAD (git archive, so a .DS_Store
 # or an unsaved edit cannot ship), and HEAD's skills must equal origin/main's:
@@ -42,6 +59,8 @@ die() { echo "pack:codex: $*" >&2; exit 1; }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE="${PACK_CODEX_BASE:-origin/main}"   # overridable for the test only
+MCP_KEY="${PACK_CODEX_MCP_KEY:-website-auditor}"   # the server's name under MCPs in the portal
+MCP_URL="https://mcp.website-auditor.io/mcp"       # the connected server; fixed by the portal
 # Relative paths are the caller's: npm runs scripts from the repo root and
 # records the caller's directory in INIT_CWD, trusted only when npm ran this.
 CALLER="$PWD"
@@ -142,6 +161,38 @@ VERSION="$VERSION" node -e '
   m.version = next;
   fs.writeFileSync(path, JSON.stringify(m, null, 2) + "\n");
 ' "$MANIFEST"
+
+# The connected MCP server, declared (see THE PACKAGE MUST DECLARE above).
+MCP_KEY="$MCP_KEY" MCP_URL="$MCP_URL" node -e '
+  const fs = require("fs");
+  const [manifestPath, mcpPath] = process.argv.slice(1);
+  const { MCP_KEY: key, MCP_URL: url } = process.env;
+  const fail = (msg) => { console.error("pack:codex: " + msg); process.exit(1); };
+  if (!key.trim()) fail("PACK_CODEX_MCP_KEY is empty: set it to the server name the portal shows under MCPs");
+  const m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (m.mcpServers !== undefined && !["./.mcp.json", ".mcp.json"].includes(m.mcpServers)) {
+    fail(`the release declares mcpServers at ${JSON.stringify(m.mcpServers)}; the portal takes only ./.mcp.json`);
+  }
+  if (m.apps !== undefined) fail("the release declares apps (.app.json), which a ZIP upload cannot carry: remove it");
+  if (fs.existsSync(mcpPath)) {
+    let cfg;
+    try { cfg = JSON.parse(fs.readFileSync(mcpPath, "utf8")); } catch { fail("the release .mcp.json is not valid JSON"); }
+    const servers = cfg && typeof cfg.mcpServers === "object" && cfg.mcpServers && !Array.isArray(cfg.mcpServers) ? cfg.mcpServers : null;
+    if (!servers) fail("the release .mcp.json has no mcpServers object");
+    const names = Object.keys(servers);
+    if (names.length !== 1) fail(`the release .mcp.json declares ${names.length} servers; the listing connects exactly one`);
+    const s = servers[names[0]];
+    if (!s || typeof s.url !== "string" || !s.url.startsWith("https://") || s.command !== undefined) {
+      fail(`the release .mcp.json server ${names[0]} is not a remote https url; the portal refuses a bundled stdio server`);
+    }
+    if (s.headers && Object.keys(s.headers).length) fail(`the release .mcp.json server ${names[0]} has headers; public submission refuses them`);
+    if (s.url !== url) console.error(`warning: the release .mcp.json points ${names[0]} at ${s.url}, not ${url}; kept as the release has it`);
+  } else {
+    fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: { [key]: { url } } }, null, 2) + "\n");
+  }
+  m.mcpServers = "./.mcp.json";
+  fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2) + "\n");
+' "$MANIFEST" "$STAGE/pkg/.mcp.json"
 
 git archive HEAD codex-plugin/skills | tar -x -C "$STAGE"
 # The release's skills are replaced, so say what published skill content this

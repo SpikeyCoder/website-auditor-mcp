@@ -1,6 +1,6 @@
 {
   "name": "website-auditor",
-  "version": "2.1.0",
+  "version": "2.1.2",
   "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
   "author": {
     "name": "Kevin Armstrong / SpikeyCoder",
