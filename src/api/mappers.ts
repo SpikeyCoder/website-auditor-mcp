@@ -278,6 +278,15 @@ function text(v: unknown): string | null {
   return typeof v === "string" && v !== "" ? v : null;
 }
 
+/** Points for a state: ok when they agree with it, `points` null where the state has none. */
+function pointsFor(state: string | null, value: unknown): { ok: boolean; points: number | null } {
+  if (state !== "behind" && state !== "level" && state !== "ahead") return { ok: true, points: null };
+  const n = wholeNumber(value);
+  if (n === null) return { ok: false, points: null };
+  const agrees = state === "behind" ? n > 0 : state === "ahead" ? n < 0 : n === 0;
+  return { ok: agrees, points: agrees ? n : null };
+}
+
 /** The engine's recommendation_gap, validated, or undefined when it measured none. */
 export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | undefined {
   const raw = av.recommendation_gap;
@@ -288,12 +297,16 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   const rival = g.rival && typeof g.rival === "object" ? (g.rival as Record<string, unknown>) : null;
   const client = g.client && typeof g.client === "object" ? (g.client as Record<string, unknown>) : null;
   const sample = g.sample && typeof g.sample === "object" ? (g.sample as Record<string, unknown>) : null;
+  // Points that agree with their state, or none: whole, positive for behind,
+  // negative for ahead, zero for level, and none at all for any other state.
+  const overall = pointsFor(state, g.gap_points);
+  if (!overall.ok) return undefined;
   const per_engine: RecommendationGapEngine[] = (Array.isArray(g.engines) ? g.engines : [])
     .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as { engine?: unknown }).engine === "string")
     .map((e) => ({
       engine: String(e.engine).toLowerCase(),
       state: text(e.state),
-      gap_points: wholeNumber(e.gap_points),
+      gap_points: pointsFor(text(e.state), e.gap_points).points,
       you_recommended: count(e.client),
       rival_recommended: count(e.rival),
       answers: count(e.answers),
@@ -302,7 +315,7 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
     ?? (state === "not_enough_answers" ? "Not enough answers yet to measure a gap." : "");
   return {
     state,
-    gap_points: wholeNumber(g.gap_points),
+    gap_points: overall.points,
     rival: rival ? text(rival.name) : null,
     rival_recommended: rival ? count(rival.recommended) : null,
     tied_with: rival && Array.isArray(rival.tied_with)
@@ -327,14 +340,23 @@ export function toStanceCounts(av: AiVisibilityBlock): StanceCounts | undefined 
   const answers = count(c.answers);
   if (recommended === null || mentioned === null || cautioned === null
       || unclear === null || not_named === null || answers === null) return undefined;
+  // The parts are the answers: a block whose parts do not sum to its whole is
+  // not one the model can be handed (a rate over 100%, a gap from nothing).
+  if (recommended + mentioned + cautioned + unclear + not_named !== answers) return undefined;
   return { recommended, mentioned, cautioned, unclear, not_named, answers };
 }
 
-/** Whole points, halves away from zero (12.5 is 13, -12.5 is -13), as the engine rounds. */
-function roundPoints(value: number): number {
-  if (Math.abs(value) < 1e-9) return 0;
-  // A gap that exists is never 0 points: 1 more recommendation in 300 is 1.
-  return Math.sign(value) * Math.max(1, Math.floor(Math.abs(value) + 0.5));
+/**
+ * (rival's share - your share) * 100 in whole points, halves away from zero,
+ * in INTEGER arithmetic (29 of 200 against 0 of 200 is 14.5, which floats put at
+ * 14.499999999999998). Never 0 for a gap that exists.
+ */
+function exactPoints(rivalRec: number, rivalAns: number, youRec: number, youAns: number): number {
+  const numerator = (rivalRec * youAns - youRec * rivalAns) * 100;
+  const denominator = rivalAns * youAns;
+  if (numerator === 0) return 0;
+  const rounded = Math.floor((2 * Math.abs(numerator) + denominator) / (2 * denominator));
+  return Math.sign(numerator) * Math.max(1, rounded);
 }
 
 /**
@@ -348,11 +370,10 @@ export function toComparisonRecommendationGap(
   competitors: Array<{ domain: string; counts: StanceCounts | undefined }>,
 ): ComparisonRecommendationGap | undefined {
   if (!you || you.answers <= 0) return undefined;
-  const youRate = you.recommended / you.answers;
   const measured = competitors
     .filter((c): c is { domain: string; counts: StanceCounts } => !!c.counts && c.counts.answers > 0)
     .map((c) => {
-      const points = roundPoints((c.counts.recommended / c.counts.answers - youRate) * 100);
+      const points = exactPoints(c.counts.recommended, c.counts.answers, you.recommended, you.answers);
       return {
         domain: c.domain,
         state: (points > 0 ? "behind" : points < 0 ? "ahead" : "level") as CompetitorRecommendationGap["state"],
@@ -387,9 +408,14 @@ export function toComparisonRecommendationGap(
   };
 }
 
-/** The gap and the counts as result keys, each only when the engine measured it. */
-function gapAndCounts(av: AiVisibilityBlock) {
-  const gap = toRecommendationGap(av);
+/**
+ * The gap and the counts as result keys, each only when the engine measured it,
+ * and never for an estimated run: "you in 4 of 32" over answers nobody gave is
+ * the fabricated number this change exists to stop. `gap` is passed in when the
+ * caller has already mapped it.
+ */
+function gapAndCounts(av: AiVisibilityBlock, gap: RecommendationGap | undefined = toRecommendationGap(av)) {
+  if (av.is_simulated) return {};
   const counts = toStanceCounts(av);
   return {
     ...(gap ? { recommendation_gap: gap } : {}),
@@ -470,8 +496,10 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
 
   // The gap, in the sentence the model actually reads: a field it never reads
   // changes nothing (the same reasoning as the notes above).
-  const gap = toRecommendationGap(av);
-  const gapSentence = gap && gap.sentence && scoredNames.length > 0 ? ` ${gap.sentence}` : "";
+  // Nothing scored, or an estimated run: no gap at all, in the sentence or the
+  // result (it would contradict the "no score" summary beside it).
+  const gap = scoredNames.length > 0 && !av.is_simulated ? toRecommendationGap(av) : undefined;
+  const gapSentence = gap && gap.sentence ? ` ${gap.sentence}` : "";
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
@@ -482,7 +510,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     appears_by_engine,
     top_competitor: competitor,
     summary: `${summary}${gapSentence}`,
-    ...gapAndCounts(av),
+    ...(scoredNames.length > 0 ? gapAndCounts(av, gap) : {}),
     ...(coverage_note ? { coverage_note } : {}),
     trend: null,
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),

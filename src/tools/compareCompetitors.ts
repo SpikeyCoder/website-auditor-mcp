@@ -289,19 +289,22 @@ export async function compareCompetitors(
     cachedReused: quota.cachedReused,
   });
 
-  // NAMED IN THE RESULT, because a scoped comparison and an unscoped one are
-  // different measurements and were indistinguishable to every reader —
-  // including whatever later diffs two of them. null rather than '' so "no
-  // market" is one state rather than two.
   // How far behind each competitor you are in RECOMMENDED answers (Trello 226):
   // each audit's own stance counts, so the audits' sample sizes need not match.
-  // Absent when your audit or every competitor's recorded none.
+  // Absent when your audit or every competitor's recorded none. The sentence
+  // goes in `summary`, the text the model actually reads.
   const recommendationGap = toComparisonRecommendationGap(
     primaryAv.stance_counts,
     audited.map((a) => ({ domain: a.host, counts: a.av.stance_counts })),
   );
+  const summaryWithGap = recommendationGap ? `${summary} ${recommendationGap.sentence}` : summary;
+
+  // NAMED IN THE RESULT, because a scoped comparison and an unscoped one are
+  // different measurements and were indistinguishable to every reader —
+  // including whatever later diffs two of them. null rather than '' so "no
+  // market" is one state rather than two.
   return ok({
-    ranking, gaps, quota: compareQuota, skipped, summary, market: market || null,
+    ranking, gaps, quota: compareQuota, skipped, summary: summaryWithGap, market: market || null,
     ...(recommendationGap ? { recommendation_gap: recommendationGap } : {}),
   });
 }
