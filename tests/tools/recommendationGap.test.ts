@@ -184,7 +184,7 @@ describe("get_ai_visibility: the gap", () => {
 
   it("a tie for top rival names both, from the engine's own sentence", async () => {
     const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
-      rival: { name: "Harbor Loaf", recommended: 9, tied_with: ["Northside Bread Co."], included: false },
+      rival: { name: "Harbor Loaf", recommended: 9, tied_with: ["Northside Bread Co."], included: false }, gap_points: 16,
       sentence: "Harbor Loaf and Northside Bread Co. are each recommended in 9 of 32 answers, you in 4: 16 points behind.",
     }))));
     if (!res.ok) throw new Error("expected ok");
@@ -601,5 +601,80 @@ describe("compare_competitors: like for like, or it says so", () => {
     const res = await getAiVisibility({ domain: "example.com" }, depsFor(auditReport("example.com", { recommended: 4, answers: 32 })));
     if (!res.ok) throw new Error("expected ok");
     expect(res.data.questions_asked).toEqual(QUESTIONS);
+  });
+});
+
+describe("review round 3: the comparison picks and describes its rival on one basis", () => {
+  const run = (audits: Record<string, Parameters<typeof auditReport>[1]>, competitors = ["a.com", "b.com"]) =>
+    compareCompetitors({ domain: "you.com", competitors }, makeDeps({
+      tier: "pro",
+      client: { runAudit: vi.fn(async (req: { domain: string }) => ({ runId: req.domain, report: auditReport(req.domain, audits[req.domain]!), raw: {} })) },
+    }));
+
+  it("names as the top rival the competitor you trail MOST, on its own like-for-like basis", async () => {
+    // you: ChatGPT 6 of 8, Perplexity 0 of 8. a.com: ChatGPT only, 4 of 8 (the higher rate, but you lead it by 25).
+    // b.com: Perplexity only, 3 of 8 (the lower rate), and you are 0 of 8 there: 38 points behind.
+    const res = await run({
+      "you.com": { recommended: 6, answers: 16, engines: ["ChatGPT", "Perplexity"] },
+      "a.com": { recommended: 4, answers: 8, engines: ["ChatGPT"] },
+      "b.com": { recommended: 3, answers: 8, engines: ["Perplexity"] },
+    });
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.rival).toBe("b.com");
+    expect(gap.state).toBe("behind");
+    expect(gap.gap_points).toBe(38);
+    expect(gap.assistants).toEqual(["perplexity"]);
+    expect(gap.sentence).toContain("b.com is recommended in 3 of 8 answers, you in 0 of 8: 38 points behind.");
+  });
+
+  it("calls competitors tied only when their counts and your basis are identical", async () => {
+    // b.com is 8 of 16 and c.com is 16 of 32: the same rate, but not the same counts.
+    const res = await run({
+      "you.com": { recommended: 4, answers: 32 },
+      "b.com": { recommended: 8, answers: 16 },
+      "c.com": { recommended: 16, answers: 32 },
+    }, ["b.com", "c.com"]);
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.tied_with).toEqual([]);
+    expect(gap.sentence).not.toContain(" and c.com are each");
+  });
+
+  it("drops a gap whose numbers contradict each other", async () => {
+    for (const bad of [
+      engineGap({ state: "behind", gap_points: 3, client: { recommended: 1 }, rival: { name: "Beta", recommended: 5, tied_with: [], included: false }, sample: { answers: 10, questions: 2, assistants: 1 } }),
+      engineGap({ rival: { name: "Beta", recommended: 40, tied_with: [], included: false }, client: { recommended: 4 }, sample: { answers: 10, questions: 2, assistants: 1 }, gap_points: 100 }),
+    ]) {
+      const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(bad)));
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data.recommendation_gap).toBeUndefined();
+    }
+  });
+
+  it("says the comparison was narrowed when an assistant answered but its entry could not be used", async () => {
+    const reports: Record<string, AuditReport> = {
+      "you.com": auditReport("you.com", { recommended: 4, answers: 32 }),
+      "rival.com": auditReport("rival.com", { recommended: 11, answers: 32 }),
+    };
+    // Gemini answered for the rival, but its per-assistant entry is unusable (a "behind" with no points).
+    const gap = reports["rival.com"]!.ai_visibility!.recommendation_gap as { engines: Array<Record<string, unknown>> };
+    gap.engines[3] = { engine: "Gemini", answers: 8, client: 3, rival: 0, gap_points: null, state: "behind" };
+    const res = await compareCompetitors({ domain: "you.com", competitors: ["rival.com"] }, makeDeps({
+      tier: "pro",
+      client: { runAudit: vi.fn(async (req: { domain: string }) => ({ runId: req.domain, report: reports[req.domain]!, raw: {} })) },
+    }));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.sentence).toContain("Compared on ChatGPT, Perplexity and Claude only");
+  });
+
+  it("does not call two audits the same when they asked different questions past the first twenty", async () => {
+    const first = Array.from({ length: 25 }, (_, i) => `question ${i}`);
+    const res = await run({
+      "you.com": { recommended: 4, answers: 32, queries: first },
+      "a.com": { recommended: 11, answers: 32, queries: [...first.slice(0, 20), "other 1", "other 2", "other 3", "other 4", "other 5"] },
+    }, ["a.com"]);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.same_questions).toBe(false);
   });
 });

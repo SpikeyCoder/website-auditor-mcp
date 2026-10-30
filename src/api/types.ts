@@ -94,8 +94,8 @@ export interface AiVisibilityBlock {
   site_signals?: Record<string, unknown>;
   /**
    * How far behind the top beatable rival the business is, in points of the
-   * answers that RECOMMEND it , and how many answers
-   * recommended / mentioned / cautioned against it (card 225). Optional and
+   * answers that RECOMMEND it, and how many answers
+   * recommended / mentioned / cautioned against it. Optional and
    * `unknown`: a report from before either has neither, and the mappers
    * validate every field before it reaches a result.
    */
@@ -561,7 +561,6 @@ export interface CompareQuota {
   reset: string | null;
 }
 
-/** You against one competitor: each site's recommended answers as a share of its OWN answers. */
 /** What one audit offers a comparison: its counts, per-assistant detail and the questions it asked. */
 export interface SiteReading {
   counts?: StanceCounts;
@@ -569,6 +568,7 @@ export interface SiteReading {
   questions?: string[];
 }
 
+/** You against one competitor: each site's recommended answers as a share of its OWN answers. */
 export interface CompetitorRecommendationGap {
   domain: string;
   /** Whether both audits asked the same set of questions; null when either did not record them. */

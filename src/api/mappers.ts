@@ -357,10 +357,18 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   const rivalRec = rival ? count(rival.recommended) : null;
   const youRec = client ? count(client.recommended) : null;
   const answers = sample ? count(sample.answers) : null;
-  // A state that disagrees with its own counts is not a measurement.
-  if ((state === "behind" || state === "level" || state === "ahead") && rivalRec !== null && youRec !== null) {
-    const agrees = state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
-    if (!agrees) return undefined;
+  // The numbers must agree with each other, not only with the state: counts
+  // within the sample, a state that matches them, and points that are what
+  // they work out to (the engine's own rounding).
+  if (state === "behind" || state === "level" || state === "ahead") {
+    if (rivalRec !== null && youRec !== null) {
+      const agrees = state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
+      if (!agrees) return undefined;
+      if (answers !== null) {
+        if (rivalRec > answers || youRec > answers || answers <= 0) return undefined;
+        if (overall.points !== exactPoints(rivalRec, answers, youRec, answers)) return undefined;
+      }
+    }
   }
   const tied = rival && Array.isArray(rival.tied_with)
     ? rival.tied_with.filter((n): n is string => typeof n === "string" && n !== "") : [];
@@ -467,14 +475,20 @@ export function toComparisonRecommendationGap(
       youAns: basis.youAns,
     }];
   })
-    // Highest share first, exactly (cross-multiplied, not float), then by name.
-    .sort((a, b) => (b.recommended * a.answers - a.recommended * b.answers) || a.domain.localeCompare(b.domain));
+    // The competitor you trail MOST first, each on its own like-for-like
+    // basis; then the higher share (exact, cross-multiplied); then by name.
+    .sort((a, b) => (b.gap_points - a.gap_points)
+      || (b.recommended * a.answers - a.recommended * b.answers)
+      || a.domain.localeCompare(b.domain));
   const top = measured[0];
   if (!top) return undefined;
   // Every competitor recommended at exactly the top rate is named, as the
   // single-site gap names its ties.
+  // Tied only on IDENTICAL counts over the identical basis (a sentence about
+  // "each recommended in 5 of 20" must be true of every name in it).
   const tied = measured.slice(1)
-    .filter((c) => c.recommended * top.answers === top.recommended * c.answers)
+    .filter((c) => c.recommended === top.recommended && c.answers === top.answers
+      && c.youRec === top.youRec && c.youAns === top.youAns)
     .map((c) => c.domain);
   const group = [top.domain, ...tied];
   const pts = Math.abs(top.gap_points);
@@ -630,7 +644,8 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   // Nothing scored, or an estimated run: no gap at all, in the sentence or the
   // result (it would contradict the "no score" summary beside it).
   const gap = scoredNames.length > 0 && !av.is_simulated ? toRecommendationGap(av) : undefined;
-  const gapSentence = gap && gap.sentence ? ` ${gap.sentence}` : "";
+  const asked = questionsAsked(av);
+  const gapSuffix = gap && gap.sentence ? ` ${gap.sentence}` : "";
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
@@ -640,9 +655,9 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     engine_status,
     appears_by_engine,
     top_competitor: competitor,
-    summary: `${summary}${gapSentence}`,
+    summary: `${summary}${gapSuffix}`,
     ...(scoredNames.length > 0 ? gapAndCounts(av, gap) : {}),
-    ...(questionsAsked(av).length > 0 ? { questions_asked: questionsAsked(av) } : {}),
+    ...(asked.length > 0 ? { questions_asked: asked } : {}),
     ...(coverage_note ? { coverage_note } : {}),
     trend: null,
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
@@ -681,16 +696,21 @@ function seoProxyScore(av: AiVisibilityBlock): number | null {
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);
 }
 
-/** The questions this audit put to the assistants, trimmed, as the report recorded them (at most 20). */
+const MAX_QUESTIONS = 50;
+
+/** The questions this audit put to the assistants, trimmed, as the report recorded them (none when there are more than 50). */
 function questionsAsked(av: AiVisibilityBlock): string[] {
   const raw = (av as { queries?: unknown }).queries;
   if (!isStringArray(raw)) return [];
-  return raw.map((q) => q.trim()).filter((q) => q !== "").slice(0, 20);
+  const questions = raw.map((q) => q.trim()).filter((q) => q !== "");
+  // A list this long is not one audit's question set: leave it unrecorded
+  // rather than cut it, so two cut lists can never read as the same.
+  return questions.length > MAX_QUESTIONS ? [] : questions;
 }
 
 /** Did at least one assistant return an answer this run? */
 function anyEngineScored(av: AiVisibilityBlock): boolean {
-  return (["ChatGPT", "Perplexity", "Claude", "Gemini"] as const).some((n) => engineReading(av, n).state === "scored");
+  return ENGINE_KEYS.some((n) => engineReading(av, n).state === "scored");
 }
 
 export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): AuditSummary {
