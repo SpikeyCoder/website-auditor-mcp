@@ -237,6 +237,10 @@ const comparisonRecommendationGap = open({
   gap_points: z.number().describe("Positive when the top competitor is recommended more often."),
   rival: z.string(),
   tied_with: z.array(z.string()).describe("Other competitors recommended at exactly the top rate: one gap, all named."),
+  same_questions: z.boolean().nullable().describe(
+    "Whether both audits asked the same set of questions; null when either did not record them."),
+  assistants: z.array(z.string()).nullable().describe(
+    "The assistants the figures are over: those that answered for both sites. Null when that could not be checked."),
   rival_recommended: z.number(),
   rival_answers: z.number(),
   you_recommended: z.number(),
@@ -244,6 +248,8 @@ const comparisonRecommendationGap = open({
   sentence: z.string(),
   by_competitor: z.array(open({
     domain: z.string(),
+    same_questions: z.boolean().nullable(),
+    assistants: z.array(z.string()).nullable(),
     state: z.enum(["behind", "level", "ahead"]),
     gap_points: z.number(),
     recommended: z.number(),
@@ -260,6 +266,8 @@ export const getAiVisibilityOutput: ZodRawShape = {
   appears_by_engine: enginePresence,
   top_competitor: z.string().nullable().describe("The competitor appearing in place of the site, if any."),
   summary: z.string(),
+  questions_asked: z.array(z.string()).optional().describe(
+    "The questions put to the assistants for this score, when the report recorded them."),
   trend: aiVisibilityTrend.nullable().describe("Pro only; null when unavailable — trend_note says why."),
   trend_note: z.string().optional().describe("Present exactly when trend is null: the reason."),
   coverage_note: z.string().optional().describe(

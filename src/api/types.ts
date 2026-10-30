@@ -322,6 +322,8 @@ export interface AiVisibility {
   recommendation_gap?: RecommendationGap;
   /** Present when the engine recorded stances. */
   stance_counts?: StanceCounts;
+  /** The questions put to the assistants for this score, when the report recorded them. */
+  questions_asked?: string[];
   /** Pro only; null when unavailable — `trend_note` says why. */
   trend: AiVisibilityTrend | null;
   /** Present exactly when `trend` is null: the human-readable reason. */
@@ -560,8 +562,19 @@ export interface CompareQuota {
 }
 
 /** You against one competitor: each site's recommended answers as a share of its OWN answers. */
+/** What one audit offers a comparison: its counts, per-assistant detail and the questions it asked. */
+export interface SiteReading {
+  counts?: StanceCounts;
+  per_engine?: RecommendationGapEngine[];
+  questions?: string[];
+}
+
 export interface CompetitorRecommendationGap {
   domain: string;
+  /** Whether both audits asked the same set of questions; null when either did not record them. */
+  same_questions: boolean | null;
+  /** The assistants the figures are over (those that answered for both sites); null when that could not be checked. */
+  assistants: string[] | null;
   state: "behind" | "level" | "ahead";
   /** Positive when the competitor is recommended more often. */
   gap_points: number;
@@ -576,6 +589,10 @@ export interface ComparisonRecommendationGap {
   rival: string;
   /** Other competitors recommended at exactly that rate: one gap, all named. */
   tied_with: string[];
+  /** Whether both audits asked the same set of questions; null when either did not record them. */
+  same_questions: boolean | null;
+  /** The assistants the figures are over (those that answered for both sites); null when that could not be checked. */
+  assistants: string[] | null;
   rival_recommended: number;
   rival_answers: number;
   you_recommended: number;

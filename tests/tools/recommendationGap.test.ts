@@ -55,6 +55,50 @@ function consistent(recommended: number, answers: number) {
   return { recommended, mentioned: 0, cautioned: 0, uncertain: 0, not_named: answers - recommended, answers };
 }
 
+
+const QUESTIONS = ["best bakery in Austin, TX", "top rated bakery in Austin, TX"];
+const FOUR = ["ChatGPT", "Perplexity", "Claude", "Gemini"];
+
+/** Spread `recommended` of `answers` over the engines that answered, as evenly as whole numbers allow. */
+function spread(recommended: number, answers: number, engines: string[]) {
+  const base = Math.floor(answers / engines.length);
+  const extra = answers - base * engines.length;
+  let left = recommended;
+  return engines.map((engine, i) => {
+    const n = base + (i < extra ? 1 : 0);
+    const rec = Math.min(left, n);
+    left -= rec;
+    return { engine, answers: n, client: rec };
+  });
+}
+
+/**
+ * One audit of `host`: its stance counts, the assistants that answered with
+ * their own counts, and the questions it asked. `engines: null` leaves the
+ * per-assistant detail out; `queries: null` leaves the questions out.
+ */
+function auditReport(host: string, o: { recommended: number; answers: number; engines?: string[] | null; queries?: string[] | null }): AuditReport {
+  const base = reachableReport({ base_url: `https://${host}` });
+  const engines = o.engines === undefined ? FOUR : o.engines;
+  const gap = engines === null ? {} : {
+    recommendation_gap: {
+      state: "no_rival", gap_points: null, rival: null, client: { recommended: o.recommended },
+      sample: { answers: o.answers, questions: 2, assistants: engines.length },
+      engines: spread(o.recommended, o.answers, engines).map((e) => ({ ...e, rival: 0, gap_points: null, state: "no_rival" })),
+      rivals: [], sentence: "",
+    },
+  };
+  return {
+    ...base,
+    ai_visibility: {
+      ...base.ai_visibility,
+      ...gap,
+      stance_counts: consistent(o.recommended, o.answers),
+      queries: o.queries === null ? undefined : (o.queries ?? QUESTIONS),
+    },
+  } as AuditReport;
+}
+
 /** No stance_counts key at all, which `undefined` cannot say (it picks the default). */
 const NO_COUNTS = Symbol("no stance_counts");
 
@@ -207,20 +251,15 @@ describe("run_audit: the gap and the counts", () => {
 
 describe("compare_competitors: how far behind each competitor you are", () => {
   /** Each domain's audit carries its own recommended count over its own answers. */
-  function compareDeps(counts: Record<string, { recommended: number; answers: number } | undefined>) {
+  function compareDeps(
+    counts: Record<string, { recommended: number; answers: number; engines?: string[] | null; queries?: string[] | null } | undefined>,
+  ) {
     return makeDeps({
       tier: "pro",
       client: {
         runAudit: vi.fn(async (req: { domain: string }) => {
           const c = counts[req.domain];
-          const base = reachableReport({ base_url: `https://${req.domain}` });
-          const report = {
-            ...base,
-            ai_visibility: {
-              ...base.ai_visibility,
-              ...(c ? { stance_counts: consistent(c.recommended, c.answers) } : {}),
-            },
-          } as AuditReport;
+          const report = c ? auditReport(req.domain, c) : reachableReport({ base_url: `https://${req.domain}` });
           return { runId: req.domain, report, raw: {} };
         }),
       },
@@ -326,7 +365,7 @@ describe("the declared output schemas accept the gap (through the real server)",
 describe("a gap that exists is never zero points", () => {
   it("rounds 1 more recommendation in 300 answers to 1 point behind, not level", () => {
     const counts = (recommended: number) => ({ recommended, mentioned: 0, cautioned: 0, unclear: 0, not_named: 300 - recommended, answers: 300 });
-    const out = toComparisonRecommendationGap(counts(1), [{ domain: "rival.example", counts: counts(2) }]);
+    const out = toComparisonRecommendationGap({ counts: counts(1) }, [{ domain: "rival.example", counts: counts(2) }]);
     expect(out?.state).toBe("behind");
     expect(out?.gap_points).toBe(1);
   });
@@ -392,7 +431,7 @@ describe("review fixes: the gap is only drawn when it can be trusted", () => {
 
   it("computes comparison points exactly: 29 of 200 against 0 of 200 is 15 points, not 14", () => {
     const counts = (recommended: number) => ({ recommended, mentioned: 0, cautioned: 0, unclear: 0, not_named: 200 - recommended, answers: 200 });
-    const out = toComparisonRecommendationGap(counts(0), [{ domain: "rival.example", counts: counts(29) }]);
+    const out = toComparisonRecommendationGap({ counts: counts(0) }, [{ domain: "rival.example", counts: counts(29) }]);
     expect(out?.gap_points).toBe(15);
   });
 
@@ -463,11 +502,9 @@ describe("review round 2: the sentence and the entries are built from validated 
   it("compare_competitors names every competitor tied for the top", async () => {
     const res = await compareCompetitors(
       { domain: "you.com", competitors: ["a.com", "b.com"] },
-      makeDeps({ tier: "pro", client: { runAudit: vi.fn(async (req: { domain: string }) => {
-        const base = reachableReport({ base_url: `https://${req.domain}` });
-        const recommended = req.domain === "you.com" ? 4 : 16;
-        return { runId: req.domain, report: { ...base, ai_visibility: { ...base.ai_visibility, stance_counts: consistent(recommended, 32) } } as AuditReport, raw: {} };
-      }) } }));
+      makeDeps({ tier: "pro", client: { runAudit: vi.fn(async (req: { domain: string }) => ({
+        runId: req.domain, report: auditReport(req.domain, { recommended: req.domain === "you.com" ? 4 : 16, answers: 32 }), raw: {},
+      })) } }));
     if (!res.ok) throw new Error("expected ok");
     const gap = res.data.recommendation_gap!;
     expect(gap.rival).toBe("a.com");
@@ -482,5 +519,87 @@ describe("review round 2: the sentence and the entries are built from validated 
       d.isDirectory() ? walk(join(dir, d.name)) : [join(dir, d.name)]);
     const offenders = walk("src").filter((f) => /Trello \d+/.test(readFileSync(f, "utf8")));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("compare_competitors: like for like, or it says so", () => {
+  function depsFrom(audits: Record<string, Parameters<typeof auditReport>[1]>) {
+    return makeDeps({
+      tier: "pro",
+      client: { runAudit: vi.fn(async (req: { domain: string }) => ({ runId: req.domain, report: auditReport(req.domain, audits[req.domain]!), raw: {} })) },
+    });
+  }
+  const run = (audits: Record<string, Parameters<typeof auditReport>[1]>) =>
+    compareCompetitors({ domain: "you.com", competitors: ["rival.com"] }, depsFrom(audits));
+
+  it("says nothing extra when the same questions went to the same assistants", async () => {
+    const res = await run({ "you.com": { recommended: 4, answers: 32 }, "rival.com": { recommended: 11, answers: 32 } });
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.same_questions).toBe(true);
+    expect(gap.assistants).toEqual(["chatgpt", "perplexity", "claude", "gemini"]);
+    expect(gap.sentence).toBe("rival.com is recommended in 11 of 32 answers, you in 4 of 32: 22 points behind.");
+  });
+
+  it("compares only the assistants that answered for BOTH sites, and says which", async () => {
+    // you: 4 assistants, 4 of 32 (all on ChatGPT); rival: ChatGPT and Gemini only, 3 of 16.
+    // On the two they share you are 4 of 16.
+    const res = await run({
+      "you.com": { recommended: 4, answers: 32 },
+      "rival.com": { recommended: 3, answers: 16, engines: ["ChatGPT", "Gemini"] },
+    });
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.assistants).toEqual(["chatgpt", "gemini"]);
+    expect(gap.you_answers).toBe(16);
+    expect(gap.you_recommended).toBe(4);
+    expect(gap.sentence).toContain("Compared on ChatGPT and Gemini only: the other assistants did not answer for both sites.");
+  });
+
+  it("says when the two audits asked different questions", async () => {
+    const res = await run({
+      "you.com": { recommended: 4, answers: 32 },
+      "rival.com": { recommended: 11, answers: 32, queries: ["best sourdough in Dallas, TX"] },
+    });
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.same_questions).toBe(false);
+    expect(gap.sentence).toContain("Each site was asked different questions, so read this as indicative.");
+  });
+
+  it("treats the same questions in another order or case as the same", async () => {
+    const res = await run({
+      "you.com": { recommended: 4, answers: 32 },
+      "rival.com": { recommended: 11, answers: 32, queries: [QUESTIONS[1]!.toUpperCase(), ` ${QUESTIONS[0]} `] },
+    });
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.same_questions).toBe(true);
+  });
+
+  it("does not claim sameness it cannot check: no recorded questions, or no per-assistant detail", async () => {
+    const noQuestions = await run({ "you.com": { recommended: 4, answers: 32 }, "rival.com": { recommended: 11, answers: 32, queries: null } });
+    if (!noQuestions.ok) throw new Error("expected ok");
+    expect(noQuestions.data.recommendation_gap!.same_questions).toBeNull();
+    expect(noQuestions.data.recommendation_gap!.sentence).toContain("Whether both sites were asked the same questions could not be checked.");
+
+    const noEngines = await run({ "you.com": { recommended: 4, answers: 32 }, "rival.com": { recommended: 11, answers: 32, engines: null } });
+    if (!noEngines.ok) throw new Error("expected ok");
+    expect(noEngines.data.recommendation_gap!.assistants).toBeNull();
+    expect(noEngines.data.recommendation_gap!.sentence).toContain("Which assistants answered for each site could not be checked.");
+  });
+
+  it("leaves a competitor out when no assistant answered for both sites", async () => {
+    const res = await run({
+      "you.com": { recommended: 4, answers: 16, engines: ["ChatGPT", "Claude"] },
+      "rival.com": { recommended: 3, answers: 16, engines: ["Gemini", "Perplexity"] },
+    });
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap).toBeUndefined();
+  });
+
+  it("returns the questions each audit asked, so a reader can see what was put to the assistants", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(auditReport("example.com", { recommended: 4, answers: 32 })));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.questions_asked).toEqual(QUESTIONS);
   });
 });

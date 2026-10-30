@@ -23,6 +23,7 @@ import type {
   StanceCounts,
   CompetitorRecommendationGap,
   ComparisonRecommendationGap,
+  SiteReading,
 } from "./types.js";
 
 const ENGINE_KEYS = ["ChatGPT", "Perplexity", "Claude", "Gemini"] as const;
@@ -416,43 +417,86 @@ function exactPoints(rivalRec: number, rivalAns: number, youRec: number, youAns:
  * out; with nothing left the whole block is absent, never a 0.
  */
 export function toComparisonRecommendationGap(
-  you: StanceCounts | undefined,
-  competitors: Array<{ domain: string; counts: StanceCounts | undefined }>,
+  you: SiteReading,
+  competitors: Array<SiteReading & { domain: string }>,
 ): ComparisonRecommendationGap | undefined {
-  if (!you || you.answers <= 0) return undefined;
-  const measured = competitors
-    .filter((c): c is { domain: string; counts: StanceCounts } => !!c.counts && c.counts.answers > 0)
-    .map((c) => {
-      const points = exactPoints(c.counts.recommended, c.counts.answers, you.recommended, you.answers);
-      return {
-        domain: c.domain,
-        state: (points > 0 ? "behind" : points < 0 ? "ahead" : "level") as CompetitorRecommendationGap["state"],
-        gap_points: points,
-        recommended: c.counts.recommended,
-        answers: c.counts.answers,
-        rate: c.counts.recommended / c.counts.answers,
+  const youCounts = you.counts;
+  if (!youCounts || youCounts.answers <= 0) return undefined;
+  const youEngines = engineCounts(you.per_engine);
+  const youQuestions = questionSet(you.questions);
+  const measured = competitors.flatMap((c) => {
+    if (!c.counts || c.counts.answers <= 0) return [];
+    // LIKE FOR LIKE. Each site was audited on its own, so what each was asked
+    // and which assistants answered are checked, not assumed. With per-assistant
+    // detail on both sides the figures are over the assistants that answered
+    // for BOTH; without it they fall back to each audit's overall counts and
+    // the result says the assistants could not be checked.
+    const theirEngines = engineCounts(c.per_engine);
+    let basis: { youRec: number; youAns: number; rivRec: number; rivAns: number; assistants: string[] | null; narrowed: boolean };
+    if (youEngines && theirEngines) {
+      const shared = [...youEngines.keys()].filter((k) => theirEngines.has(k));
+      if (shared.length === 0) return [];       // nothing both answered: nothing to compare
+      const sum = (m: Map<string, { rec: number; ans: number }>, f: "rec" | "ans") =>
+        shared.reduce((t, k) => t + m.get(k)![f], 0);
+      basis = {
+        youRec: sum(youEngines, "rec"), youAns: sum(youEngines, "ans"),
+        rivRec: sum(theirEngines, "rec"), rivAns: sum(theirEngines, "ans"),
+        assistants: shared,
+        narrowed: shared.length < youEngines.size || shared.length < theirEngines.size,
       };
-    })
-    .sort((a, b) => b.rate - a.rate || a.domain.localeCompare(b.domain));
+    } else {
+      basis = {
+        youRec: youCounts.recommended, youAns: youCounts.answers,
+        rivRec: c.counts.recommended, rivAns: c.counts.answers,
+        assistants: null, narrowed: false,
+      };
+    }
+    if (basis.youAns <= 0 || basis.rivAns <= 0) return [];
+    const theirQuestions = questionSet(c.questions);
+    const points = exactPoints(basis.rivRec, basis.rivAns, basis.youRec, basis.youAns);
+    return [{
+      domain: c.domain,
+      state: (points > 0 ? "behind" : points < 0 ? "ahead" : "level") as CompetitorRecommendationGap["state"],
+      gap_points: points,
+      recommended: basis.rivRec,
+      answers: basis.rivAns,
+      same_questions: youQuestions && theirQuestions ? sameSet(youQuestions, theirQuestions) : null,
+      assistants: basis.assistants,
+      narrowed: basis.narrowed,
+      youRec: basis.youRec,
+      youAns: basis.youAns,
+    }];
+  })
+    // Highest share first, exactly (cross-multiplied, not float), then by name.
+    .sort((a, b) => (b.recommended * a.answers - a.recommended * b.answers) || a.domain.localeCompare(b.domain));
   const top = measured[0];
   if (!top) return undefined;
   // Every competitor recommended at exactly the top rate is named, as the
-  // single-site gap names its ties (exact: cross-multiplied, not float).
+  // single-site gap names its ties.
   const tied = measured.slice(1)
     .filter((c) => c.recommended * top.answers === top.recommended * c.answers)
     .map((c) => c.domain);
   const group = [top.domain, ...tied];
   const pts = Math.abs(top.gap_points);
   const noun = plural(pts, "point", "points");
-  const yours = `${you.recommended} of ${you.answers}`;
+  const yours = `${top.youRec} of ${top.youAns}`;
   const theirs = `${top.recommended} of ${top.answers}`;
-  const sentence = top.state === "behind"
+  const base = top.state === "behind"
     ? (group.length > 1
       ? `${joinNames(group)} are each recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`
       : `${top.domain} is recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`)
     : top.state === "ahead"
       ? `You lead ${joinNames(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}: ${pts} ${noun} ahead.`
       : `You are level with ${joinNames(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}.`;
+  // What the reader needs to know about how like-for-like the two sides are.
+  const caveats: string[] = [];
+  if (top.assistants === null) caveats.push("Which assistants answered for each site could not be checked.");
+  else if (top.narrowed) {
+    caveats.push(`Compared on ${joinNames(top.assistants.map((k) => ENGINE_LABELS[k] ?? k))} only: the other assistants did not answer for both sites.`);
+  }
+  if (top.same_questions === false) caveats.push("Each site was asked different questions, so read this as indicative.");
+  else if (top.same_questions === null) caveats.push("Whether both sites were asked the same questions could not be checked.");
+  const sentence = [base, ...caveats].join(" ");
   return {
     state: top.state,
     gap_points: top.gap_points,
@@ -460,11 +504,39 @@ export function toComparisonRecommendationGap(
     tied_with: tied,
     rival_recommended: top.recommended,
     rival_answers: top.answers,
-    you_recommended: you.recommended,
-    you_answers: you.answers,
+    you_recommended: top.youRec,
+    you_answers: top.youAns,
+    same_questions: top.same_questions,
+    assistants: top.assistants,
     sentence,
-    by_competitor: measured.map(({ rate: _rate, ...c }) => c),
+    by_competitor: measured.map((c) => ({
+      domain: c.domain, state: c.state, gap_points: c.gap_points, recommended: c.recommended,
+      answers: c.answers, same_questions: c.same_questions, assistants: c.assistants,
+    })),
   };
+}
+
+/** Per-assistant recommended counts (only assistants that answered), or null when none are recorded. */
+function engineCounts(entries: RecommendationGapEngine[] | undefined): Map<string, { rec: number; ans: number }> | null {
+  if (!entries || entries.length === 0) return null;
+  const out = new Map<string, { rec: number; ans: number }>();
+  for (const e of entries) {
+    if (e.answers !== null && e.answers > 0 && e.you_recommended !== null && e.you_recommended <= e.answers) {
+      out.set(e.engine, { rec: e.you_recommended, ans: e.answers });
+    }
+  }
+  return out.size > 0 ? out : null;
+}
+
+/** A set of questions, compared without regard to order, case or padding; null when none were recorded. */
+function questionSet(questions: string[] | undefined): Set<string> | null {
+  if (!questions) return null;
+  const set = new Set(questions.map((q) => q.trim().toLowerCase()).filter((q) => q !== ""));
+  return set.size > 0 ? set : null;
+}
+
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  return a.size === b.size && [...a].every((q) => b.has(q));
 }
 
 /**
@@ -570,6 +642,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     top_competitor: competitor,
     summary: `${summary}${gapSentence}`,
     ...(scoredNames.length > 0 ? gapAndCounts(av, gap) : {}),
+    ...(questionsAsked(av).length > 0 ? { questions_asked: questionsAsked(av) } : {}),
     ...(coverage_note ? { coverage_note } : {}),
     trend: null,
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
@@ -606,6 +679,13 @@ function seoProxyScore(av: AiVisibilityBlock): number | null {
     s.has_open_graph === true,
   ];
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+}
+
+/** The questions this audit put to the assistants, trimmed, as the report recorded them (at most 20). */
+function questionsAsked(av: AiVisibilityBlock): string[] {
+  const raw = (av as { queries?: unknown }).queries;
+  if (!isStringArray(raw)) return [];
+  return raw.map((q) => q.trim()).filter((q) => q !== "").slice(0, 20);
 }
 
 /** Did at least one assistant return an answer this run? */

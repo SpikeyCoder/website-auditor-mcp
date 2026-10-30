@@ -293,9 +293,14 @@ export async function compareCompetitors(
   // each audit's own stance counts, so the audits' sample sizes need not match.
   // Absent when your audit or every competitor's recorded none. The sentence
   // goes in `summary`, the text the model actually reads.
+  const reading = (av: AiVisibility) => ({
+    counts: av.stance_counts,
+    per_engine: av.recommendation_gap?.per_engine,
+    questions: av.questions_asked,
+  });
   const recommendationGap = toComparisonRecommendationGap(
-    primaryAv.stance_counts,
-    audited.map((a) => ({ domain: a.host, counts: a.av.stance_counts })),
+    reading(primaryAv),
+    audited.map((a) => ({ domain: a.host, ...reading(a.av) })),
   );
   const summaryWithGap = recommendationGap ? `${summary} ${recommendationGap.sentence}` : summary;
 
