@@ -598,7 +598,7 @@ export interface ComparisonRecommendationGap {
   you_recommended: number;
   you_answers: number;
   sentence: string;
-  /** Every competitor with stance counts, highest rate first. */
+  /** Every competitor with stance counts, the one you trail most first (each on its own like-for-like basis). */
   by_competitor: CompetitorRecommendationGap[];
 }
 

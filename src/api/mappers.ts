@@ -267,14 +267,22 @@ const GAP_STATES = new Set([
 ]);
 // What an assistant's own entry may say: the overall states, and not_measured.
 const ENGINE_STATES = new Set([...GAP_STATES, "not_measured"]);
+const KNOWN_ENGINES = new Set(ENGINE_KEYS.map((k) => k.toLowerCase()));
+
+const MAX_NAME_CHARS = 80;
+const MAX_TIED = 5;
+
+/** A business name read from a third-party answer, bounded: no control characters, 80 characters at most. */
+function cleanName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  return t === "" ? null : t.slice(0, MAX_NAME_CHARS);
+}
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
 }
 
-function joinNames(names: string[]): string {
-  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
 
 /**
  * The one plain sentence, rebuilt from the CHECKED fields. The engine's own
@@ -294,12 +302,12 @@ function gapSentence(g: {
   const group = [g.rival, ...g.tied];
   const of = `of ${g.answers} ${plural(g.answers, "answer", "answers")}`;
   const pts = `${Math.abs(g.points)} ${plural(Math.abs(g.points), "point", "points")}`;
-  if (g.state === "level") return `You are level with ${joinNames(group)}: recommended in ${g.youRec} ${of} each.`;
+  if (g.state === "level") return `You are level with ${listOf(group)}: recommended in ${g.youRec} ${of} each.`;
   if (g.state === "ahead") {
-    return `You lead ${joinNames(group)}: recommended in ${g.youRec} ${of}, ${group.length > 1 ? "each" : g.rival} in ${g.rivalRec}: ${pts} ahead.`;
+    return `You lead ${listOf(group)}: recommended in ${g.youRec} ${of}, ${group.length > 1 ? "each" : g.rival} in ${g.rivalRec}: ${pts} ahead.`;
   }
   return group.length > 1
-    ? `${joinNames(group)} are each recommended in ${g.rivalRec} ${of}, you in ${g.youRec}: ${pts} behind.`
+    ? `${listOf(group)} are each recommended in ${g.rivalRec} ${of}, you in ${g.youRec}: ${pts} behind.`
     : `${g.rival} is recommended in ${g.rivalRec} ${of}, you in ${g.youRec}: ${pts} behind.`;
 }
 
@@ -341,37 +349,39 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   if (!overall.ok) return undefined;
   const per_engine: RecommendationGapEngine[] = (Array.isArray(g.engines) ? g.engines : [])
     .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as { engine?: unknown }).engine === "string")
-    .map((e) => ({ e, state: text(e.state) }))
-    .filter(({ state: st }) => st !== null && ENGINE_STATES.has(st))
-    .map(({ e, state: st }) => ({ e, state: st, points: pointsFor(st, e.gap_points) }))
-    .filter(({ points }) => points.ok)           // a "behind" with no magnitude is left out, as the overall gap is
-    .map(({ e, state: st, points }) => ({
-      engine: String(e.engine).toLowerCase(),
-      state: st,
-      gap_points: points.points,
-      you_recommended: count(e.client),
-      rival_recommended: count(e.rival),
-      answers: count(e.answers),
-    }));
-  const rivalName = rival ? text(rival.name) : null;
+    .map((e) => ({ e, key: String(e.engine).toLowerCase(), state: text(e.state) }))
+    .filter(({ key, state: st }) => KNOWN_ENGINES.has(key) && st !== null && ENGINE_STATES.has(st))
+    .map(({ e, key, state: st }) => {
+      const answers = count(e.answers);
+      const you = count(e.client);
+      const rivalCount = count(e.rival);
+      // Within its own sample, and (for a gap state) the points its counts give.
+      const within = (you === null || answers === null || you <= answers)
+        && (rivalCount === null || answers === null || rivalCount <= answers);
+      let points = pointsFor(st, e.gap_points);
+      if (points.ok && points.points !== null && answers !== null && answers > 0 && you !== null && rivalCount !== null) {
+        if (Math.abs(points.points - exactPoints(rivalCount, answers, you, answers)) > 1) points = { ok: false, points: null };
+      }
+      return { within, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: you, rival_recommended: rivalCount, answers } };
+    })
+    .filter(({ within, points }) => within && points.ok)    // a "behind" with no magnitude is left out, as the overall gap is
+    .map(({ entry }) => entry);
+  const rivalName = rival ? cleanName(rival.name) : null;
   const rivalRec = rival ? count(rival.recommended) : null;
   const youRec = client ? count(client.recommended) : null;
   const answers = sample ? count(sample.answers) : null;
-  // The numbers must agree with each other, not only with the state: counts
-  // within the sample, a state that matches them, and points that are what
-  // they work out to (the engine's own rounding).
+  // WHOLE OR ABSENT. A behind, level or ahead gap needs its rival, both counts
+  // and the sample; its numbers must agree with each other (counts within the
+  // sample, a state that matches them, points within a rounding of what they
+  // work out to), or it is not a measurement.
   if (state === "behind" || state === "level" || state === "ahead") {
-    if (rivalRec !== null && youRec !== null) {
-      const agrees = state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
-      if (!agrees) return undefined;
-      if (answers !== null) {
-        if (rivalRec > answers || youRec > answers || answers <= 0) return undefined;
-        if (overall.points !== exactPoints(rivalRec, answers, youRec, answers)) return undefined;
-      }
-    }
+    if (rivalName === null || rivalRec === null || youRec === null || answers === null || answers <= 0) return undefined;
+    const agrees = state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
+    if (!agrees || rivalRec > answers || youRec > answers) return undefined;
+    if (overall.points === null || Math.abs(overall.points - exactPoints(rivalRec, answers, youRec, answers)) > 1) return undefined;
   }
   const tied = rival && Array.isArray(rival.tied_with)
-    ? rival.tied_with.filter((n): n is string => typeof n === "string" && n !== "") : [];
+    ? rival.tied_with.map(cleanName).filter((n): n is string => n !== null).slice(0, MAX_TIED) : [];
   const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, rivalRec, youRec, answers });
   return {
     state,
@@ -488,7 +498,9 @@ export function toComparisonRecommendationGap(
   // "each recommended in 5 of 20" must be true of every name in it).
   const tied = measured.slice(1)
     .filter((c) => c.recommended === top.recommended && c.answers === top.answers
-      && c.youRec === top.youRec && c.youAns === top.youAns)
+      && c.youRec === top.youRec && c.youAns === top.youAns
+      && c.same_questions === top.same_questions
+      && JSON.stringify(c.assistants) === JSON.stringify(top.assistants))
     .map((c) => c.domain);
   const group = [top.domain, ...tied];
   const pts = Math.abs(top.gap_points);
@@ -497,16 +509,16 @@ export function toComparisonRecommendationGap(
   const theirs = `${top.recommended} of ${top.answers}`;
   const base = top.state === "behind"
     ? (group.length > 1
-      ? `${joinNames(group)} are each recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`
+      ? `${listOf(group)} are each recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`
       : `${top.domain} is recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`)
     : top.state === "ahead"
-      ? `You lead ${joinNames(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}: ${pts} ${noun} ahead.`
-      : `You are level with ${joinNames(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}.`;
+      ? `You lead ${listOf(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}: ${pts} ${noun} ahead.`
+      : `You are level with ${listOf(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}.`;
   // What the reader needs to know about how like-for-like the two sides are.
   const caveats: string[] = [];
   if (top.assistants === null) caveats.push("Which assistants answered for each site could not be checked.");
   else if (top.narrowed) {
-    caveats.push(`Compared on ${joinNames(top.assistants.map((k) => ENGINE_LABELS[k] ?? k))} only: the other assistants did not answer for both sites.`);
+    caveats.push(`Compared on ${listOf(top.assistants.map((k) => ENGINE_LABELS[k] ?? k))} only: the other assistants have no usable answers for both sites.`);
   }
   if (top.same_questions === false) caveats.push("Each site was asked different questions, so read this as indicative.");
   else if (top.same_questions === null) caveats.push("Whether both sites were asked the same questions could not be checked.");
