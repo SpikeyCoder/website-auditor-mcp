@@ -881,3 +881,36 @@ describe("review round 7: truncation, unverified names, singular", () => {
     expect(out?.sentence).toContain("rival.example is recommended in 1 of 1 answer, you in 0 of 1: 100 points behind.");
   });
 });
+
+describe("review round 8: entries are whole, rivals are ranked exactly, a long tie says so", () => {
+  it("drops an assistant's gap entry that has no counts, no answers, or a state its counts do not give", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({ engines: [
+      { engine: "ChatGPT", answers: 8, client: 1, rival: 3, gap_points: 25, state: "behind" },
+      { engine: "Perplexity", answers: 0, client: null, rival: null, gap_points: 22, state: "behind" },   // over zero answers
+      { engine: "Claude", answers: 8, client: null, rival: 3, gap_points: 25, state: "behind" },         // a count missing
+      { engine: "Gemini", answers: 8, client: 3, rival: 1, gap_points: 25, state: "behind" },            // behind, but the rival has fewer
+    ] }))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.per_engine.map((e) => e.engine)).toEqual(["chatgpt"]);
+  });
+
+  it("ranks by the exact shortfall, not the rounded points", () => {
+    const counts = (recommended: number, answers: number) => ({ recommended, mentioned: 0, cautioned: 0, unclear: 0, not_named: answers - recommended, answers });
+    // Both round to 33 points: a.com is exactly 1/3 (33.33), b.com is 100/300 + 1/300 = 33.67 -> 34? use 33.4 vs 33.33.
+    const out = toComparisonRecommendationGap({ counts: counts(0, 300) }, [
+      { domain: "a.com", counts: counts(100, 300) },     // 33.333...
+      { domain: "b.com", counts: counts(1003, 3000) },   // 33.433...
+    ]);
+    expect(out?.rival).toBe("b.com");
+  });
+
+  it("says how many more are tied when it names only the first few", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: "A", recommended: 11, tied_with: ["B", "C", "D", "E", "F", "G", "H"], included: false },
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.tied_with).toHaveLength(5);
+    expect(gap.sentence).toContain("A, B, C, D, E, F and 2 more are each recommended in 11 of 32 answers");
+  });
+});

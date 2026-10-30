@@ -311,7 +311,7 @@ function plural(n: number, one: string, many: string): string {
  * "" when a field the wording needs is missing.
  */
 function gapSentence(g: {
-  state: RecommendationGap["state"]; points: number | null; rival: string | null; tied: string[];
+  state: RecommendationGap["state"]; points: number | null; rival: string | null; tied: string[]; tiedExtra: number;
   rivalRec: number | null; youRec: number | null; answers: number | null;
 }): string {
   if (g.state === "not_enough_answers") return "Not enough answers yet to measure a gap.";
@@ -319,7 +319,7 @@ function gapSentence(g: {
   if (g.state === "no_rival") return `No rival is recommended in these ${g.answers} answers.`;
   if (g.state === "no_local_rival") return `No local rival is recommended in these ${g.answers} answers.`;
   if (g.rival === null || g.rivalRec === null || g.youRec === null || g.points === null) return "";
-  const group = [g.rival, ...g.tied];
+  const group = g.tiedExtra > 0 ? [g.rival, ...g.tied, `${g.tiedExtra} more`] : [g.rival, ...g.tied];
   const of = `of ${g.answers} ${plural(g.answers, "answer", "answers")}`;
   const pts = `${Math.abs(g.points)} ${plural(Math.abs(g.points), "point", "points")}`;
   if (g.state === "level") return `You are level with ${listOf(group)}: recommended in ${g.youRec} ${of} each.`;
@@ -382,7 +382,14 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
       if (points.ok && points.points !== null && answers !== null && answers > 0 && you !== null && rivalCount !== null) {
         if (Math.abs(points.points - exactPoints(rivalCount, answers, you, answers)) > 1) points = { ok: false, points: null };
       }
-      return { within, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: you, rival_recommended: rivalCount, answers } };
+      // A behind, level or ahead entry is whole or absent too: its sample, both
+      // counts, and a state its counts give.
+      let whole = true;
+      if (st === "behind" || st === "level" || st === "ahead") {
+        whole = answers !== null && answers > 0 && you !== null && rivalCount !== null
+          && (st === "behind" ? rivalCount > you : st === "ahead" ? rivalCount < you : rivalCount === you);
+      }
+      return { within: within && whole, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: you, rival_recommended: rivalCount, answers } };
     })
     .filter(({ within, points }) => within && points.ok)    // a "behind" with no magnitude is left out, as the overall gap is
     .map(({ entry }) => entry)
@@ -405,9 +412,10 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
     if (!agrees || rivalRec > answers || youRec > answers) return undefined;
     if (overall.points === null || Math.abs(overall.points - exactPoints(rivalRec, answers, youRec, answers)) > 1) return undefined;
   }
-  const tied = rival && hasRival && Array.isArray(rival.tied_with)
-    ? distinctNames(rival.tied_with.map(cleanName), rivalName).slice(0, MAX_TIED) : [];
-  const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, rivalRec, youRec, answers });
+  const tiedAll = rival && hasRival && Array.isArray(rival.tied_with)
+    ? distinctNames(rival.tied_with.map(cleanName), rivalName) : [];
+  const tied = tiedAll.slice(0, MAX_TIED);
+  const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, tiedExtra: tiedAll.length - tied.length, rivalRec, youRec, answers });
   return {
     state,
     gap_points: overall.points,
@@ -521,7 +529,7 @@ export function toComparisonRecommendationGap(
   })
     // The competitor you trail MOST first, each on its own like-for-like
     // basis; then the higher share (exact, cross-multiplied); then by name.
-    .sort((a, b) => (b.gap_points - a.gap_points)
+    .sort((a, b) => exactShortfall(b, a)
       || (b.recommended * a.answers - a.recommended * b.answers)
       || a.domain.localeCompare(b.domain));
   const top = measured[0];
@@ -580,6 +588,18 @@ export function toComparisonRecommendationGap(
       same_questions: c.same_questions, assistants: c.assistants,
     })),
   };
+}
+
+/** Sign of (a's shortfall - b's), exactly: each is (rival share - your share) on its own basis, cross-multiplied. */
+function exactShortfall(
+  a: { recommended: number; answers: number; youRec: number; youAns: number },
+  b: { recommended: number; answers: number; youRec: number; youAns: number },
+): number {
+  const an = a.recommended * a.youAns - a.youRec * a.answers;
+  const ad = a.answers * a.youAns;
+  const bn = b.recommended * b.youAns - b.youRec * b.answers;
+  const bd = b.answers * b.youAns;
+  return Math.sign(an * bd - bn * ad);
 }
 
 /** Per-assistant recommended counts (only assistants that answered), or null when none are recorded. */
