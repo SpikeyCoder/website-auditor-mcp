@@ -158,7 +158,7 @@ export function topCompetitor(av: AiVisibilityBlock): string | null {
     const results = av.platform_scores?.[key]?.results ?? [];
     for (const r of results) {
       for (const c of r.competitors ?? []) {
-        const name = cleanName(c);          // third-party text: bounded and cleaned where it enters
+        const name = cleanName(c, MAX_COMPETITOR_CHARS);   // third-party text: cleaned where it enters
         if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
       }
     }
@@ -287,12 +287,12 @@ const MAX_TIED = 5;
 /** A business name read from a third-party answer, bounded: no control characters, 80 characters at most. */
 function cleanName(value: unknown, max: number = MAX_NAME_CHARS): string | null {
   if (typeof value !== "string") return null;
-  // Controls (C0, DEL, C1), invisible and formatting characters go: zero-width
-  // and bidirectional marks, tag characters (U+E0000 block), soft hyphen,
-  // combining grapheme joiner, Arabic letter mark, variation selectors. They
-  // read as nothing and steer nothing.
+  // Controls (C0, DEL, C1) and the invisible, formatting characters below go.
+  // Only what hides text or steers it: the zero-width joiner and non-joiner
+  // (U+200C/D) and the variation selectors stay, because Persian, Indic and
+  // emoji names are spelled with them.
   const t = value
-    .replace(/[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufe00-\ufe0f\ufeff\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu, "")
+    .replace(/[\u00ad\u034f\u061c\u180e\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\u{e0000}-\u{e007f}]/gu, "")
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ").trim();
   // By code point: cutting a UTF-16 pair in half leaves a lone surrogate.
@@ -573,7 +573,7 @@ export function toComparisonRecommendationGap(
   if (top.same_questions === false) caveats.push("Each site was asked different questions, so read this as indicative.");
   else if (top.same_questions === null) caveats.push("Whether both sites were asked the same questions could not be checked.");
   if (notCompared.length > 0) {
-    caveats.push(`${listOf(notCompared)} could not be included: ${notCompared.length > 1 ? "their audits" : "its audit"} recorded no stances.`);
+    caveats.push(`${listOf(notCompared)} could not be included: ${notCompared.length > 1 ? "their audits have" : "its audit has"} no usable stances (an estimated run, or one that recorded none).`);
   }
   if (you.unverified) caveats.push("The business name for your site could not be verified, so treat this as indicative.");
   if (top.unverified) caveats.push(`The business name for ${top.domain} could not be verified, so treat this as indicative.`);
@@ -785,6 +785,7 @@ function seoProxyScore(av: AiVisibilityBlock): number | null {
 
 const MAX_QUESTIONS = 50;
 const MAX_QUESTION_CHARS = 200;
+const MAX_COMPETITOR_CHARS = 200;
 
 /** The questions this audit put to the assistants, trimmed, as the report recorded them (none when there are more than 50). */
 function questionsAsked(av: AiVisibilityBlock): string[] {

@@ -816,9 +816,9 @@ describe("review round 5: no mixed bases, no leaked rival on a no-rival state, n
 });
 
 describe("review round 6: names and no-rival states", () => {
-  it("strips tag characters, soft hyphens and variation selectors from a name", async () => {
+  it("strips tag characters and soft hyphens from a name", async () => {
     const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
-      rival: { name: "North\u{E0049}\u{E0067}side\u00ad\u034f\ufe0f Bread", recommended: 11, tied_with: [], included: false },
+      rival: { name: "North\u{E0049}\u{E0067}side\u00ad\u034f Bread", recommended: 11, tied_with: [], included: false },
     }))));
     if (!res.ok) throw new Error("expected ok");
     expect(res.data.recommendation_gap!.rival).toBe("Northside Bread");
@@ -934,7 +934,7 @@ describe("review round 9: nothing left out unsaid, no placeholder zeros, bounded
     if (!res.ok) throw new Error("expected ok");
     const gap = res.data.recommendation_gap!;
     expect(gap.not_compared).toEqual(["c.com"]);
-    expect(gap.sentence).toContain("c.com could not be included: its audit recorded no stances.");
+    expect(gap.sentence).toContain("c.com could not be included: its audit has no usable stances (an estimated run, or one that recorded none).");
   });
 
   it("gives a competitor's own caveat in by_competitor, not only the top row's", async () => {
@@ -969,5 +969,35 @@ describe("review round 9: nothing left out unsaid, no placeholder zeros, bounded
     const res2 = await getAiVisibility({ domain: "example.com" }, depsFor(r2));
     if (!res2.ok) throw new Error("expected ok");
     if (res2.data.top_competitor !== null) expect(res2.data.top_competitor).not.toMatch(/[‮\n]/);
+  });
+});
+
+describe("review round 10: names keep the characters their scripts need", () => {
+  it("keeps the joiner, non-joiner and variation selector a name needs, and still strips the ones that only hide text", async () => {
+    const persian = "می‌خواهم کافه";                  // ZWNJ is part of the spelling
+    const emoji = "Cafe \u{1F469}‍\u{1F373} Roma️";  // ZWJ sequence, VS16
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: persian, recommended: 11, tied_with: [emoji], included: false },
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.rival).toBe(persian);
+    expect(gap.tied_with).toEqual([emoji]);
+    const hidden = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: "Nor​th‮side\u{E0049}", recommended: 11, tied_with: [], included: false },
+    }))));
+    if (!hidden.ok) throw new Error("expected ok");
+    expect(hidden.data.recommendation_gap!.rival).toBe("Northside");
+  });
+
+  it("does not shorten the top competitor's name as hard as a rival's, and names a stance-less audit honestly", async () => {
+    const legal = `${"Long Legal Name of a Holding Company ".repeat(4)}Ltd`;     // ~150 characters
+    const report = reachableReport();
+    (report.ai_visibility as Record<string, unknown>).platform_scores = {
+      ChatGPT: { score: 50, total: 4, asked: 4, results: [{ query: "q", client_appears: true, competitors: [legal] }] },
+    };
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(report));
+    if (!res.ok) throw new Error("expected ok");
+    if (res.data.top_competitor !== null) expect(res.data.top_competitor!.length).toBeGreaterThan(80);
   });
 });
