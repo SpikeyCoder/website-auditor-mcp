@@ -289,7 +289,7 @@ function distinctNames(names: Array<string | null>, except: string | null): stri
 const MAX_NAME_CHARS = 200;   // one cap for every business name read from an answer
 const MAX_TIED = 5;
 
-/** A business name read from a third-party answer, bounded: no control characters, 80 characters at most. */
+/** A business name read from a third-party answer, bounded: no control or hidden characters, 200 characters at most. */
 function cleanName(value: unknown, max: number = MAX_NAME_CHARS): string | null {
   if (typeof value !== "string") return null;
   // Controls (C0, DEL, C1) and the invisible, formatting characters below go.
@@ -373,7 +373,8 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   const rivalRec = rival && hasRival && sampled ? count(rival.recommended) : null;
 
   const per_engine: RecommendationGapEngine[] = [];
-  for (const e of Array.isArray(g.engines) ? g.engines : []) {
+  // Entries belong to a sample: with none, there is nothing for them to be a share of.
+  for (const e of sampled && Array.isArray(g.engines) ? g.engines : []) {
     const entry = engineEntry(e);
     if (entry && !per_engine.some((x) => x.engine === entry.engine)) per_engine.push(entry);   // one per assistant
   }
@@ -409,7 +410,7 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
 }
 
 /** Does the state say what the counts say? */
-function stateMatches(state: "behind" | "level" | "ahead" | string, rivalRec: number, youRec: number): boolean {
+function stateMatches(state: string, rivalRec: number, youRec: number): boolean {
   return state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
 }
 
@@ -544,7 +545,7 @@ export function toComparisonRecommendationGap(
     // basis; then the higher share (exact, cross-multiplied); then by name.
     .sort((a, b) => exactShortfall(b, a)
       || (b.recommended * a.answers - a.recommended * b.answers)
-      || a.domain.localeCompare(b.domain));
+      || (a.domain < b.domain ? -1 : a.domain > b.domain ? 1 : 0));    // code units: the same order on every runtime
   const top = measured[0];
   if (!top) return undefined;
   // Every competitor recommended at exactly the top rate is named, as the
@@ -619,6 +620,25 @@ function exactShortfall(
   return Math.sign(an * bd - bn * ad);
 }
 
+/**
+ * Why no comparison gap was drawn, for the summary, when the audits had stances
+ * to offer on one side but not the other. Undefined when nobody had any (the
+ * feature is simply absent) or when nothing is left unsaid.
+ */
+export function comparisonGapNote(
+  you: SiteReading,
+  competitors: Array<SiteReading & { domain: string }>,
+): string | undefined {
+  const usable = (r: SiteReading) => !!r.counts && r.counts.answers > 0;
+  const reason = "no usable stances (an estimated run, or one that recorded none).";
+  if (!usable(you)) {
+    return competitors.some(usable) ? `No recommendation gap was compared: your audit has ${reason}` : undefined;
+  }
+  const missing = competitors.filter((c) => !usable(c)).map((c) => c.domain);
+  if (missing.length === 0) return undefined;
+  return `No recommendation gap was compared: ${listOf(missing)} ${missing.length > 1 ? "have" : "has"} ${reason}`;
+}
+
 /** Per-assistant recommended counts (only assistants that answered), or null when none are recorded. */
 function engineCounts(entries: RecommendationGapEngine[] | undefined): Map<string, { rec: number; ans: number }> | null {
   if (!entries || entries.length === 0) return null;
@@ -649,10 +669,10 @@ function sameSet(a: Set<string>, b: Set<string>): boolean {
 }
 
 /**
- * The gap and the counts as result keys, each only when the engine measured it,
- * and never for an estimated run: "you in 4 of 32" over answers nobody gave is
- * the fabricated number this change exists to stop. `gap` is passed in when the
- * caller has already mapped it.
+ * The gap and the counts, each only when the engine measured it, and never for
+ * an estimated run ("you in 4 of 32" over answers nobody gave is the fabricated
+ * number this change exists to stop). They come from two blocks built from the
+ * same answers, so if they disagree neither is handed on.
  */
 function reconcileGap(av: AiVisibilityBlock): { gap?: RecommendationGap; counts?: StanceCounts } {
   if (av.is_simulated) return {};
@@ -763,7 +783,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     top_competitor: competitor,
     summary: `${summary}${gapSuffix}`,
     ...gapAndCounts(reconciled),
-    ...(asked.length > 0 ? { questions_asked: asked } : {}),
+    ...(asked.length > 0 && !av.is_simulated && scoredNames.length > 0 ? { questions_asked: asked } : {}),
     ...(coverage_note ? { coverage_note } : {}),
     trend: null,
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
@@ -812,10 +832,9 @@ function questionsAsked(av: AiVisibilityBlock): string[] {
   // Whole or unrecorded: a question cut short could make two different ones read as the same.
   const cleaned = raw.map((q) => cleanName(q, MAX_QUESTION_CHARS + 1)).filter((q): q is string => q !== null);
   if (cleaned.some((q) => Array.from(q).length > MAX_QUESTION_CHARS)) return [];
-  const questions = cleaned;
   // A list this long is not one audit's question set: leave it unrecorded
   // rather than cut it, so two cut lists can never read as the same.
-  return questions.length > MAX_QUESTIONS ? [] : questions;
+  return cleaned.length > MAX_QUESTIONS ? [] : cleaned;
 }
 
 /** Did at least one assistant return an answer this run? */

@@ -954,7 +954,7 @@ describe("review round 9: nothing left out unsaid, no placeholder zeros, bounded
     if (!res.ok) throw new Error("expected ok");
     const gap = res.data.recommendation_gap!;
     expect(gap.you_recommended).toBeNull();
-    expect(gap.per_engine[0]).toMatchObject({ you_recommended: null, rival_recommended: null, answers: null });
+    expect(gap.per_engine).toEqual([]);          // no sample: nothing for an entry to be a share of
   });
 
   it("bounds and cleans the questions it echoes and the competitor name it names", async () => {
@@ -1105,7 +1105,7 @@ describe("review round 13: one figure, counts as the authority, cross-checked, n
     const gap = res.data.recommendation_gap!;
     expect(gap.you_recommended).toBeNull();
     expect(gap.answers).toBeNull();
-    expect(gap.per_engine.map((e) => [e.engine, e.you_recommended, e.answers])).toEqual([["chatgpt", null, null], ["claude", null, null]]);
+    expect(gap.per_engine).toEqual([]);
   });
 
   it("hands on neither the gap nor the counts when they disagree about the answers", async () => {
@@ -1162,5 +1162,66 @@ describe("review round 13: one figure, counts as the authority, cross-checked, n
     expect(res.data.top_competitor).toBe("ACME Plumbing");
     // The same long name is the same string in both fields.
     expect(res.data.recommendation_gap!.rival).toBe(long);
+  });
+});
+
+describe("review round 14: gated questions, a said-aloud empty comparison, no orphan entries, a stable order", () => {
+  it("returns no questions for an estimated run or one nothing answered", async () => {
+    const estimated = auditReport("example.com", { recommended: 4, answers: 32 });
+    (estimated.ai_visibility as Record<string, unknown>).is_simulated = true;
+    const nothing = auditReport("example.com", { recommended: 4, answers: 32 });
+    (nothing.ai_visibility as Record<string, unknown>).platform_scores = {};
+    for (const report of [estimated, nothing]) {
+      const res = await getAiVisibility({ domain: "example.com" }, depsFor(report));
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data.questions_asked).toBeUndefined();
+    }
+  });
+
+  const compareWith = (audits: Record<string, Parameters<typeof auditReport>[1] | "none">, competitors: string[]) =>
+    compareCompetitors({ domain: "you.com", competitors }, makeDeps({
+      tier: "pro",
+      client: { runAudit: vi.fn(async (req: { domain: string }) => {
+        const a = audits[req.domain]!;
+        return { runId: req.domain, report: a === "none" ? reachableReport({ base_url: `https://${req.domain}` }) : auditReport(req.domain, a), raw: {} };
+      }) },
+    }));
+
+  it("says so, in the summary, when no competitor could be compared", async () => {
+    const res = await compareWith({ "you.com": { recommended: 4, answers: 32 }, "a.com": "none", "b.com": "none" }, ["a.com", "b.com"]);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap).toBeUndefined();
+    expect(res.data.summary).toContain("No recommendation gap was compared: a.com and b.com have no usable stances (an estimated run, or one that recorded none).");
+  });
+
+  it("says so when it is your own audit that has no usable stances", async () => {
+    const res = await compareWith({ "you.com": "none", "a.com": { recommended: 4, answers: 32 } }, ["a.com"]);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap).toBeUndefined();
+    expect(res.data.summary).toContain("No recommendation gap was compared: your audit has no usable stances (an estimated run, or one that recorded none).");
+  });
+
+  it("says nothing of a gap when none was expected: no stances anywhere is the feature being absent", async () => {
+    const res = await compareWith({ "you.com": "none", "a.com": "none" }, ["a.com"]);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.summary).not.toContain("No recommendation gap was compared");
+  });
+
+  it("drops per-assistant entries when the gap has no sample to hold them", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      state: "not_enough_answers", gap_points: null, rival: null, sample: null,
+      engines: [{ engine: "ChatGPT", state: "no_rival", answers: 8, client: 1, rival: 0 }],
+    }), NO_COUNTS)));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.per_engine).toEqual([]);
+  });
+
+  it("breaks a dead heat by plain character order, not the locale's", () => {
+    const counts = (recommended: number) => ({ recommended, mentioned: 0, cautioned: 0, unclear: 0, not_named: 32 - recommended, answers: 32 });
+    const rival = (competitors: string[]) => toComparisonRecommendationGap({ counts: counts(4) },
+      competitors.map((domain) => ({ domain, counts: counts(16) })));
+    // "Zeta" sorts before "alpha" by code unit; a locale-aware compare would put "alpha" first.
+    expect(rival(["alpha.com", "Zeta.com"])?.rival).toBe("Zeta.com");
+    expect(rival(["Zeta.com", "alpha.com"])?.rival).toBe("Zeta.com");
   });
 });

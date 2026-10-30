@@ -39,7 +39,7 @@ import type {
   SkippedDomain,
   CompareQuota,
 } from "../api/types.js";
-import { toAiVisibility, detectUnreachable, toComparisonRecommendationGap } from "../api/mappers.js";
+import { toAiVisibility, detectUnreachable, toComparisonRecommendationGap, comparisonGapNote } from "../api/mappers.js";
 import { normalizeDomain } from "../api/domain.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
@@ -303,7 +303,13 @@ export async function compareCompetitors(
     reading(primaryAv),
     audited.map((a) => ({ domain: a.host, ...reading(a.av) })),
   );
-  const summaryWithGap = recommendationGap ? `${summary} ${recommendationGap.sentence}` : summary;
+  // When no gap could be drawn although some audit had stances, say why, so
+  // "could not compare" is never mistaken for "feature absent".
+  const gapNote = recommendationGap ? undefined : comparisonGapNote(
+    reading(primaryAv),
+    audited.map((a) => ({ domain: a.host, ...reading(a.av) })),
+  );
+  const summaryWithGap = recommendationGap ? `${summary} ${recommendationGap.sentence}` : gapNote ? `${summary} ${gapNote}` : summary;
 
   // NAMED IN THE RESULT, because a scoped comparison and an unscoped one are
   // different measurements and were indistinguishable to every reader —
