@@ -292,7 +292,7 @@ function cleanName(value: unknown, max: number = MAX_NAME_CHARS): string | null 
   // (U+200C/D) and the variation selectors stay, because Persian, Indic and
   // emoji names are spelled with them.
   const t = value
-    .replace(/[\u00ad\u034f\u061c\u180e\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\u{e0000}-\u{e007f}]/gu, "")
+    .replace(/[\u00ad\u034f\u061c\u180e\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u206a-\u206f\u3164\ufff9-\ufffb\ufeff\u{e0000}-\u{e007f}]/gu, "")
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ").trim();
   // By code point: cutting a UTF-16 pair in half leaves a lone surrogate.
@@ -380,7 +380,9 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
         && (rivalCount === null || answers === null || rivalCount <= answers);
       let points = pointsFor(st, e.gap_points);
       if (points.ok && points.points !== null && answers !== null && answers > 0 && you !== null && rivalCount !== null) {
-        if (Math.abs(points.points - exactPoints(rivalCount, answers, you, answers)) > 1) points = { ok: false, points: null };
+        const exact = exactPoints(rivalCount, answers, you, answers);
+        // Within a rounding of the engine's, then the exact figure its counts give.
+        points = Math.abs(points.points - exact) > 1 ? { ok: false, points: null } : { ok: true, points: exact };
       }
       // A behind, level or ahead entry is whole or absent too: its sample, both
       // counts, and a state its counts give.
@@ -406,8 +408,9 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   // and the sample; its numbers must agree with each other (counts within the
   // sample, a state that matches them, points within a rounding of what they
   // work out to), or it is not a measurement.
+  if (youRec !== null && answers !== null && youRec > answers) return undefined;     // any state: counts within the sample
   if (state === "no_rival" || state === "no_local_rival") {
-    if (answers === null || answers <= 0 || (youRec !== null && youRec > answers)) return undefined;
+    if (answers === null || answers <= 0) return undefined;
   }
   if (state === "behind" || state === "level" || state === "ahead") {
     if (rivalName === null || rivalRec === null || youRec === null || answers === null || answers <= 0) return undefined;
@@ -550,7 +553,7 @@ export function toComparisonRecommendationGap(
   const tied = measured.slice(1)
     .filter((c) => c.recommended === top.recommended && c.answers === top.answers
       && c.youRec === top.youRec && c.youAns === top.youAns
-      && c.same_questions === top.same_questions
+      && c.same_questions === top.same_questions && c.unverified === top.unverified
       && JSON.stringify(c.assistants) === JSON.stringify(top.assistants))
     .map((c) => c.domain);
   const group = [top.domain, ...tied];
@@ -795,7 +798,10 @@ const MAX_COMPETITOR_CHARS = 200;
 function questionsAsked(av: AiVisibilityBlock): string[] {
   const raw = av.queries;
   if (!isStringArray(raw)) return [];
-  const questions = raw.map((q) => cleanName(q, MAX_QUESTION_CHARS)).filter((q): q is string => q !== null);
+  // Whole or unrecorded: a question cut short could make two different ones read as the same.
+  const cleaned = raw.map((q) => cleanName(q, MAX_QUESTION_CHARS + 1)).filter((q): q is string => q !== null);
+  if (cleaned.some((q) => Array.from(q).length > MAX_QUESTION_CHARS)) return [];
+  const questions = cleaned;
   // A list this long is not one audit's question set: leave it unrecorded
   // rather than cut it, so two cut lists can never read as the same.
   return questions.length > MAX_QUESTIONS ? [] : questions;

@@ -1022,3 +1022,45 @@ describe("review round 11: no rival counts without a rival, one figure for the p
     }
   });
 });
+
+describe("review round 12: no cut can make two things look the same", () => {
+  it("leaves the questions unrecorded when one is too long to keep whole", async () => {
+    const report = reachableReport();
+    (report.ai_visibility as Record<string, unknown>).queries = ["short one", `long ${"x".repeat(300)}`];
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(report));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.questions_asked).toBeUndefined();
+  });
+
+  it("holds every state to its own sample, not only the no-rival ones", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      state: "not_enough_answers", gap_points: null, rival: null, client: { recommended: 9 },
+      sample: { answers: 3, questions: 1, assistants: 1 }, engines: [],
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap).toBeUndefined();
+  });
+
+  it("does not name a competitor with an unverified business name as tied with one that is verified", async () => {
+    const make = (host: string) => {
+      const r = auditReport(host, { recommended: host === "you.com" ? 4 : 16, answers: 32 });
+      if (host === "b.com") (r.ai_visibility as Record<string, unknown>).identification = { name_warning: "unverified", name_verified: false };
+      return r;
+    };
+    const res = await compareCompetitors({ domain: "you.com", competitors: ["a.com", "b.com"] }, makeDeps({
+      tier: "pro", client: { runAudit: vi.fn(async (req: { domain: string }) => ({ runId: req.domain, report: make(req.domain), raw: {} })) },
+    }));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.tied_with).toEqual([]);
+    expect(res.data.recommendation_gap!.by_competitor.find((c) => c.domain === "b.com")!.unverified).toBe(true);
+  });
+
+  it("gives a per-assistant gap the figure its own counts give", async () => {
+    // 2 against 1 of 8 is 12.5 -> 13; an engine figure of 12 is replaced by the exact one.
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({ engines: [
+      { engine: "Gemini", answers: 8, client: 1, rival: 2, gap_points: 12, state: "behind" },
+    ] }))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.per_engine[0]!.gap_points).toBe(13);
+  });
+});
