@@ -219,11 +219,11 @@ describe("an engine that reports no gap", () => {
 
   it("a malformed gap does not crash and invents no number", async () => {
     const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(
-      engineGap({ state: "no_rival", gap_points: "22", rival: null, client: { recommended: "4" }, sample: null,
+      engineGap({ state: "no_rival", gap_points: "22", rival: null, client: { recommended: "4" },
         engines: [7, null, { engine: "ChatGPT", gap_points: "x", state: "behind" }] }),
       { recommended: "4", answers: -3 })));
     if (!res.ok) throw new Error("expected ok");
-    expect(res.data.recommendation_gap).toMatchObject({ gap_points: null, you_recommended: null, answers: null });
+    expect(res.data.recommendation_gap).toMatchObject({ gap_points: null, you_recommended: null, answers: 32 });
     expect(res.data.recommendation_gap!.per_engine).toEqual([]);   // a hollow "behind" is left out
     expect(res.data.stance_counts).toBeUndefined();
   });
@@ -751,17 +751,21 @@ describe("review round 5: no mixed bases, no leaked rival on a no-rival state, n
       client: { runAudit: vi.fn(async (req: { domain: string }) => ({ runId: req.domain, report: auditReport(req.domain, audits[req.domain]!), raw: {} })) },
     }));
 
-  it("ranks a competitor whose basis was verified above one whose basis could not be checked", async () => {
-    // a.com: per-assistant detail missing (basis unchecked), a 25-point gap on overall counts.
-    // b.com: verified, a smaller gap. The verified one is named.
+  it("names the competitor you trail most even when its basis could not be checked, and says so", async () => {
+    // a.com: per-assistant detail missing, a 25-point gap on overall counts. b.com: verified, a smaller gap.
     const res = await run({
       "you.com": { recommended: 8, answers: 32 },
       "a.com": { recommended: 16, answers: 32, engines: null },
       "b.com": { recommended: 12, answers: 32 },
     }, ["a.com", "b.com"]);
     if (!res.ok) throw new Error("expected ok");
-    expect(res.data.recommendation_gap!.rival).toBe("b.com");
-    expect(res.data.recommendation_gap!.assistants).not.toBeNull();
+    const gap = res.data.recommendation_gap!;
+    expect(gap.rival).toBe("a.com");
+    expect(gap.assistants).toBeNull();
+    expect(gap.sentence).toContain("Which assistants answered for each site could not be checked.");
+    const byName = Object.fromEntries(gap.by_competitor.map((c) => [c.domain, c]));
+    expect(byName["a.com"]).toMatchObject({ assistants: null, you_recommended: 8, you_answers: 32 });
+    expect(byName["b.com"]!.assistants).not.toBeNull();
   });
 
   it("returns no rival, count or tied names on a no-rival state", async () => {
@@ -806,5 +810,34 @@ describe("review round 5: no mixed bases, no leaked rival on a no-rival state, n
     ] }))));
     if (!res.ok) throw new Error("expected ok");
     expect(res.data.recommendation_gap!.per_engine).toHaveLength(1);
+  });
+});
+
+describe("review round 6: names and no-rival states", () => {
+  it("strips tag characters, soft hyphens and variation selectors from a name", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: "North\u{E0049}\u{E0067}side\u00ad\u034f\ufe0f Bread", recommended: 11, tied_with: [], included: false },
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.rival).toBe("Northside Bread");
+  });
+
+  it("names each tied business once, however it is spelled", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: "Acme Bakery", recommended: 11, tied_with: ["Acme\u200b Bakery", "acme bakery ", "Beta"], included: false },
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.tied_with).toEqual(["Beta"]);
+  });
+
+  it("holds the no-rival states to a real sample", async () => {
+    for (const hollow of [
+      engineGap({ state: "no_rival", gap_points: null, rival: null, sample: { answers: 0, questions: 0, assistants: 0 } }),
+      engineGap({ state: "no_rival", gap_points: null, rival: null, client: { recommended: 40 }, sample: { answers: 32, questions: 8, assistants: 4 } }),
+    ]) {
+      const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(hollow)));
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data.recommendation_gap).toBeUndefined();
+    }
   });
 });

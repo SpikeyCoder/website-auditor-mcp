@@ -269,15 +269,30 @@ const GAP_STATES = new Set([
 const ENGINE_STATES = new Set([...GAP_STATES, "not_measured"]);
 const KNOWN_ENGINES = new Set(ENGINE_KEYS.map((k) => k.toLowerCase()));
 
+/** The names, each once (however spelled in case), and none that repeats `except`. */
+function distinctNames(names: Array<string | null>, except: string | null): string[] {
+  const seen = new Set(except === null ? [] : [except.toLowerCase()]);
+  const out: string[] = [];
+  for (const n of names) {
+    if (n === null || seen.has(n.toLowerCase())) continue;
+    seen.add(n.toLowerCase());
+    out.push(n);
+  }
+  return out;
+}
+
 const MAX_NAME_CHARS = 80;
 const MAX_TIED = 5;
 
 /** A business name read from a third-party answer, bounded: no control characters, 80 characters at most. */
 function cleanName(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  // Controls (C0, DEL, C1), zero-width and bidirectional marks go; they read as nothing and steer nothing.
+  // Controls (C0, DEL, C1), invisible and formatting characters go: zero-width
+  // and bidirectional marks, tag characters (U+E0000 block), soft hyphen,
+  // combining grapheme joiner, Arabic letter mark, variation selectors. They
+  // read as nothing and steer nothing.
   const t = value
-    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, "")
+    .replace(/[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufe00-\ufe0f\ufeff\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu, "")
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ").trim();
   return t === "" ? null : t.slice(0, MAX_NAME_CHARS);
@@ -380,6 +395,9 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   // and the sample; its numbers must agree with each other (counts within the
   // sample, a state that matches them, points within a rounding of what they
   // work out to), or it is not a measurement.
+  if (state === "no_rival" || state === "no_local_rival") {
+    if (answers === null || answers <= 0 || (youRec !== null && youRec > answers)) return undefined;
+  }
   if (state === "behind" || state === "level" || state === "ahead") {
     if (rivalName === null || rivalRec === null || youRec === null || answers === null || answers <= 0) return undefined;
     const agrees = state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
@@ -387,7 +405,7 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
     if (overall.points === null || Math.abs(overall.points - exactPoints(rivalRec, answers, youRec, answers)) > 1) return undefined;
   }
   const tied = rival && hasRival && Array.isArray(rival.tied_with)
-    ? rival.tied_with.map(cleanName).filter((n): n is string => n !== null).slice(0, MAX_TIED) : [];
+    ? distinctNames(rival.tied_with.map(cleanName), rivalName).slice(0, MAX_TIED) : [];
   const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, rivalRec, youRec, answers });
   return {
     state,
@@ -496,8 +514,7 @@ export function toComparisonRecommendationGap(
   })
     // The competitor you trail MOST first, each on its own like-for-like
     // basis; then the higher share (exact, cross-multiplied); then by name.
-    .sort((a, b) => (Number(b.assistants !== null) - Number(a.assistants !== null))   // a checked basis outranks an unchecked one
-      || (b.gap_points - a.gap_points)
+    .sort((a, b) => (b.gap_points - a.gap_points)
       || (b.recommended * a.answers - a.recommended * b.answers)
       || a.domain.localeCompare(b.domain));
   const top = measured[0];
@@ -547,7 +564,8 @@ export function toComparisonRecommendationGap(
     sentence,
     by_competitor: measured.map((c) => ({
       domain: c.domain, state: c.state, gap_points: c.gap_points, recommended: c.recommended,
-      answers: c.answers, same_questions: c.same_questions, assistants: c.assistants,
+      answers: c.answers, you_recommended: c.youRec, you_answers: c.youAns,
+      same_questions: c.same_questions, assistants: c.assistants,
     })),
   };
 }

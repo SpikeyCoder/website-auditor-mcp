@@ -254,6 +254,8 @@ const comparisonRecommendationGap = open({
     gap_points: z.number(),
     recommended: z.number(),
     answers: z.number(),
+    you_recommended: z.number().describe("Your recommended answers on the same basis as this competitor's figures."),
+    you_answers: z.number().describe("Your answers on the same basis as this competitor's figures."),
   })),
 });
 

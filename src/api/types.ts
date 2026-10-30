@@ -580,6 +580,9 @@ export interface CompetitorRecommendationGap {
   gap_points: number;
   recommended: number;
   answers: number;
+  /** Your recommended and total answers on the SAME basis this competitor's figures were computed on. */
+  you_recommended: number;
+  you_answers: number;
 }
 
 export interface ComparisonRecommendationGap {
