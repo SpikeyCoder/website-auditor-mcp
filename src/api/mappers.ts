@@ -295,7 +295,8 @@ function cleanName(value: unknown): string | null {
     .replace(/[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufe00-\ufe0f\ufeff\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu, "")
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ").trim();
-  return t === "" ? null : t.slice(0, MAX_NAME_CHARS);
+  // By code point: cutting a UTF-16 pair in half leaves a lone surrogate.
+  return t === "" ? null : Array.from(t).slice(0, MAX_NAME_CHARS).join("");
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -477,10 +478,15 @@ export function toComparisonRecommendationGap(
     let basis: { youRec: number; youAns: number; rivRec: number; rivAns: number; assistants: string[] | null; narrowed: boolean };
     if (youEngines && theirEngines) {
       const shared = [...youEngines.keys()].filter((k) => theirEngines.has(k));
-      if (shared.length === 0) return [];       // nothing both answered: nothing to compare
       const sum = (m: Map<string, { rec: number; ans: number }>, f: "rec" | "ans") =>
         shared.reduce((t, k) => t + m.get(k)![f], 0);
-      basis = {
+      // Nothing both answered: each site's own answers, said so (assistants: []),
+      // never a competitor silently left out.
+      basis = shared.length === 0 ? {
+        youRec: youCounts.recommended, youAns: youCounts.answers,
+        rivRec: c.counts.recommended, rivAns: c.counts.answers,
+        assistants: [], narrowed: false,
+      } : {
         youRec: sum(youEngines, "rec"), youAns: sum(youEngines, "ans"),
         rivRec: sum(theirEngines, "rec"), rivAns: sum(theirEngines, "ans"),
         assistants: shared,
@@ -508,6 +514,7 @@ export function toComparisonRecommendationGap(
       same_questions: youQuestions && theirQuestions ? sameSet(youQuestions, theirQuestions) : null,
       assistants: basis.assistants,
       narrowed: basis.narrowed,
+      unverified: c.unverified === true,
       youRec: basis.youRec,
       youAns: basis.youAns,
     }];
@@ -534,21 +541,26 @@ export function toComparisonRecommendationGap(
   const noun = plural(pts, "point", "points");
   const yours = `${top.youRec} of ${top.youAns}`;
   const theirs = `${top.recommended} of ${top.answers}`;
+  const answersWord = top.answers === 1 ? "answer" : "answers";
+  const yourAnswersWord = top.youAns === 1 ? "answer" : "answers";
   const base = top.state === "behind"
     ? (group.length > 1
-      ? `${listOf(group)} are each recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`
-      : `${top.domain} is recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`)
+      ? `${listOf(group)} are each recommended in ${theirs} ${answersWord}, you in ${yours}: ${pts} ${noun} behind.`
+      : `${top.domain} is recommended in ${theirs} ${answersWord}, you in ${yours}: ${pts} ${noun} behind.`)
     : top.state === "ahead"
-      ? `You lead ${listOf(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}: ${pts} ${noun} ahead.`
-      : `You are level with ${listOf(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}.`;
+      ? `You lead ${listOf(group)}: recommended in ${yours} ${yourAnswersWord}, ${group.length > 1 ? "each" : top.domain} in ${theirs}: ${pts} ${noun} ahead.`
+      : `You are level with ${listOf(group)}: recommended in ${yours} ${yourAnswersWord}, ${group.length > 1 ? "each" : top.domain} in ${theirs}.`;
   // What the reader needs to know about how like-for-like the two sides are.
   const caveats: string[] = [];
   if (top.assistants === null) caveats.push("Which assistants answered for each site could not be checked.");
+  else if (top.assistants.length === 0) caveats.push("No assistant answered for both sites, so each figure is over that site's own answers.");
   else if (top.narrowed) {
     caveats.push(`Compared on ${listOf(top.assistants.map((k) => ENGINE_LABELS[k] ?? k))} only: the other assistants have no usable answers for both sites.`);
   }
   if (top.same_questions === false) caveats.push("Each site was asked different questions, so read this as indicative.");
   else if (top.same_questions === null) caveats.push("Whether both sites were asked the same questions could not be checked.");
+  if (you.unverified) caveats.push("The business name for your site could not be verified, so treat this as indicative.");
+  if (top.unverified) caveats.push(`The business name for ${top.domain} could not be verified, so treat this as indicative.`);
   const sentence = [base, ...caveats].join(" ");
   return {
     state: top.state,

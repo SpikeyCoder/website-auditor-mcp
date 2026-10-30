@@ -297,6 +297,7 @@ export async function compareCompetitors(
     counts: av.stance_counts,
     per_engine: av.recommendation_gap?.per_engine,
     questions: av.questions_asked,
+    unverified: av.name_warning !== undefined || av.name_verified === false,
   });
   const recommendationGap = toComparisonRecommendationGap(
     reading(primaryAv),

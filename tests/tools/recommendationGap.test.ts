@@ -590,13 +590,15 @@ describe("compare_competitors: like for like, or it says so", () => {
     expect(noEngines.data.recommendation_gap!.sentence).toContain("Which assistants answered for each site could not be checked.");
   });
 
-  it("leaves a competitor out when no assistant answered for both sites", async () => {
+  it("compares on each site's own answers, and says so, when no assistant answered for both", async () => {
     const res = await run({
       "you.com": { recommended: 4, answers: 16, engines: ["ChatGPT", "Claude"] },
       "rival.com": { recommended: 3, answers: 16, engines: ["Gemini", "Perplexity"] },
     });
     if (!res.ok) throw new Error("expected ok");
-    expect(res.data.recommendation_gap).toBeUndefined();
+    const gap = res.data.recommendation_gap!;
+    expect(gap.assistants).toEqual([]);
+    expect(gap.sentence).toContain("No assistant answered for both sites, so each figure is over that site's own answers.");
   });
 
   it("returns the questions each audit asked, so a reader can see what was put to the assistants", async () => {
@@ -839,5 +841,43 @@ describe("review round 6: names and no-rival states", () => {
       if (!res.ok) throw new Error("expected ok");
       expect(res.data.recommendation_gap).toBeUndefined();
     }
+  });
+});
+
+describe("review round 7: truncation, unverified names, singular", () => {
+  it("never cuts a character in half when it shortens a name", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: `${"A".repeat(79)}\u{1F600}tail`, recommended: 11, tied_with: [], included: false },
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    const name = res.data.recommendation_gap!.rival!;
+    expect(name).toBe("A".repeat(79) + "\u{1F600}");
+    expect(name).not.toMatch(/[\ud800-\udbff]$/);
+  });
+
+  it("says when either site's business name could not be verified", async () => {
+    const make = (host: string, unverified: boolean) => {
+      const r = auditReport(host, { recommended: host === "you.com" ? 4 : 11, answers: 32 });
+      if (unverified) (r.ai_visibility as Record<string, unknown>).identification = { name_warning: "The name could not be verified.", name_verified: false };
+      return r;
+    };
+    const run = (youUnverified: boolean, rivalUnverified: boolean) => compareCompetitors(
+      { domain: "you.com", competitors: ["rival.com"] },
+      makeDeps({ tier: "pro", client: { runAudit: vi.fn(async (req: { domain: string }) => ({
+        runId: req.domain, report: make(req.domain, req.domain === "you.com" ? youUnverified : rivalUnverified), raw: {},
+      })) } }));
+    const a = await run(true, false);
+    const b = await run(false, true);
+    const c = await run(false, false);
+    if (!a.ok || !b.ok || !c.ok) throw new Error("expected ok");
+    expect(a.data.recommendation_gap!.sentence).toContain("The business name for your site could not be verified, so treat this as indicative.");
+    expect(b.data.recommendation_gap!.sentence).toContain("The business name for rival.com could not be verified, so treat this as indicative.");
+    expect(c.data.recommendation_gap!.sentence).not.toContain("could not be verified");
+  });
+
+  it("writes one answer, not one answers", () => {
+    const counts = (recommended: number, answers: number) => ({ recommended, mentioned: 0, cautioned: 0, unclear: 0, not_named: answers - recommended, answers });
+    const out = toComparisonRecommendationGap({ counts: counts(0, 1) }, [{ domain: "rival.example", counts: counts(1, 1) }]);
+    expect(out?.sentence).toContain("rival.example is recommended in 1 of 1 answer, you in 0 of 1: 100 points behind.");
   });
 });

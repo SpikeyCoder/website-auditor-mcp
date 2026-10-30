@@ -563,6 +563,8 @@ export interface CompareQuota {
 
 /** What one audit offers a comparison: its counts, per-assistant detail and the questions it asked. */
 export interface SiteReading {
+  /** True when this audit's business name could not be verified: its figures rest on a possibly wrong business. */
+  unverified?: boolean;
   counts?: StanceCounts;
   per_engine?: RecommendationGapEngine[];
   questions?: string[];
