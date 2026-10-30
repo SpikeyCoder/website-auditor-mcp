@@ -196,6 +196,59 @@ const changes = open({
     "Present exactly when score_delta is null: which engines answered each snapshot. Relay it."),
 });
 
+// ─── the recommendation gap and the stance counts (Trello 226 / 225) ───────
+
+const recommendationGap = open({
+  state: z.string().describe(
+    '"behind" | "level" | "ahead" | "no_rival" | "no_local_rival" | "not_enough_answers".'),
+  gap_points: z.number().nullable().describe(
+    "Points behind the top rival in the answers that RECOMMEND the site (negative when ahead). Null, never 0, "
+    + "when there is no rival or too few answers."),
+  rival: z.string().nullable().describe(
+    "The top BEATABLE rival: marketplaces, delivery and booking apps, directories and national chains are left "
+    + "out. Null when none is recommended."),
+  rival_recommended: z.number().nullable(),
+  tied_with: z.array(z.string()).describe("Other rivals tied for the top: one gap, all named."),
+  you_recommended: z.number().nullable(),
+  answers: z.number().nullable().describe("The answers this is a share of: one per question, per assistant."),
+  per_engine: z.array(open({
+    engine: z.string(),
+    state: z.string().nullable(),
+    gap_points: z.number().nullable(),
+    you_recommended: z.number().nullable(),
+    rival_recommended: z.number().nullable(),
+    answers: z.number().nullable(),
+  })),
+  sentence: z.string().describe("One plain sentence to read back to the owner; also folded into summary."),
+});
+
+const stanceCounts = open({
+  recommended: z.number(),
+  mentioned: z.number(),
+  cautioned: z.number(),
+  unclear: z.number().describe("The rules could not say how the answer treated the site. Not negative."),
+  not_named: z.number(),
+  answers: z.number(),
+});
+
+const comparisonRecommendationGap = open({
+  state: z.string().describe('"behind" | "level" | "ahead".'),
+  gap_points: z.number().describe("Positive when the top competitor is recommended more often."),
+  rival: z.string(),
+  rival_recommended: z.number(),
+  rival_answers: z.number(),
+  you_recommended: z.number(),
+  you_answers: z.number(),
+  sentence: z.string(),
+  by_competitor: z.array(open({
+    domain: z.string(),
+    state: z.string(),
+    gap_points: z.number(),
+    recommended: z.number(),
+    answers: z.number(),
+  })),
+});
+
 // ─── per-tool output schemas ───────────────────────────────────────────────
 
 export const getAiVisibilityOutput: ZodRawShape = {
@@ -216,6 +269,11 @@ export const getAiVisibilityOutput: ZodRawShape = {
     + "presenting the score as settled."),
   name_verified: z.boolean().optional(),
   name_source: z.string().optional().describe('"detected" | "user_supplied" | "domain_fallback".'),
+  recommendation_gap: recommendationGap.optional().describe(
+    "How far behind the top beatable rival the site is, in the answers that recommend it. Present only when "
+    + "measured; its sentence is also in summary."),
+  stance_counts: stanceCounts.optional().describe(
+    "How many answers recommended, mentioned or cautioned against the site. Present when recorded."),
   // Tri-state BY CONTRACT: an array is the ranked list, null means the recorded
   // answers cited nothing attributable, and an ABSENT key means no readable
   // citation records exist at all. Absent must never be read as null.
@@ -231,6 +289,10 @@ export const runAuditOutput: ZodRawShape = {
   }),
   top_issues: z.array(auditIssue),
   report_url: z.string(),
+  recommendation_gap: recommendationGap.optional().describe(
+    "How far behind the top beatable rival the site is, in the answers that recommend it. Present only when "
+    + "measured; its sentence reads the result back in one line."),
+  stance_counts: stanceCounts.optional(),
   name_warning: z.string().optional().describe(
     "Set ONLY when the business name could not be verified, which puts the AI-visibility "
     + "score in question."),
@@ -283,6 +345,9 @@ export const compareCompetitorsOutput: ZodRawShape = {
   summary: z.string(),
   market: z.string().nullable()
     .describe("The market every audit in this comparison was scored in, or null when each domain's own location was detected."),
+  recommendation_gap: comparisonRecommendationGap.optional().describe(
+    "How far behind the competitor recommended most often the site is, each side as a share of its own answers. "
+    + "Present only when both audits recorded stances; its sentence reads the result back in one line."),
 };
 
 export const trackSiteOutput: ZodRawShape = {

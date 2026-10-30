@@ -18,6 +18,11 @@ import type {
   Severity,
   Changes,
   EngineChange,
+  RecommendationGap,
+  RecommendationGapEngine,
+  StanceCounts,
+  CompetitorRecommendationGap,
+  ComparisonRecommendationGap,
 } from "./types.js";
 
 const ENGINE_KEYS = ["ChatGPT", "Perplexity", "Claude", "Gemini"] as const;
@@ -246,6 +251,150 @@ function citedSources(av: AiVisibilityBlock): { sources?: AiVisibilitySource[] |
   return kept.length > 0 ? { sources: kept.slice(0, MAX_SOURCES) } : {};
 }
 
+
+// ─── The recommendation gap and the stance counts (Trello 226 / 225) ─────────
+//
+// The engine measures both; these only validate and rename. Every number is
+// checked before it reaches a result, because the consumer is a language model:
+// a "22" it reads as a string or a null it rounds to zero is a fabricated
+// finding. A count that is not a non-negative whole number is NULL, never
+// coerced, and a gap the engine did not measure (not_measured, or no key at
+// all) is ABSENT, not a hollow object.
+
+const GAP_STATES = new Set([
+  "behind", "level", "ahead", "no_rival", "no_local_rival", "not_enough_answers",
+]);
+
+function wholeNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) ? v : null;
+}
+
+function count(v: unknown): number | null {
+  const n = wholeNumber(v);
+  return n !== null && n >= 0 ? n : null;
+}
+
+function text(v: unknown): string | null {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+
+/** The engine's recommendation_gap, validated, or undefined when it measured none. */
+export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | undefined {
+  const raw = av.recommendation_gap;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const g = raw as Record<string, unknown>;
+  if (typeof g.state !== "string" || !GAP_STATES.has(g.state)) return undefined;
+  const state = g.state as RecommendationGap["state"];
+  const rival = g.rival && typeof g.rival === "object" ? (g.rival as Record<string, unknown>) : null;
+  const client = g.client && typeof g.client === "object" ? (g.client as Record<string, unknown>) : null;
+  const sample = g.sample && typeof g.sample === "object" ? (g.sample as Record<string, unknown>) : null;
+  const per_engine: RecommendationGapEngine[] = (Array.isArray(g.engines) ? g.engines : [])
+    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as { engine?: unknown }).engine === "string")
+    .map((e) => ({
+      engine: String(e.engine).toLowerCase(),
+      state: text(e.state),
+      gap_points: wholeNumber(e.gap_points),
+      you_recommended: count(e.client),
+      rival_recommended: count(e.rival),
+      answers: count(e.answers),
+    }));
+  const sentence = text(g.sentence)
+    ?? (state === "not_enough_answers" ? "Not enough answers yet to measure a gap." : "");
+  return {
+    state,
+    gap_points: wholeNumber(g.gap_points),
+    rival: rival ? text(rival.name) : null,
+    rival_recommended: rival ? count(rival.recommended) : null,
+    tied_with: rival && Array.isArray(rival.tied_with)
+      ? rival.tied_with.filter((n): n is string => typeof n === "string" && n !== "") : [],
+    you_recommended: client ? count(client.recommended) : null,
+    answers: sample ? count(sample.answers) : null,
+    per_engine,
+    sentence,
+  };
+}
+
+/** The engine's stance_counts (its "uncertain" is "unclear" here), or undefined unless every count is whole. */
+export function toStanceCounts(av: AiVisibilityBlock): StanceCounts | undefined {
+  const raw = av.stance_counts;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const c = raw as Record<string, unknown>;
+  const recommended = count(c.recommended);
+  const mentioned = count(c.mentioned);
+  const cautioned = count(c.cautioned);
+  const unclear = count(c.uncertain);
+  const not_named = count(c.not_named);
+  const answers = count(c.answers);
+  if (recommended === null || mentioned === null || cautioned === null
+      || unclear === null || not_named === null || answers === null) return undefined;
+  return { recommended, mentioned, cautioned, unclear, not_named, answers };
+}
+
+/** Whole points, halves away from zero (12.5 is 13, -12.5 is -13), as the engine rounds. */
+function roundPoints(value: number): number {
+  return value === 0 ? 0 : Math.sign(value) * Math.floor(Math.abs(value) + 0.5);
+}
+
+/**
+ * You against each competitor, from each audit's own stance counts: recommended
+ * answers as a share of THAT site's answers, so two audits with different
+ * sample sizes still compare. A site with no counts, or none answered, is left
+ * out; with nothing left the whole block is absent, never a 0.
+ */
+export function toComparisonRecommendationGap(
+  you: StanceCounts | undefined,
+  competitors: Array<{ domain: string; counts: StanceCounts | undefined }>,
+): ComparisonRecommendationGap | undefined {
+  if (!you || you.answers <= 0) return undefined;
+  const youRate = you.recommended / you.answers;
+  const measured = competitors
+    .filter((c): c is { domain: string; counts: StanceCounts } => !!c.counts && c.counts.answers > 0)
+    .map((c) => {
+      const points = roundPoints((c.counts.recommended / c.counts.answers - youRate) * 100);
+      return {
+        domain: c.domain,
+        state: (points > 0 ? "behind" : points < 0 ? "ahead" : "level") as CompetitorRecommendationGap["state"],
+        gap_points: points,
+        recommended: c.counts.recommended,
+        answers: c.counts.answers,
+        rate: c.counts.recommended / c.counts.answers,
+      };
+    })
+    .sort((a, b) => b.rate - a.rate || a.domain.localeCompare(b.domain));
+  const top = measured[0];
+  if (!top) return undefined;
+  const pts = Math.abs(top.gap_points);
+  const noun = pts === 1 ? "point" : "points";
+  const yours = `${you.recommended} of ${you.answers}`;
+  const theirs = `${top.recommended} of ${top.answers}`;
+  const sentence = top.state === "behind"
+    ? `${top.domain} is recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`
+    : top.state === "ahead"
+      ? `You lead ${top.domain}: recommended in ${yours} answers, ${top.domain} in ${theirs}: ${pts} ${noun} ahead.`
+      : `${top.domain} and you are level: recommended in ${yours} answers, ${top.domain} in ${theirs}.`;
+  return {
+    state: top.state,
+    gap_points: top.gap_points,
+    rival: top.domain,
+    rival_recommended: top.recommended,
+    rival_answers: top.answers,
+    you_recommended: you.recommended,
+    you_answers: you.answers,
+    sentence,
+    by_competitor: measured.map(({ rate: _rate, ...c }) => c),
+  };
+}
+
+/** The gap and the counts as result keys, each only when the engine measured it. */
+function gapAndCounts(av: AiVisibilityBlock) {
+  const gap = toRecommendationGap(av);
+  const counts = toStanceCounts(av);
+  return {
+    ...(gap ? { recommendation_gap: gap } : {}),
+    ...(counts ? { stance_counts: counts } : {}),
+  };
+}
+
 export function toAiVisibility(report: AuditReport): AiVisibility {
   const av = report.ai_visibility ?? {};
   const score = av.overall_score ?? 0;
@@ -317,6 +466,11 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
       ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}${nameNote}${coverageNote}`
       : `${name} scores ${score}/100 for AI visibility across ${listOf(scoredNames)}.${simulatedNote}${nameNote}${coverageNote}`;
 
+  // The gap, in the sentence the model actually reads: a field it never reads
+  // changes nothing (the same reasoning as the notes above).
+  const gap = toRecommendationGap(av);
+  const gapSentence = gap && gap.sentence && scoredNames.length > 0 ? ` ${gap.sentence}` : "";
+
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
   return {
@@ -325,7 +479,8 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     engine_status,
     appears_by_engine,
     top_competitor: competitor,
-    summary,
+    summary: `${summary}${gapSentence}`,
+    ...gapAndCounts(av),
     ...(coverage_note ? { coverage_note } : {}),
     trend: null,
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
@@ -393,6 +548,7 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
     },
     top_issues,
     report_url,
+    ...gapAndCounts(av),
     // Only when unverified. ai_visibility above is scored on queries built
     // around the business name, so this caveat qualifies that number.
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),

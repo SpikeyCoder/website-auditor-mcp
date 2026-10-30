@@ -39,7 +39,7 @@ import type {
   SkippedDomain,
   CompareQuota,
 } from "../api/types.js";
-import { toAiVisibility, detectUnreachable } from "../api/mappers.js";
+import { toAiVisibility, detectUnreachable, toComparisonRecommendationGap } from "../api/mappers.js";
 import { normalizeDomain } from "../api/domain.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
@@ -293,7 +293,17 @@ export async function compareCompetitors(
   // different measurements and were indistinguishable to every reader —
   // including whatever later diffs two of them. null rather than '' so "no
   // market" is one state rather than two.
-  return ok({ ranking, gaps, quota: compareQuota, skipped, summary, market: market || null });
+  // How far behind each competitor you are in RECOMMENDED answers (Trello 226):
+  // each audit's own stance counts, so the audits' sample sizes need not match.
+  // Absent when your audit or every competitor's recorded none.
+  const recommendationGap = toComparisonRecommendationGap(
+    primaryAv.stance_counts,
+    audited.map((a) => ({ domain: a.host, counts: a.av.stance_counts })),
+  );
+  return ok({
+    ranking, gaps, quota: compareQuota, skipped, summary, market: market || null,
+    ...(recommendationGap ? { recommendation_gap: recommendationGap } : {}),
+  });
 }
 
 /**
