@@ -698,11 +698,11 @@ describe("review round 4: a gap is whole or absent, and its names are bounded", 
   });
 
   it("accepts the engine's points when they are within a point of the exact value", async () => {
-    // 11 against 4 of 32 is 21.875: the engine says 22 (exact rounding); a figure of 21 or 23 is a rounding apart.
+    // 11 against 4 of 32 is 21.875: a figure of 21 or 23 is a rounding apart, so the gap stands.
     for (const points of [21, 22, 23]) {
       const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({ gap_points: points }))));
       if (!res.ok) throw new Error("expected ok");
-      expect(res.data.recommendation_gap?.gap_points, String(points)).toBe(points);
+      expect(res.data.recommendation_gap, String(points)).toBeDefined();
     }
     const far = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({ gap_points: 40 }))));
     if (!far.ok) throw new Error("expected ok");
@@ -999,5 +999,26 @@ describe("review round 10: names keep the characters their scripts need", () => 
     const res = await getAiVisibility({ domain: "example.com" }, depsFor(report));
     if (!res.ok) throw new Error("expected ok");
     if (res.data.top_competitor !== null) expect(res.data.top_competitor!.length).toBeGreaterThan(80);
+  });
+});
+
+describe("review round 11: no rival counts without a rival, one figure for the points", () => {
+  it("leaves the rival's count out of per-assistant entries on a no-rival state", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      state: "no_local_rival", gap_points: null, rival: null, client: { recommended: 1 },
+      sample: { answers: 4, questions: 1, assistants: 1 },
+      engines: [{ engine: "ChatGPT", answers: 4, client: 1, rival: 0, gap_points: null, state: "no_local_rival" }],
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.per_engine[0]).toMatchObject({ you_recommended: 1, rival_recommended: null, answers: 4 });
+  });
+
+  it("reports the points the counts give, the same figure compare_competitors would", async () => {
+    // 11 against 4 of 32 is 21.875 -> 22; an engine figure a rounding off (21 or 23) is replaced by the exact one.
+    for (const points of [21, 22, 23]) {
+      const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({ gap_points: points }))));
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data.recommendation_gap?.gap_points, String(points)).toBe(22);
+    }
   });
 });

@@ -390,7 +390,8 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
           && (st === "behind" ? rivalCount > you : st === "ahead" ? rivalCount < you : rivalCount === you);
       }
       const none = answers === 0;
-      return { within: within && whole, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: none ? null : you, rival_recommended: none ? null : rivalCount, answers: none ? null : answers } };
+      const hasRivalCount = st === "behind" || st === "level" || st === "ahead";   // no rival, no rival count
+      return { within: within && whole, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: none ? null : you, rival_recommended: none || !hasRivalCount ? null : rivalCount, answers: none ? null : answers } };
     })
     .filter(({ within, points }) => within && points.ok)    // a "behind" with no magnitude is left out, as the overall gap is
     .map(({ entry }) => entry)
@@ -420,7 +421,10 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, tiedExtra: tiedAll.length - tied.length, rivalRec, youRec, answers });
   return {
     state,
-    gap_points: overall.points,
+    // The points the counts give (the same figure compare_competitors computes),
+    // not the engine's, which has been checked to be within a rounding of it.
+    gap_points: hasRival && rivalRec !== null && youRec !== null && answers !== null && answers > 0
+      ? exactPoints(rivalRec, answers, youRec, answers) : overall.points,
     rival: rivalName,
     rival_recommended: rivalRec,
     tied_with: tied,
