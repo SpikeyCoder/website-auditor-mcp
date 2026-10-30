@@ -245,6 +245,7 @@ const comparisonRecommendationGap = open({
   rival_answers: z.number(),
   you_recommended: z.number(),
   you_answers: z.number(),
+  not_compared: z.array(z.string()).describe("Competitors left out because their audit recorded no stances."),
   sentence: z.string(),
   by_competitor: z.array(open({
     domain: z.string(),
@@ -256,6 +257,7 @@ const comparisonRecommendationGap = open({
     answers: z.number(),
     you_recommended: z.number().describe("Your recommended answers on the same basis as this competitor's figures."),
     you_answers: z.number().describe("Your answers on the same basis as this competitor's figures."),
+    unverified: z.boolean().describe("True when this competitor's business name could not be verified."),
   })),
 });
 
@@ -358,7 +360,7 @@ export const compareCompetitorsOutput: ZodRawShape = {
   market: z.string().nullable()
     .describe("The market every audit in this comparison was scored in, or null when each domain's own location was detected."),
   recommendation_gap: comparisonRecommendationGap.optional().describe(
-    "How far behind the competitor recommended most often the site is, each side as a share of its own answers. "
+    "How far behind the competitor you trail most the site is, each side as a share of its own answers, compared on the assistants that answered for both. "
     + "Present only when both audits recorded stances; its sentence reads the result back in one line."),
 };
 

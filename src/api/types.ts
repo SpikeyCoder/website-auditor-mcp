@@ -585,6 +585,8 @@ export interface CompetitorRecommendationGap {
   /** Your recommended and total answers on the SAME basis this competitor's figures were computed on. */
   you_recommended: number;
   you_answers: number;
+  /** True when this competitor's business name could not be verified: its figures rest on a possibly wrong business. */
+  unverified: boolean;
 }
 
 export interface ComparisonRecommendationGap {
@@ -602,6 +604,8 @@ export interface ComparisonRecommendationGap {
   rival_answers: number;
   you_recommended: number;
   you_answers: number;
+  /** Competitors left out because their audit recorded no stances. */
+  not_compared: string[];
   sentence: string;
   /** Every competitor with stance counts, the one you trail most first (each on its own like-for-like basis). */
   by_competitor: CompetitorRecommendationGap[];
@@ -617,7 +621,7 @@ export interface Comparison {
   /** Human/agent-readable summary of what was compared vs. skipped and why. */
   summary: string;
   /**
-   * How far behind the competitor recommended most often you are.
+   * How far behind the competitor you trail most you are, compared like for like.
    * Present only when your audit and at least one competitor's recorded stances.
    */
   recommendation_gap?: ComparisonRecommendationGap;

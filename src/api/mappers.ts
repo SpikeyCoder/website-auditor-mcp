@@ -158,7 +158,7 @@ export function topCompetitor(av: AiVisibilityBlock): string | null {
     const results = av.platform_scores?.[key]?.results ?? [];
     for (const r of results) {
       for (const c of r.competitors ?? []) {
-        const name = c.trim();
+        const name = cleanName(c);          // third-party text: bounded and cleaned where it enters
         if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
       }
     }
@@ -285,7 +285,7 @@ const MAX_NAME_CHARS = 80;
 const MAX_TIED = 5;
 
 /** A business name read from a third-party answer, bounded: no control characters, 80 characters at most. */
-function cleanName(value: unknown): string | null {
+function cleanName(value: unknown, max: number = MAX_NAME_CHARS): string | null {
   if (typeof value !== "string") return null;
   // Controls (C0, DEL, C1), invisible and formatting characters go: zero-width
   // and bidirectional marks, tag characters (U+E0000 block), soft hyphen,
@@ -296,7 +296,7 @@ function cleanName(value: unknown): string | null {
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ").trim();
   // By code point: cutting a UTF-16 pair in half leaves a lone surrogate.
-  return t === "" ? null : Array.from(t).slice(0, MAX_NAME_CHARS).join("");
+  return t === "" ? null : Array.from(t).slice(0, max).join("");
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -389,7 +389,8 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
         whole = answers !== null && answers > 0 && you !== null && rivalCount !== null
           && (st === "behind" ? rivalCount > you : st === "ahead" ? rivalCount < you : rivalCount === you);
       }
-      return { within: within && whole, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: you, rival_recommended: rivalCount, answers } };
+      const none = answers === 0;
+      return { within: within && whole, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: none ? null : you, rival_recommended: none ? null : rivalCount, answers: none ? null : answers } };
     })
     .filter(({ within, points }) => within && points.ok)    // a "behind" with no magnitude is left out, as the overall gap is
     .map(({ entry }) => entry)
@@ -397,8 +398,9 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   const hasRival = state === "behind" || state === "level" || state === "ahead";
   const rivalName = rival && hasRival ? cleanName(rival.name) : null;
   const rivalRec = rival && hasRival ? count(rival.recommended) : null;
-  const youRec = client ? count(client.recommended) : null;
   const answers = sample ? count(sample.answers) : null;
+  // Over no answers, a count is not a count: the engine's placeholder zeros are not relayed.
+  const youRec = client && answers !== 0 ? count(client.recommended) : null;
   // WHOLE OR ABSENT. A behind, level or ahead gap needs its rival, both counts
   // and the sample; its numbers must agree with each other (counts within the
   // sample, a state that matches them, points within a rounding of what they
@@ -413,7 +415,7 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
     if (overall.points === null || Math.abs(overall.points - exactPoints(rivalRec, answers, youRec, answers)) > 1) return undefined;
   }
   const tiedAll = rival && hasRival && Array.isArray(rival.tied_with)
-    ? distinctNames(rival.tied_with.map(cleanName), rivalName) : [];
+    ? distinctNames(rival.tied_with.map((n) => cleanName(n)), rivalName) : [];
   const tied = tiedAll.slice(0, MAX_TIED);
   const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, tiedExtra: tiedAll.length - tied.length, rivalRec, youRec, answers });
   return {
@@ -475,6 +477,9 @@ export function toComparisonRecommendationGap(
   if (!youCounts || youCounts.answers <= 0) return undefined;
   const youEngines = engineCounts(you.per_engine);
   const youQuestions = questionSet(you.questions);
+  // A competitor whose audit recorded no stances (an estimated run, or one from
+  // before stance) cannot be compared, and is NAMED as left out, never dropped.
+  const notCompared = competitors.filter((c) => !c.counts || c.counts.answers <= 0).map((c) => c.domain);
   const measured = competitors.flatMap((c) => {
     if (!c.counts || c.counts.answers <= 0) return [];
     // LIKE FOR LIKE. Each site was audited on its own, so what each was asked
@@ -567,6 +572,9 @@ export function toComparisonRecommendationGap(
   }
   if (top.same_questions === false) caveats.push("Each site was asked different questions, so read this as indicative.");
   else if (top.same_questions === null) caveats.push("Whether both sites were asked the same questions could not be checked.");
+  if (notCompared.length > 0) {
+    caveats.push(`${listOf(notCompared)} could not be included: ${notCompared.length > 1 ? "their audits" : "its audit"} recorded no stances.`);
+  }
   if (you.unverified) caveats.push("The business name for your site could not be verified, so treat this as indicative.");
   if (top.unverified) caveats.push(`The business name for ${top.domain} could not be verified, so treat this as indicative.`);
   const sentence = [base, ...caveats].join(" ");
@@ -581,11 +589,12 @@ export function toComparisonRecommendationGap(
     you_answers: top.youAns,
     same_questions: top.same_questions,
     assistants: top.assistants,
+    not_compared: notCompared,
     sentence,
     by_competitor: measured.map((c) => ({
       domain: c.domain, state: c.state, gap_points: c.gap_points, recommended: c.recommended,
       answers: c.answers, you_recommended: c.youRec, you_answers: c.youAns,
-      same_questions: c.same_questions, assistants: c.assistants,
+      same_questions: c.same_questions, assistants: c.assistants, unverified: c.unverified,
     })),
   };
 }
@@ -775,12 +784,13 @@ function seoProxyScore(av: AiVisibilityBlock): number | null {
 }
 
 const MAX_QUESTIONS = 50;
+const MAX_QUESTION_CHARS = 200;
 
 /** The questions this audit put to the assistants, trimmed, as the report recorded them (none when there are more than 50). */
 function questionsAsked(av: AiVisibilityBlock): string[] {
   const raw = av.queries;
   if (!isStringArray(raw)) return [];
-  const questions = raw.map((q) => q.trim()).filter((q) => q !== "");
+  const questions = raw.map((q) => cleanName(q, MAX_QUESTION_CHARS)).filter((q): q is string => q !== null);
   // A list this long is not one audit's question set: leave it unrecorded
   // rather than cut it, so two cut lists can never read as the same.
   return questions.length > MAX_QUESTIONS ? [] : questions;

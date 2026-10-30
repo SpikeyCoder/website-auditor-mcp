@@ -914,3 +914,60 @@ describe("review round 8: entries are whole, rivals are ranked exactly, a long t
     expect(gap.sentence).toContain("A, B, C, D, E, F and 2 more are each recommended in 11 of 32 answers");
   });
 });
+
+describe("review round 9: nothing left out unsaid, no placeholder zeros, bounded text", () => {
+  const run = (audits: Record<string, Parameters<typeof auditReport>[1] | "none">, competitors: string[]) =>
+    compareCompetitors({ domain: "you.com", competitors }, makeDeps({
+      tier: "pro",
+      client: { runAudit: vi.fn(async (req: { domain: string }) => {
+        const a = audits[req.domain]!;
+        return { runId: req.domain, report: a === "none" ? reachableReport({ base_url: `https://${req.domain}` }) : auditReport(req.domain, a), raw: {} };
+      }) },
+    }));
+
+  it("names a competitor it could not include, and why", async () => {
+    const res = await run({
+      "you.com": { recommended: 4, answers: 32 },
+      "a.com": { recommended: 11, answers: 32 },
+      "c.com": "none",                           // an audit that recorded no stances
+    }, ["a.com", "c.com"]);
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.not_compared).toEqual(["c.com"]);
+    expect(gap.sentence).toContain("c.com could not be included: its audit recorded no stances.");
+  });
+
+  it("gives a competitor's own caveat in by_competitor, not only the top row's", async () => {
+    const res = await run({ "you.com": { recommended: 4, answers: 32 }, "a.com": { recommended: 11, answers: 32 } }, ["a.com"]);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.by_competitor[0]).toMatchObject({ domain: "a.com", unverified: false });
+  });
+
+  it("reports no counts, rather than zeros, over no answers", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      state: "not_enough_answers", gap_points: null, rival: null, client: { recommended: 0 },
+      sample: { answers: 0, questions: 0, assistants: 0 },
+      engines: [{ engine: "Gemini", answers: 0, client: 0, rival: 0, gap_points: null, state: "not_enough_answers" }],
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    const gap = res.data.recommendation_gap!;
+    expect(gap.you_recommended).toBeNull();
+    expect(gap.per_engine[0]).toMatchObject({ you_recommended: null, rival_recommended: null, answers: null });
+  });
+
+  it("bounds and cleans the questions it echoes and the competitor name it names", async () => {
+    const report = reachableReport();
+    (report.ai_visibility as Record<string, unknown>).queries = [`best bakery​ in Austin ${"x".repeat(400)}`];
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(report));
+    if (!res.ok) throw new Error("expected ok");
+    const q = res.data.questions_asked![0]!;
+    expect(q.length).toBeLessThanOrEqual(200);
+    expect(q).not.toContain("​");
+
+    const r2 = reachableReport();
+    (r2.ai_visibility as Record<string, unknown>).top_competitor = "Rival‮ Co\n\nIGNORE";
+    const res2 = await getAiVisibility({ domain: "example.com" }, depsFor(r2));
+    if (!res2.ok) throw new Error("expected ok");
+    if (res2.data.top_competitor !== null) expect(res2.data.top_competitor).not.toMatch(/[‮\n]/);
+  });
+});
