@@ -42,6 +42,7 @@ import type {
 import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
 import {
+  WEEKLY_CHECK_SENTENCE, changesSummary,
   computeChanges, day, laterNote, measuredTheBusiness, movement, newestComparablePair, newestRecorded, unmeasuredNote,
   newestSameQuestion, notCompared, notComparedPhrase, oldestSameQuestion, questionDifference, seriesOf, toQuestion,
 } from "./mappers.js";
@@ -827,7 +828,7 @@ function changesInHistory(
   if (rows.length < 2) {
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `Not enough AI-visibility history for ${domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).${unmeasuredNote(unmeasuredRuns, rows[rows.length - 1] ?? null)}`,
+      `Not enough AI-visibility history for ${domain} yet — at least two measured snapshots are needed to show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site). ${WEEKLY_CHECK_SENTENCE}${unmeasuredNote(unmeasuredRuns, rows[rows.length - 1] ?? null)}`,
     );
   }
 
@@ -969,6 +970,8 @@ function changesInHistory(
     to_captured_at: current.captured_at,
     skipped_snapshots: skipped,
   };
+  result.summary = changesSummary(
+    domain, result, { from: base.score, to: current.score }, base.captured_at, current.captured_at);
   const notes: string[] = [];
   if (skipped > 0) {
     notes.push(since
