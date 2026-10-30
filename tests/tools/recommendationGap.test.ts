@@ -151,9 +151,9 @@ describe("get_ai_visibility: the gap", () => {
   });
 
   it.each([
-    ["level", { state: "level", gap_points: 0, rival: { name: "Northside Bread Co.", recommended: 4, tied_with: [], included: false },
+    ["level", { state: "level", gap_points: 0, engines: [], rival: { name: "Northside Bread Co.", recommended: 4, tied_with: [], included: false },
                 sentence: "You are level with Northside Bread Co.: recommended in 4 of 32 answers each." }],
-    ["ahead", { state: "ahead", gap_points: -13, client: { recommended: 8 }, rival: { name: "Northside Bread Co.", recommended: 4, tied_with: [], included: false },
+    ["ahead", { state: "ahead", gap_points: -13, engines: [], client: { recommended: 8 }, rival: { name: "Northside Bread Co.", recommended: 4, tied_with: [], included: false },
                 sentence: "You lead Northside Bread Co.: recommended in 8 of 32 answers, Northside Bread Co. in 4: 13 points ahead." }],
     ["no_rival", { state: "no_rival", gap_points: null, rival: null, sentence: "No rival is recommended in these 32 answers." }],
     ["no_local_rival", { state: "no_local_rival", gap_points: null, rival: null, sentence: "No local rival is recommended in these 32 answers." }],
@@ -185,7 +185,7 @@ describe("get_ai_visibility: the gap", () => {
 
   it("a tie for top rival names both, from the engine's own sentence", async () => {
     const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
-      rival: { name: "Harbor Loaf", recommended: 9, tied_with: ["Northside Bread Co."], included: false }, gap_points: 16,
+      rival: { name: "Harbor Loaf", recommended: 9, tied_with: ["Northside Bread Co."], included: false }, gap_points: 16, engines: [],
       sentence: "Harbor Loaf and Northside Bread Co. are each recommended in 9 of 32 answers, you in 4: 16 points behind.",
     }))));
     if (!res.ok) throw new Error("expected ok");
@@ -1223,5 +1223,96 @@ describe("review round 14: gated questions, a said-aloud empty comparison, no or
     // "Zeta" sorts before "alpha" by code unit; a locale-aware compare would put "alpha" first.
     expect(rival(["alpha.com", "Zeta.com"])?.rival).toBe("Zeta.com");
     expect(rival(["Zeta.com", "alpha.com"])?.rival).toBe("Zeta.com");
+  });
+});
+
+describe("review round 15: assistants agree with the whole, names are visible, one answer is one answer", () => {
+  it("drops a gap whose assistants, covering the whole sample, do not add up to its count", async () => {
+    // top level: you 4 of 10; two assistants cover all 10 answers but say you were 0 on each
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: "Beta", recommended: 6, tied_with: [], included: false }, client: { recommended: 4 }, gap_points: 20,
+      sample: { answers: 10, questions: 2, assistants: 2 },
+      engines: [
+        { engine: "ChatGPT", answers: 5, client: 0, rival: 3, gap_points: 60, state: "behind" },
+        { engine: "Claude", answers: 5, client: 0, rival: 3, gap_points: 60, state: "behind" },
+      ],
+    }), consistent(4, 10))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap).toBeUndefined();
+  });
+
+  it("accepts assistants that add up, and assistants that cover only part of the sample", async () => {
+    const add = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: "Beta", recommended: 6, tied_with: [], included: false }, client: { recommended: 4 },
+      sample: { answers: 10, questions: 2, assistants: 2 },
+      engines: [
+        { engine: "ChatGPT", answers: 5, client: 3, rival: 3, gap_points: 0, state: "level" },
+        { engine: "Claude", answers: 5, client: 1, rival: 3, gap_points: 40, state: "behind" },
+      ],
+    }), consistent(4, 10))));
+    if (!add.ok) throw new Error("expected ok");
+    expect(add.data.recommendation_gap).toBeDefined();
+    const part = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: "Beta", recommended: 6, tied_with: [], included: false }, client: { recommended: 4 },
+      sample: { answers: 10, questions: 2, assistants: 2 },
+      engines: [{ engine: "ChatGPT", answers: 5, client: 0, rival: 3, gap_points: 60, state: "behind" }],
+    }), consistent(4, 10))));
+    if (!part.ok) throw new Error("expected ok");
+    expect(part.data.recommendation_gap).toBeDefined();       // cannot be checked against a partial cover
+  });
+
+  it("treats a name with nothing visible in it as no name", async () => {
+    for (const name of ["‍", "️", "‍️ ‌", "⠀", "ᅟᅠ"]) {
+      const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+        rival: { name, recommended: 11, tied_with: ["‍"], included: false },
+      }))));
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data.recommendation_gap, JSON.stringify(name)).toBeUndefined();     // a gap needs a rival with a name
+    }
+  });
+
+  it("says one answer, not one answers, when there is no rival", async () => {
+    for (const [state, text] of [["no_rival", "No rival is recommended in this 1 answer."], ["no_local_rival", "No local rival is recommended in this 1 answer."]] as const) {
+      const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+        state, gap_points: null, rival: null, client: { recommended: 0 }, sample: { answers: 1, questions: 1, assistants: 1 }, engines: [],
+      }), consistent(0, 1))));
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data.recommendation_gap!.sentence).toBe(text);
+    }
+  });
+
+  it("returns no stance counts over no answers", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(undefined,
+      { recommended: 0, mentioned: 0, cautioned: 0, uncertain: 0, not_named: 0, answers: 0 })));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.stance_counts).toBeUndefined();
+  });
+
+  it("drops a level or behind gap against a rival nobody recommended", async () => {
+    for (const over of [
+      { state: "level", gap_points: 0, rival: { name: "A", recommended: 0, tied_with: [], included: false }, client: { recommended: 0 } },
+      { state: "ahead", gap_points: -10, rival: { name: "A", recommended: 0, tied_with: [], included: false }, client: { recommended: 3 } },
+    ]) {
+      const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+        ...over, sample: { answers: 10, questions: 2, assistants: 1 }, engines: [],
+      }), consistent((over.client as { recommended: number }).recommended, 10))));
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data.recommendation_gap, over.state).toBeUndefined();
+    }
+  });
+
+  it("does not group competitors whose comparison was narrowed differently", async () => {
+    const run = await compareCompetitors({ domain: "you.com", competitors: ["x.com", "y.com"] }, makeDeps({
+      tier: "pro",
+      client: { runAudit: vi.fn(async (req: { domain: string }) => {
+        const a = req.domain === "you.com" ? { recommended: 4, answers: 16, engines: ["ChatGPT", "Claude"] }
+          : req.domain === "x.com" ? { recommended: 8, answers: 16, engines: ["ChatGPT", "Claude"] }
+            : { recommended: 8, answers: 24, engines: ["ChatGPT", "Claude", "Gemini"] };
+        return { runId: req.domain, report: auditReport(req.domain, a), raw: {} };
+      }) },
+    }));
+    if (!run.ok) throw new Error("expected ok");
+    const gap = run.data.recommendation_gap!;
+    expect(gap.tied_with).toEqual([]);
   });
 });

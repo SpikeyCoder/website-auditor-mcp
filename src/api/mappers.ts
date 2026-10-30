@@ -297,12 +297,14 @@ function cleanName(value: unknown, max: number = MAX_NAME_CHARS): string | null 
   // (U+200C/D) and the variation selectors stay, because Persian, Indic and
   // emoji names are spelled with them.
   const t = value
-    .replace(/[\u00ad\u034f\u061c\u180e\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u206a-\u206f\u3164\ufff9-\ufffb\ufeff\u{e0000}-\u{e007f}]/gu, "")
+    .replace(/[\u00ad\u034f\u061c\u180e\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u206a-\u206f\u2800\u115f\u1160\u3164\uffa0\ufff9-\ufffb\ufeff\u{e0000}-\u{e007f}]/gu, "")
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ").trim();
   // By code point: cutting a UTF-16 pair in half leaves a lone surrogate.
   const cut = Array.from(t).slice(0, max).join("").trim();
-  return cut === "" ? null : cut;
+  // A name needs something to read: a letter, digit, symbol or punctuation mark.
+  // (The joiners and variation selectors that stay are not enough on their own.)
+  return /[\p{L}\p{N}\p{S}\p{P}]/u.test(cut) ? cut : null;
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -322,8 +324,9 @@ function gapSentence(g: {
 }): string {
   if (g.state === "not_enough_answers") return "Not enough answers yet to measure a gap.";
   if (g.answers === null) return "";
-  if (g.state === "no_rival") return `No rival is recommended in these ${g.answers} answers.`;
-  if (g.state === "no_local_rival") return `No local rival is recommended in these ${g.answers} answers.`;
+  const these = g.answers === 1 ? "this 1 answer" : `these ${g.answers} answers`;
+  if (g.state === "no_rival") return `No rival is recommended in ${these}.`;
+  if (g.state === "no_local_rival") return `No local rival is recommended in ${these}.`;
   if (g.rival === null || g.rivalRec === null || g.youRec === null || g.points === null) return "";
   const group = g.tiedExtra > 0 ? [g.rival, ...g.tied, `${g.tiedExtra} more`] : [g.rival, ...g.tied];
   const of = `of ${g.answers} ${plural(g.answers, "answer", "answers")}`;
@@ -387,8 +390,20 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   if (hasRival) {
     if (rivalName === null || rivalRec === null || youRec === null || answers === null || answers <= 0) return undefined;
     if (!stateMatches(state, rivalRec, youRec) || rivalRec > answers) return undefined;
+    if (rivalRec === 0) return undefined;       // a rival nobody recommended is the no-rival case
   }
-  if (answers !== null && per_engine.reduce((t, e) => t + (e.answers ?? 0), 0) > answers) return undefined;
+  if (answers !== null) {
+    const covered = per_engine.reduce((t, e) => t + (e.answers ?? 0), 0);
+    if (covered > answers) return undefined;
+    // When the assistants cover the whole sample their counts ARE the whole:
+    // they must add up to it, or compare_competitors (which builds on them)
+    // and this result would say different things about the same site.
+    if (covered === answers && per_engine.length > 0) {
+      if (youRec !== null && per_engine.reduce((t, e) => t + (e.you_recommended ?? 0), 0) !== youRec) return undefined;
+      if (hasRival && rivalRec !== null && per_engine.every((e) => e.rival_recommended !== null)
+          && per_engine.reduce((t, e) => t + (e.rival_recommended ?? 0), 0) !== rivalRec) return undefined;
+    }
+  }
 
   const points = hasRival && rivalRec !== null && youRec !== null && answers !== null
     ? exactPoints(rivalRec, answers, youRec, answers) : null;
@@ -456,6 +471,7 @@ export function toStanceCounts(av: AiVisibilityBlock): StanceCounts | undefined 
   // The parts are the answers: a block whose parts do not sum to its whole is
   // not one the model can be handed (a rate over 100%, a gap from nothing).
   if (recommended + mentioned + cautioned + unclear + not_named !== answers) return undefined;
+  if (answers <= 0) return undefined;        // six zeros over no answers say nothing
   return { recommended, mentioned, cautioned, unclear, not_named, answers };
 }
 
@@ -555,7 +571,7 @@ export function toComparisonRecommendationGap(
   const tied = measured.slice(1)
     .filter((c) => c.recommended === top.recommended && c.answers === top.answers
       && c.youRec === top.youRec && c.youAns === top.youAns
-      && c.same_questions === top.same_questions && c.unverified === top.unverified
+      && c.same_questions === top.same_questions && c.unverified === top.unverified && c.narrowed === top.narrowed
       && JSON.stringify(c.assistants) === JSON.stringify(top.assistants))
     .map((c) => c.domain);
   const group = [top.domain, ...tied];

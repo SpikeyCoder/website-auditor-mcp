@@ -299,16 +299,12 @@ export async function compareCompetitors(
     questions: av.questions_asked,
     unverified: av.name_warning !== undefined || av.name_verified === false,
   });
-  const recommendationGap = toComparisonRecommendationGap(
-    reading(primaryAv),
-    audited.map((a) => ({ domain: a.host, ...reading(a.av) })),
-  );
+  const you = reading(primaryAv);
+  const others = audited.map((a) => ({ domain: a.host, ...reading(a.av) }));
+  const recommendationGap = toComparisonRecommendationGap(you, others);
   // When no gap could be drawn although some audit had stances, say why, so
   // "could not compare" is never mistaken for "feature absent".
-  const gapNote = recommendationGap ? undefined : comparisonGapNote(
-    reading(primaryAv),
-    audited.map((a) => ({ domain: a.host, ...reading(a.av) })),
-  );
+  const gapNote = recommendationGap ? undefined : comparisonGapNote(you, others);
   const summaryWithGap = recommendationGap ? `${summary} ${recommendationGap.sentence}` : gapNote ? `${summary} ${gapNote}` : summary;
 
   // NAMED IN THE RESULT, because a scoped comparison and an unscoped one are
