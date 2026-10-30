@@ -93,6 +93,15 @@ export interface AiVisibilityBlock {
   has_api_key?: boolean;
   site_signals?: Record<string, unknown>;
   /**
+   * How far behind the top beatable rival the business is, in points of the
+   * answers that RECOMMEND it, and how many answers
+   * recommended / mentioned / cautioned against it. Optional and
+   * `unknown`: a report from before either has neither, and the mappers
+   * validate every field before it reaches a result.
+   */
+  recommendation_gap?: unknown;
+  stance_counts?: unknown;
+  /**
    * How the business was identified (chaos_tester #334). Optional because a
    * report produced before that deploy — or replayed from cache — has no such
    * block, and absent must read as "no warning" rather than a crash.
@@ -245,6 +254,48 @@ export interface AiVisibilityTrend {
   question_note?: string;
 }
 
+/** One assistant's share of the gap. `gap_points` is positive when behind. */
+export interface RecommendationGapEngine {
+  engine: string;
+  state: string | null;
+  gap_points: number | null;
+  you_recommended: number | null;
+  rival_recommended: number | null;
+  answers: number | null;
+}
+
+/**
+ * How far behind (positive) or ahead (negative) of the top BEATABLE rival the
+ * business is, in points of the answers that recommend it. Present only when
+ * the engine measured it; `sentence` is one plain sentence to read back.
+ */
+export interface RecommendationGap {
+  state: "behind" | "level" | "ahead" | "no_rival" | "no_local_rival" | "not_enough_answers";
+  /** Null where no gap exists to state: no rival, or not enough answers. Never 0 for those. */
+  gap_points: number | null;
+  /** Null when no local rival is recommended: a platform is not a beatable rival. */
+  rival: string | null;
+  rival_recommended: number | null;
+  /** Other rivals that tie for the top; one gap, all named. */
+  tied_with: string[];
+  you_recommended: number | null;
+  /** The answers the gap is a share of (one per question, per assistant). */
+  answers: number | null;
+  per_engine: RecommendationGapEngine[];
+  sentence: string;
+}
+
+/** How the answers treated the business: counts of answers, one per question per assistant. */
+export interface StanceCounts {
+  recommended: number;
+  mentioned: number;
+  cautioned: number;
+  /** The rules could not say. Not "negative". */
+  unclear: number;
+  not_named: number;
+  answers: number;
+}
+
 export interface AiVisibility {
   score: number;
   /** Per-engine score, or NULL when the engine was not scored. A null is not a
@@ -267,6 +318,12 @@ export interface AiVisibility {
   appears_by_engine: EnginePresence;
   top_competitor: string | null;
   summary: string;
+  /** Present when the engine measured it; also folded into `summary`. */
+  recommendation_gap?: RecommendationGap;
+  /** Present when the engine recorded stances. */
+  stance_counts?: StanceCounts;
+  /** The questions put to the assistants for this score, when the report recorded them. */
+  questions_asked?: string[];
   /** Pro only; null when unavailable — `trend_note` says why. */
   trend: AiVisibilityTrend | null;
   /** Present exactly when `trend` is null: the human-readable reason. */
@@ -311,6 +368,10 @@ export interface AuditSummary {
   scores: { ai_visibility: number | null; seo: number | null; security: number | null; performance: number | null };
   top_issues: AuditIssue[];
   report_url: string;
+  /** Present when the engine measured it. */
+  recommendation_gap?: RecommendationGap;
+  /** Present when the engine recorded stances. */
+  stance_counts?: StanceCounts;
   /**
    * Set ONLY when the business name could not be verified — the AI-visibility
    * score is built from queries around that name, so an unverified name puts
@@ -500,6 +561,56 @@ export interface CompareQuota {
   reset: string | null;
 }
 
+/** What one audit offers a comparison: its counts, per-assistant detail and the questions it asked. */
+export interface SiteReading {
+  /** True when this audit's business name could not be verified: its figures rest on a possibly wrong business. */
+  unverified?: boolean;
+  counts?: StanceCounts;
+  per_engine?: RecommendationGapEngine[];
+  questions?: string[];
+}
+
+/** You against one competitor: each site's recommended answers as a share of its OWN answers. */
+export interface CompetitorRecommendationGap {
+  domain: string;
+  /** Whether both audits asked the same set of questions; null when either did not record them. */
+  same_questions: boolean | null;
+  /** The assistants the figures are over (those that answered for both sites); null when that could not be checked. */
+  assistants: string[] | null;
+  state: "behind" | "level" | "ahead";
+  /** Positive when the competitor is recommended more often. */
+  gap_points: number;
+  recommended: number;
+  answers: number;
+  /** Your recommended and total answers on the SAME basis this competitor's figures were computed on. */
+  you_recommended: number;
+  you_answers: number;
+  /** True when this competitor's business name could not be verified: its figures rest on a possibly wrong business. */
+  unverified: boolean;
+}
+
+export interface ComparisonRecommendationGap {
+  state: "behind" | "level" | "ahead";
+  gap_points: number;
+  /** The competitor you trail most, on the assistants that answered for both sites. */
+  rival: string;
+  /** Other competitors with identical counts over the identical basis: one gap, all named. */
+  tied_with: string[];
+  /** Whether both audits asked the same set of questions; null when either did not record them. */
+  same_questions: boolean | null;
+  /** The assistants the figures are over (those that answered for both sites); null when that could not be checked. */
+  assistants: string[] | null;
+  rival_recommended: number;
+  rival_answers: number;
+  you_recommended: number;
+  you_answers: number;
+  /** Competitors left out because their audit recorded no stances. */
+  not_compared: string[];
+  sentence: string;
+  /** Every competitor with stance counts, the one you trail most first (each on its own like-for-like basis). */
+  by_competitor: CompetitorRecommendationGap[];
+}
+
 export interface Comparison {
   ranking: CompetitorRank[];
   gaps: CompetitorGap[];
@@ -509,6 +620,11 @@ export interface Comparison {
   skipped: SkippedDomain[];
   /** Human/agent-readable summary of what was compared vs. skipped and why. */
   summary: string;
+  /**
+   * How far behind the competitor you trail most you are, compared like for like.
+   * Present only when your audit and at least one competitor's recorded stances.
+   */
+  recommendation_gap?: ComparisonRecommendationGap;
   /**
    * The market every audit in this comparison was scored in, or null when
    * none was given and each domain's own location was detected.

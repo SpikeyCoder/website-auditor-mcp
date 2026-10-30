@@ -18,6 +18,12 @@ import type {
   Severity,
   Changes,
   EngineChange,
+  RecommendationGap,
+  RecommendationGapEngine,
+  StanceCounts,
+  CompetitorRecommendationGap,
+  ComparisonRecommendationGap,
+  SiteReading,
 } from "./types.js";
 
 const ENGINE_KEYS = ["ChatGPT", "Perplexity", "Claude", "Gemini"] as const;
@@ -147,22 +153,27 @@ function engineAppears(
 
 /** Most frequently-cited competitor across all engines, or null if none. */
 export function topCompetitor(av: AiVisibilityBlock): string | null {
-  const counts = new Map<string, number>();
+  // The same processing as the names in the recommendation gap: cleaned where
+  // they enter, counted without regard to case, the first spelling shown.
+  const counts = new Map<string, { name: string; n: number }>();
   for (const key of ENGINE_KEYS) {
     const results = av.platform_scores?.[key]?.results ?? [];
     for (const r of results) {
       for (const c of r.competitors ?? []) {
-        const name = c.trim();
-        if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+        const name = cleanName(c);
+        if (!name) continue;
+        const k = name.toLowerCase();
+        const seen = counts.get(k);
+        if (seen) seen.n += 1; else counts.set(k, { name, n: 1 });
       }
     }
   }
   let best: string | null = null;
   let bestCount = 0;
-  for (const [name, count] of counts) {
-    if (count > bestCount) {
+  for (const { name, n } of counts.values()) {
+    if (n > bestCount) {
       best = name;
-      bestCount = count;
+      bestCount = n;
     }
   }
   return best;
@@ -246,6 +257,458 @@ function citedSources(av: AiVisibilityBlock): { sources?: AiVisibilitySource[] |
   return kept.length > 0 ? { sources: kept.slice(0, MAX_SOURCES) } : {};
 }
 
+
+// ─── The recommendation gap and the stance counts  ─────────
+//
+// The engine measures both; these only validate and rename. Every number is
+// checked before it reaches a result, because the consumer is a language model:
+// a "22" it reads as a string or a null it rounds to zero is a fabricated
+// finding. A count that is not a non-negative whole number is NULL, never
+// coerced, and a gap the engine did not measure (not_measured, or no key at
+// all) is ABSENT, not a hollow object.
+
+const GAP_STATES = new Set([
+  "behind", "level", "ahead", "no_rival", "no_local_rival", "not_enough_answers",
+]);
+// What an assistant's own entry may say: the overall states, and not_measured.
+const ENGINE_STATES = new Set([...GAP_STATES, "not_measured"]);
+const KNOWN_ENGINES = new Set(ENGINE_KEYS.map((k) => k.toLowerCase()));
+
+/** The names, each once (however spelled in case), and none that repeats `except`. */
+function distinctNames(names: Array<string | null>, except: string | null): string[] {
+  const seen = new Set(except === null ? [] : [except.toLowerCase()]);
+  const out: string[] = [];
+  for (const n of names) {
+    if (n === null || seen.has(n.toLowerCase())) continue;
+    seen.add(n.toLowerCase());
+    out.push(n);
+  }
+  return out;
+}
+
+const MAX_NAME_CHARS = 200;   // one cap for every business name read from an answer
+const MAX_TIED = 5;
+
+/** A business name read from a third-party answer, bounded: no control or hidden characters, 200 characters at most. */
+function cleanName(value: unknown, max: number = MAX_NAME_CHARS): string | null {
+  if (typeof value !== "string") return null;
+  // Controls (C0, DEL, C1) and the invisible, formatting characters below go.
+  // Only what hides text or steers it: the zero-width joiner and non-joiner
+  // (U+200C/D) and the variation selectors stay, because Persian, Indic and
+  // emoji names are spelled with them.
+  const t = value
+    .replace(/[\u00ad\u034f\u061c\u180e\u200b\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u206a-\u206f\u2800\u115f\u1160\u3164\uffa0\ufff9-\ufffb\ufeff\u{e0000}-\u{e007f}]/gu, "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .replace(/\s+/g, " ").trim();
+  // By code point: cutting a UTF-16 pair in half leaves a lone surrogate.
+  const cut = Array.from(t).slice(0, max).join("").trim();
+  // A name needs something to read: a letter, digit, symbol or punctuation mark.
+  // (The joiners and variation selectors that stay are not enough on their own.)
+  return /[\p{L}\p{N}\p{S}\p{P}]/u.test(cut) ? cut : null;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
+}
+
+
+/**
+ * The one plain sentence, rebuilt from the CHECKED fields. The engine's own
+ * text is never relayed: it carries rival names read out of third-party
+ * answers beside numbers this file has just validated, and the two must agree.
+ * "" when a field the wording needs is missing.
+ */
+function gapSentence(g: {
+  state: RecommendationGap["state"]; points: number | null; rival: string | null; tied: string[]; tiedExtra: number;
+  rivalRec: number | null; youRec: number | null; answers: number | null;
+}): string {
+  if (g.state === "not_enough_answers") return "Not enough answers yet to measure a gap.";
+  if (g.answers === null) return "";
+  const these = g.answers === 1 ? "this 1 answer" : `these ${g.answers} answers`;
+  if (g.state === "no_rival") return `No rival is recommended in ${these}.`;
+  if (g.state === "no_local_rival") return `No local rival is recommended in ${these}.`;
+  if (g.rival === null || g.rivalRec === null || g.youRec === null || g.points === null) return "";
+  const group = g.tiedExtra > 0 ? [g.rival, ...g.tied, `${g.tiedExtra} more`] : [g.rival, ...g.tied];
+  const of = `of ${g.answers} ${plural(g.answers, "answer", "answers")}`;
+  const pts = `${Math.abs(g.points)} ${plural(Math.abs(g.points), "point", "points")}`;
+  if (g.state === "level") return `You are level with ${listOf(group)}: recommended in ${g.youRec} ${of} each.`;
+  if (g.state === "ahead") {
+    return `You lead ${listOf(group)}: recommended in ${g.youRec} ${of}, ${group.length > 1 ? "each" : g.rival} in ${g.rivalRec}: ${pts} ahead.`;
+  }
+  return group.length > 1
+    ? `${listOf(group)} are each recommended in ${g.rivalRec} ${of}, you in ${g.youRec}: ${pts} behind.`
+    : `${g.rival} is recommended in ${g.rivalRec} ${of}, you in ${g.youRec}: ${pts} behind.`;
+}
+
+function wholeNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) ? v : null;
+}
+
+function count(v: unknown): number | null {
+  const n = wholeNumber(v);
+  return n !== null && n >= 0 ? n : null;
+}
+
+function text(v: unknown): string | null {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+
+/** The engine's recommendation_gap, validated, or undefined when it measured none. */
+export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | undefined {
+  const raw = av.recommendation_gap;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const g = raw as Record<string, unknown>;
+  if (typeof g.state !== "string" || !GAP_STATES.has(g.state)) return undefined;
+  const state = g.state as RecommendationGap["state"];
+  const hasRival = state === "behind" || state === "level" || state === "ahead";
+  const rival = g.rival && typeof g.rival === "object" ? (g.rival as Record<string, unknown>) : null;
+  const client = g.client && typeof g.client === "object" ? (g.client as Record<string, unknown>) : null;
+  const sample = g.sample && typeof g.sample === "object" ? (g.sample as Record<string, unknown>) : null;
+
+  // THE COUNTS ARE THE AUTHORITY. The points are what they work out to
+  // (exactPoints, the figure compare_competitors uses), and the engine's own
+  // `gap_points` and `sentence` are not relayed. A count means something only
+  // over a sample: without one it is null, never the engine's placeholder zero.
+  const answers = sample ? count(sample.answers) : null;
+  const sampled = answers !== null && answers > 0;
+  const youRec = client && sampled ? count(client.recommended) : null;
+  const rivalName = rival && hasRival ? cleanName(rival.name) : null;
+  const rivalRec = rival && hasRival && sampled ? count(rival.recommended) : null;
+
+  const per_engine: RecommendationGapEngine[] = [];
+  // Entries belong to a sample: with none, there is nothing for them to be a share of.
+  for (const e of sampled && Array.isArray(g.engines) ? g.engines : []) {
+    const entry = engineEntry(e);
+    if (entry && !per_engine.some((x) => x.engine === entry.engine)) per_engine.push(entry);   // one per assistant
+  }
+
+  // WHOLE OR ABSENT. A behind, level or ahead gap needs its rival, both counts
+  // and the sample, and a state its counts give; every state's counts must fit
+  // its sample, and the assistants' answers must fit the whole.
+  if (youRec !== null && answers !== null && youRec > answers) return undefined;
+  if ((state === "no_rival" || state === "no_local_rival") && !sampled) return undefined;
+  if (hasRival) {
+    if (rivalName === null || rivalRec === null || youRec === null || answers === null || answers <= 0) return undefined;
+    if (!stateMatches(state, rivalRec, youRec) || rivalRec > answers) return undefined;
+    if (rivalRec === 0) return undefined;       // a rival nobody recommended is the no-rival case
+  }
+  if (answers !== null) {
+    const covered = per_engine.reduce((t, e) => t + (e.answers ?? 0), 0);
+    if (covered > answers) return undefined;
+    // When the assistants cover the whole sample their counts ARE the whole:
+    // they must add up to it, or compare_competitors (which builds on them)
+    // and this result would say different things about the same site.
+    if (covered === answers && per_engine.length > 0) {
+      if (youRec !== null && per_engine.reduce((t, e) => t + (e.you_recommended ?? 0), 0) !== youRec) return undefined;
+      if (hasRival && rivalRec !== null && per_engine.every((e) => e.rival_recommended !== null)
+          && per_engine.reduce((t, e) => t + (e.rival_recommended ?? 0), 0) !== rivalRec) return undefined;
+    }
+  }
+
+  const points = hasRival && rivalRec !== null && youRec !== null && answers !== null
+    ? exactPoints(rivalRec, answers, youRec, answers) : null;
+  const tiedAll = rival && hasRival && Array.isArray(rival.tied_with)
+    ? distinctNames(rival.tied_with.map((n) => cleanName(n)), rivalName) : [];
+  const tied = tiedAll.slice(0, MAX_TIED);
+  const sentence = gapSentence({ state, points, rival: rivalName, tied, tiedExtra: tiedAll.length - tied.length, rivalRec, youRec, answers });
+  return {
+    state,
+    gap_points: points,
+    rival: rivalName,
+    rival_recommended: rivalRec,
+    tied_with: tied,
+    you_recommended: youRec,
+    answers,
+    per_engine,
+    sentence,
+  };
+}
+
+/** Does the state say what the counts say? */
+function stateMatches(state: string, rivalRec: number, youRec: number): boolean {
+  return state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
+}
+
+/**
+ * One assistant's entry, or null. Known assistants only. A behind/level/ahead
+ * entry is whole (its sample, both counts, a state its counts give) and carries
+ * the points its counts give; any other state carries no points and no rival
+ * count; and a count over no sample is null, not the engine's placeholder.
+ */
+function engineEntry(raw: unknown): RecommendationGapEngine | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const e = raw as Record<string, unknown>;
+  const key = typeof e.engine === "string" ? e.engine.toLowerCase() : "";
+  const st = text(e.state);
+  if (!KNOWN_ENGINES.has(key) || st === null || !ENGINE_STATES.has(st)) return null;
+  const answers = count(e.answers);
+  const sampled = answers !== null && answers > 0;
+  const you = sampled ? count(e.client) : null;
+  const rivalCount = sampled ? count(e.rival) : null;
+  if ((you !== null && you > answers!) || (rivalCount !== null && rivalCount > answers!)) return null;
+  const hasRival = st === "behind" || st === "level" || st === "ahead";
+  if (hasRival) {
+    if (you === null || rivalCount === null || !stateMatches(st, rivalCount, you)) return null;
+    return { engine: key, state: st, gap_points: exactPoints(rivalCount, answers!, you, answers!),
+      you_recommended: you, rival_recommended: rivalCount, answers };
+  }
+  return { engine: key, state: st, gap_points: null, you_recommended: you, rival_recommended: null, answers: sampled ? answers : null };
+}
+
+/** The engine's stance_counts (its "uncertain" is "unclear" here), or undefined unless every count is whole. */
+export function toStanceCounts(av: AiVisibilityBlock): StanceCounts | undefined {
+  const raw = av.stance_counts;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const c = raw as Record<string, unknown>;
+  const recommended = count(c.recommended);
+  const mentioned = count(c.mentioned);
+  const cautioned = count(c.cautioned);
+  const unclear = count(c.uncertain);
+  const not_named = count(c.not_named);
+  const answers = count(c.answers);
+  if (recommended === null || mentioned === null || cautioned === null
+      || unclear === null || not_named === null || answers === null) return undefined;
+  // The parts are the answers: a block whose parts do not sum to its whole is
+  // not one the model can be handed (a rate over 100%, a gap from nothing).
+  if (recommended + mentioned + cautioned + unclear + not_named !== answers) return undefined;
+  if (answers <= 0) return undefined;        // six zeros over no answers say nothing
+  return { recommended, mentioned, cautioned, unclear, not_named, answers };
+}
+
+/**
+ * (rival's share - your share) * 100 in whole points, halves away from zero,
+ * in INTEGER arithmetic (29 of 200 against 0 of 200 is 14.5, which floats put at
+ * 14.499999999999998). Never 0 for a gap that exists.
+ */
+function exactPoints(rivalRec: number, rivalAns: number, youRec: number, youAns: number): number {
+  const numerator = (rivalRec * youAns - youRec * rivalAns) * 100;
+  const denominator = rivalAns * youAns;
+  if (numerator === 0) return 0;
+  const rounded = Math.floor((2 * Math.abs(numerator) + denominator) / (2 * denominator));
+  return Math.sign(numerator) * Math.max(1, rounded);
+}
+
+/**
+ * You against each competitor, from each audit's own stance counts: recommended
+ * answers as a share of THAT site's answers, so two audits with different
+ * sample sizes still compare. A site with no counts, or none answered, is left
+ * out; with nothing left the whole block is absent, never a 0.
+ */
+export function toComparisonRecommendationGap(
+  you: SiteReading,
+  competitors: Array<SiteReading & { domain: string }>,
+): ComparisonRecommendationGap | undefined {
+  const youCounts = you.counts;
+  if (!youCounts || youCounts.answers <= 0) return undefined;
+  const youEngines = engineCounts(you.per_engine);
+  const youQuestions = questionSet(you.questions);
+  // A competitor whose audit recorded no stances (an estimated run, or one from
+  // before stance) cannot be compared, and is NAMED as left out, never dropped.
+  const notCompared = competitors.filter((c) => !c.counts || c.counts.answers <= 0).map((c) => c.domain);
+  const measured = competitors.flatMap((c) => {
+    if (!c.counts || c.counts.answers <= 0) return [];
+    // LIKE FOR LIKE. Each site was audited on its own, so what each was asked
+    // and which assistants answered are checked, not assumed. With per-assistant
+    // detail on both sides the figures are over the assistants that answered
+    // for BOTH; without it they fall back to each audit's overall counts and
+    // the result says the assistants could not be checked.
+    const theirEngines = engineCounts(c.per_engine);
+    let basis: { youRec: number; youAns: number; rivRec: number; rivAns: number; assistants: string[] | null; narrowed: boolean };
+    if (youEngines && theirEngines) {
+      const shared = [...youEngines.keys()].filter((k) => theirEngines.has(k));
+      const sum = (m: Map<string, { rec: number; ans: number }>, f: "rec" | "ans") =>
+        shared.reduce((t, k) => t + m.get(k)![f], 0);
+      // Nothing both answered: each site's own answers, said so (assistants: []),
+      // never a competitor silently left out.
+      basis = shared.length === 0 ? {
+        youRec: youCounts.recommended, youAns: youCounts.answers,
+        rivRec: c.counts.recommended, rivAns: c.counts.answers,
+        assistants: [], narrowed: false,
+      } : {
+        youRec: sum(youEngines, "rec"), youAns: sum(youEngines, "ans"),
+        rivRec: sum(theirEngines, "rec"), rivAns: sum(theirEngines, "ans"),
+        assistants: shared,
+        // Narrowed also when answers were left out for want of a usable entry
+        // (both audits' overall answers exceed what the shared assistants hold).
+        narrowed: shared.length < youEngines.size || shared.length < theirEngines.size
+          || sum(youEngines, "ans") < youCounts.answers || sum(theirEngines, "ans") < c.counts.answers,
+      };
+    } else {
+      basis = {
+        youRec: youCounts.recommended, youAns: youCounts.answers,
+        rivRec: c.counts.recommended, rivAns: c.counts.answers,
+        assistants: null, narrowed: false,
+      };
+    }
+    if (basis.youAns <= 0 || basis.rivAns <= 0) return [];
+    const theirQuestions = questionSet(c.questions);
+    const points = exactPoints(basis.rivRec, basis.rivAns, basis.youRec, basis.youAns);
+    return [{
+      domain: c.domain,
+      state: (points > 0 ? "behind" : points < 0 ? "ahead" : "level") as CompetitorRecommendationGap["state"],
+      gap_points: points,
+      recommended: basis.rivRec,
+      answers: basis.rivAns,
+      same_questions: youQuestions && theirQuestions ? sameSet(youQuestions, theirQuestions) : null,
+      assistants: basis.assistants,
+      narrowed: basis.narrowed,
+      unverified: c.unverified === true,
+      youRec: basis.youRec,
+      youAns: basis.youAns,
+    }];
+  })
+    // The competitor you trail MOST first, each on its own like-for-like
+    // basis; then the higher share (exact, cross-multiplied); then by name.
+    .sort((a, b) => exactShortfall(b, a)
+      || (b.recommended * a.answers - a.recommended * b.answers)
+      || (a.domain < b.domain ? -1 : a.domain > b.domain ? 1 : 0));    // code units: the same order on every runtime
+  const top = measured[0];
+  if (!top) return undefined;
+  // Every competitor recommended at exactly the top rate is named, as the
+  // single-site gap names its ties.
+  // Tied only on IDENTICAL counts over the identical basis (a sentence about
+  // "each recommended in 5 of 20" must be true of every name in it).
+  const tied = measured.slice(1)
+    .filter((c) => c.recommended === top.recommended && c.answers === top.answers
+      && c.youRec === top.youRec && c.youAns === top.youAns
+      && c.same_questions === top.same_questions && c.unverified === top.unverified && c.narrowed === top.narrowed
+      && JSON.stringify(c.assistants) === JSON.stringify(top.assistants))
+    .map((c) => c.domain);
+  const group = [top.domain, ...tied];
+  const pts = Math.abs(top.gap_points);
+  const noun = plural(pts, "point", "points");
+  const yours = `${top.youRec} of ${top.youAns}`;
+  const theirs = `${top.recommended} of ${top.answers}`;
+  const answersWord = top.answers === 1 ? "answer" : "answers";
+  const yourAnswersWord = top.youAns === 1 ? "answer" : "answers";
+  const base = top.state === "behind"
+    ? (group.length > 1
+      ? `${listOf(group)} are each recommended in ${theirs} ${answersWord}, you in ${yours}: ${pts} ${noun} behind.`
+      : `${top.domain} is recommended in ${theirs} ${answersWord}, you in ${yours}: ${pts} ${noun} behind.`)
+    : top.state === "ahead"
+      ? `You lead ${listOf(group)}: recommended in ${yours} ${yourAnswersWord}, ${group.length > 1 ? "each" : top.domain} in ${theirs}: ${pts} ${noun} ahead.`
+      : `You are level with ${listOf(group)}: recommended in ${yours} ${yourAnswersWord}, ${group.length > 1 ? "each" : top.domain} in ${theirs}.`;
+  // What the reader needs to know about how like-for-like the two sides are.
+  const caveats: string[] = [];
+  if (top.assistants === null) caveats.push("Which assistants answered for each site could not be checked.");
+  else if (top.assistants.length === 0) caveats.push("No assistant answered for both sites, so each figure is over that site's own answers.");
+  else if (top.narrowed) {
+    caveats.push(`Compared on ${listOf(top.assistants.map((k) => ENGINE_LABELS[k] ?? k))} only: the other assistants have no usable answers for both sites.`);
+  }
+  if (top.same_questions === false) caveats.push("Each site was asked different questions, so read this as indicative.");
+  else if (top.same_questions === null) caveats.push("Whether both sites were asked the same questions could not be checked.");
+  if (notCompared.length > 0) {
+    caveats.push(`${listOf(notCompared)} could not be included: ${notCompared.length > 1 ? "their audits have" : "its audit has"} no usable stances (an estimated run, or one that recorded none).`);
+  }
+  if (you.unverified) caveats.push("The business name for your site could not be verified, so treat this as indicative.");
+  if (top.unverified) caveats.push(`The business name for ${top.domain} could not be verified, so treat this as indicative.`);
+  const sentence = [base, ...caveats].join(" ");
+  return {
+    state: top.state,
+    gap_points: top.gap_points,
+    rival: top.domain,
+    tied_with: tied,
+    rival_recommended: top.recommended,
+    rival_answers: top.answers,
+    you_recommended: top.youRec,
+    you_answers: top.youAns,
+    same_questions: top.same_questions,
+    assistants: top.assistants,
+    not_compared: notCompared,
+    sentence,
+    by_competitor: measured.map((c) => ({
+      domain: c.domain, state: c.state, gap_points: c.gap_points, recommended: c.recommended,
+      answers: c.answers, you_recommended: c.youRec, you_answers: c.youAns,
+      same_questions: c.same_questions, assistants: c.assistants, unverified: c.unverified,
+    })),
+  };
+}
+
+/** Sign of (a's shortfall - b's), exactly: each is (rival share - your share) on its own basis, cross-multiplied. */
+function exactShortfall(
+  a: { recommended: number; answers: number; youRec: number; youAns: number },
+  b: { recommended: number; answers: number; youRec: number; youAns: number },
+): number {
+  const an = a.recommended * a.youAns - a.youRec * a.answers;
+  const ad = a.answers * a.youAns;
+  const bn = b.recommended * b.youAns - b.youRec * b.answers;
+  const bd = b.answers * b.youAns;
+  return Math.sign(an * bd - bn * ad);
+}
+
+/**
+ * Why no comparison gap was drawn, for the summary, when the audits had stances
+ * to offer on one side but not the other. Undefined when nobody had any (the
+ * feature is simply absent) or when nothing is left unsaid.
+ */
+export function comparisonGapNote(
+  you: SiteReading,
+  competitors: Array<SiteReading & { domain: string }>,
+): string | undefined {
+  const usable = (r: SiteReading) => !!r.counts && r.counts.answers > 0;
+  const reason = "no usable stances (an estimated run, or one that recorded none).";
+  if (!usable(you)) {
+    return competitors.some(usable) ? `No recommendation gap was compared: your audit has ${reason}` : undefined;
+  }
+  const missing = competitors.filter((c) => !usable(c)).map((c) => c.domain);
+  if (missing.length === 0) return undefined;
+  return `No recommendation gap was compared: ${listOf(missing)} ${missing.length > 1 ? "have" : "has"} ${reason}`;
+}
+
+/** Per-assistant recommended counts (only assistants that answered), or null when none are recorded. */
+function engineCounts(entries: RecommendationGapEngine[] | undefined): Map<string, { rec: number; ans: number }> | null {
+  if (!entries || entries.length === 0) return null;
+  const out = new Map<string, { rec: number; ans: number }>();
+  for (const e of entries) {
+    if (e.answers !== null && e.answers > 0 && e.you_recommended !== null && e.you_recommended <= e.answers) {
+      out.set(e.engine, { rec: e.you_recommended, ans: e.answers });
+    }
+  }
+  return out.size > 0 ? out : null;
+}
+
+/**
+ * A set of questions, compared without regard to order, case or padding; null
+ * when none were recorded. Unlike the history's `question.key` (one business
+ * across time, which includes the name), this compares two DIFFERENT businesses
+ * audited in one call, so the name cannot be part of it: what is compared is
+ * what the assistants were asked.
+ */
+function questionSet(questions: string[] | undefined): Set<string> | null {
+  if (!questions) return null;
+  const set = new Set(questions.map((q) => q.trim().toLowerCase()).filter((q) => q !== ""));
+  return set.size > 0 ? set : null;
+}
+
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  return a.size === b.size && [...a].every((q) => b.has(q));
+}
+
+/**
+ * The gap and the counts, each only when the engine measured it, and never for
+ * an estimated run ("you in 4 of 32" over answers nobody gave is the fabricated
+ * number this change exists to stop). They come from two blocks built from the
+ * same answers, so if they disagree neither is handed on.
+ */
+function reconcileGap(av: AiVisibilityBlock): { gap?: RecommendationGap; counts?: StanceCounts } {
+  if (av.is_simulated) return {};
+  const gap = toRecommendationGap(av);
+  const counts = toStanceCounts(av);
+  // The gap and the counts come from two blocks of the report, built from the
+  // same answers: if they disagree about them, neither is handed on.
+  if (gap && counts
+      && ((gap.you_recommended !== null && gap.you_recommended !== counts.recommended)
+        || (gap.answers !== null && gap.answers !== counts.answers))) return {};
+  return { ...(gap ? { gap } : {}), ...(counts ? { counts } : {}) };
+}
+
+function gapAndCounts(reconciled: { gap?: RecommendationGap; counts?: StanceCounts }) {
+  return {
+    ...(reconciled.gap ? { recommendation_gap: reconciled.gap } : {}),
+    ...(reconciled.counts ? { stance_counts: reconciled.counts } : {}),
+  };
+}
+
 export function toAiVisibility(report: AuditReport): AiVisibility {
   const av = report.ai_visibility ?? {};
   const score = av.overall_score ?? 0;
@@ -317,6 +780,15 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
       ? `${name} scores ${score}/100 for AI visibility; the competitor most often surfaced instead is ${competitor}.${simulatedNote}${nameNote}${coverageNote}`
       : `${name} scores ${score}/100 for AI visibility across ${listOf(scoredNames)}.${simulatedNote}${nameNote}${coverageNote}`;
 
+  // The gap, in the sentence the model actually reads: a field it never reads
+  // changes nothing (the same reasoning as the notes above).
+  // Nothing scored, or an estimated run: no gap at all, in the sentence or the
+  // result (it would contradict the "no score" summary beside it).
+  const reconciled = scoredNames.length > 0 ? reconcileGap(av) : {};
+  const gap = reconciled.gap;
+  const asked = questionsAsked(av);
+  const gapSuffix = gap && gap.sentence ? ` ${gap.sentence}` : "";
+
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
   return {
@@ -325,7 +797,9 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     engine_status,
     appears_by_engine,
     top_competitor: competitor,
-    summary,
+    summary: `${summary}${gapSuffix}`,
+    ...gapAndCounts(reconciled),
+    ...(asked.length > 0 && !av.is_simulated && scoredNames.length > 0 ? { questions_asked: asked } : {}),
     ...(coverage_note ? { coverage_note } : {}),
     trend: null,
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
@@ -364,6 +838,26 @@ function seoProxyScore(av: AiVisibilityBlock): number | null {
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);
 }
 
+const MAX_QUESTIONS = 50;
+const MAX_QUESTION_CHARS = 200;
+
+/** The questions this audit put to the assistants, trimmed, as the report recorded them (none when there are more than 50). */
+function questionsAsked(av: AiVisibilityBlock): string[] {
+  const raw = av.queries;
+  if (!isStringArray(raw)) return [];
+  // Whole or unrecorded: a question cut short could make two different ones read as the same.
+  const cleaned = raw.map((q) => cleanName(q, MAX_QUESTION_CHARS + 1)).filter((q): q is string => q !== null);
+  if (cleaned.some((q) => Array.from(q).length > MAX_QUESTION_CHARS)) return [];
+  // A list this long is not one audit's question set: leave it unrecorded
+  // rather than cut it, so two cut lists can never read as the same.
+  return cleaned.length > MAX_QUESTIONS ? [] : cleaned;
+}
+
+/** Did at least one assistant return an answer this run? */
+function anyEngineScored(av: AiVisibilityBlock): boolean {
+  return ENGINE_KEYS.some((n) => engineReading(av, n).state === "scored");
+}
+
 export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): AuditSummary {
   const av = report.ai_visibility ?? {};
 
@@ -393,6 +887,8 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
     },
     top_issues,
     report_url,
+    // As in get_ai_visibility: nothing scored, nothing to say about a gap.
+    ...(anyEngineScored(av) ? gapAndCounts(reconcileGap(av)) : {}),
     // Only when unverified. ai_visibility above is scored on queries built
     // around the business name, so this caveat qualifies that number.
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),

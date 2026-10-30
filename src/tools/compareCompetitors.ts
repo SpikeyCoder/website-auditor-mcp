@@ -39,7 +39,7 @@ import type {
   SkippedDomain,
   CompareQuota,
 } from "../api/types.js";
-import { toAiVisibility, detectUnreachable } from "../api/mappers.js";
+import { toAiVisibility, detectUnreachable, toComparisonRecommendationGap, comparisonGapNote } from "../api/mappers.js";
 import { normalizeDomain } from "../api/domain.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
@@ -289,11 +289,32 @@ export async function compareCompetitors(
     cachedReused: quota.cachedReused,
   });
 
+  // How far behind each competitor you are in RECOMMENDED answers:
+  // each audit's own stance counts, so the audits' sample sizes need not match.
+  // Absent when your audit or every competitor's recorded none. The sentence
+  // goes in `summary`, the text the model actually reads.
+  const reading = (av: AiVisibility) => ({
+    counts: av.stance_counts,
+    per_engine: av.recommendation_gap?.per_engine,
+    questions: av.questions_asked,
+    unverified: av.name_warning !== undefined || av.name_verified === false,
+  });
+  const you = reading(primaryAv);
+  const others = audited.map((a) => ({ domain: a.host, ...reading(a.av) }));
+  const recommendationGap = toComparisonRecommendationGap(you, others);
+  // When no gap could be drawn although some audit had stances, say why, so
+  // "could not compare" is never mistaken for "feature absent".
+  const gapNote = recommendationGap ? undefined : comparisonGapNote(you, others);
+  const summaryWithGap = recommendationGap ? `${summary} ${recommendationGap.sentence}` : gapNote ? `${summary} ${gapNote}` : summary;
+
   // NAMED IN THE RESULT, because a scoped comparison and an unscoped one are
   // different measurements and were indistinguishable to every reader —
   // including whatever later diffs two of them. null rather than '' so "no
   // market" is one state rather than two.
-  return ok({ ranking, gaps, quota: compareQuota, skipped, summary, market: market || null });
+  return ok({
+    ranking, gaps, quota: compareQuota, skipped, summary: summaryWithGap, market: market || null,
+    ...(recommendationGap ? { recommendation_gap: recommendationGap } : {}),
+  });
 }
 
 /**
