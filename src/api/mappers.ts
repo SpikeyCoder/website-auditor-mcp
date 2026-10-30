@@ -153,22 +153,27 @@ function engineAppears(
 
 /** Most frequently-cited competitor across all engines, or null if none. */
 export function topCompetitor(av: AiVisibilityBlock): string | null {
-  const counts = new Map<string, number>();
+  // The same processing as the names in the recommendation gap: cleaned where
+  // they enter, counted without regard to case, the first spelling shown.
+  const counts = new Map<string, { name: string; n: number }>();
   for (const key of ENGINE_KEYS) {
     const results = av.platform_scores?.[key]?.results ?? [];
     for (const r of results) {
       for (const c of r.competitors ?? []) {
-        const name = cleanName(c, MAX_COMPETITOR_CHARS);   // third-party text: cleaned where it enters
-        if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+        const name = cleanName(c);
+        if (!name) continue;
+        const k = name.toLowerCase();
+        const seen = counts.get(k);
+        if (seen) seen.n += 1; else counts.set(k, { name, n: 1 });
       }
     }
   }
   let best: string | null = null;
   let bestCount = 0;
-  for (const [name, count] of counts) {
-    if (count > bestCount) {
+  for (const { name, n } of counts.values()) {
+    if (n > bestCount) {
       best = name;
-      bestCount = count;
+      bestCount = n;
     }
   }
   return best;
@@ -281,7 +286,7 @@ function distinctNames(names: Array<string | null>, except: string | null): stri
   return out;
 }
 
-const MAX_NAME_CHARS = 80;
+const MAX_NAME_CHARS = 200;   // one cap for every business name read from an answer
 const MAX_TIED = 5;
 
 /** A business name read from a third-party answer, bounded: no control characters, 80 characters at most. */
@@ -296,7 +301,8 @@ function cleanName(value: unknown, max: number = MAX_NAME_CHARS): string | null 
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/\s+/g, " ").trim();
   // By code point: cutting a UTF-16 pair in half leaves a lone surrogate.
-  return t === "" ? null : Array.from(t).slice(0, max).join("");
+  const cut = Array.from(t).slice(0, max).join("").trim();
+  return cut === "" ? null : cut;
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -344,15 +350,6 @@ function text(v: unknown): string | null {
   return typeof v === "string" && v !== "" ? v : null;
 }
 
-/** Points for a state: ok when they agree with it, `points` null where the state has none. */
-function pointsFor(state: string | null, value: unknown): { ok: boolean; points: number | null } {
-  if (state !== "behind" && state !== "level" && state !== "ahead") return { ok: true, points: null };
-  const n = wholeNumber(value);
-  if (n === null) return { ok: false, points: null };
-  const agrees = state === "behind" ? n > 0 : state === "ahead" ? n < 0 : n === 0;
-  return { ok: agrees, points: agrees ? n : null };
-}
-
 /** The engine's recommendation_gap, validated, or undefined when it measured none. */
 export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | undefined {
   const raw = av.recommendation_gap;
@@ -360,74 +357,47 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   const g = raw as Record<string, unknown>;
   if (typeof g.state !== "string" || !GAP_STATES.has(g.state)) return undefined;
   const state = g.state as RecommendationGap["state"];
+  const hasRival = state === "behind" || state === "level" || state === "ahead";
   const rival = g.rival && typeof g.rival === "object" ? (g.rival as Record<string, unknown>) : null;
   const client = g.client && typeof g.client === "object" ? (g.client as Record<string, unknown>) : null;
   const sample = g.sample && typeof g.sample === "object" ? (g.sample as Record<string, unknown>) : null;
-  // Points that agree with their state, or none: whole, positive for behind,
-  // negative for ahead, zero for level, and none at all for any other state.
-  const overall = pointsFor(state, g.gap_points);
-  if (!overall.ok) return undefined;
-  const per_engine: RecommendationGapEngine[] = (Array.isArray(g.engines) ? g.engines : [])
-    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as { engine?: unknown }).engine === "string")
-    .map((e) => ({ e, key: String(e.engine).toLowerCase(), state: text(e.state) }))
-    .filter(({ key, state: st }) => KNOWN_ENGINES.has(key) && st !== null && ENGINE_STATES.has(st))
-    .map(({ e, key, state: st }) => {
-      const answers = count(e.answers);
-      const you = count(e.client);
-      const rivalCount = count(e.rival);
-      // Within its own sample, and (for a gap state) the points its counts give.
-      const within = (you === null || answers === null || you <= answers)
-        && (rivalCount === null || answers === null || rivalCount <= answers);
-      let points = pointsFor(st, e.gap_points);
-      if (points.ok && points.points !== null && answers !== null && answers > 0 && you !== null && rivalCount !== null) {
-        const exact = exactPoints(rivalCount, answers, you, answers);
-        // Within a rounding of the engine's, then the exact figure its counts give.
-        points = Math.abs(points.points - exact) > 1 ? { ok: false, points: null } : { ok: true, points: exact };
-      }
-      // A behind, level or ahead entry is whole or absent too: its sample, both
-      // counts, and a state its counts give.
-      let whole = true;
-      if (st === "behind" || st === "level" || st === "ahead") {
-        whole = answers !== null && answers > 0 && you !== null && rivalCount !== null
-          && (st === "behind" ? rivalCount > you : st === "ahead" ? rivalCount < you : rivalCount === you);
-      }
-      const none = answers === 0;
-      const hasRivalCount = st === "behind" || st === "level" || st === "ahead";   // no rival, no rival count
-      return { within: within && whole, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: none ? null : you, rival_recommended: none || !hasRivalCount ? null : rivalCount, answers: none ? null : answers } };
-    })
-    .filter(({ within, points }) => within && points.ok)    // a "behind" with no magnitude is left out, as the overall gap is
-    .map(({ entry }) => entry)
-    .filter((entry, i, all) => all.findIndex((x) => x.engine === entry.engine) === i);   // one entry per assistant
-  const hasRival = state === "behind" || state === "level" || state === "ahead";
-  const rivalName = rival && hasRival ? cleanName(rival.name) : null;
-  const rivalRec = rival && hasRival ? count(rival.recommended) : null;
+
+  // THE COUNTS ARE THE AUTHORITY. The points are what they work out to
+  // (exactPoints, the figure compare_competitors uses), and the engine's own
+  // `gap_points` and `sentence` are not relayed. A count means something only
+  // over a sample: without one it is null, never the engine's placeholder zero.
   const answers = sample ? count(sample.answers) : null;
-  // Over no answers, a count is not a count: the engine's placeholder zeros are not relayed.
-  const youRec = client && answers !== 0 ? count(client.recommended) : null;
+  const sampled = answers !== null && answers > 0;
+  const youRec = client && sampled ? count(client.recommended) : null;
+  const rivalName = rival && hasRival ? cleanName(rival.name) : null;
+  const rivalRec = rival && hasRival && sampled ? count(rival.recommended) : null;
+
+  const per_engine: RecommendationGapEngine[] = [];
+  for (const e of Array.isArray(g.engines) ? g.engines : []) {
+    const entry = engineEntry(e);
+    if (entry && !per_engine.some((x) => x.engine === entry.engine)) per_engine.push(entry);   // one per assistant
+  }
+
   // WHOLE OR ABSENT. A behind, level or ahead gap needs its rival, both counts
-  // and the sample; its numbers must agree with each other (counts within the
-  // sample, a state that matches them, points within a rounding of what they
-  // work out to), or it is not a measurement.
-  if (youRec !== null && answers !== null && youRec > answers) return undefined;     // any state: counts within the sample
-  if (state === "no_rival" || state === "no_local_rival") {
-    if (answers === null || answers <= 0) return undefined;
-  }
-  if (state === "behind" || state === "level" || state === "ahead") {
+  // and the sample, and a state its counts give; every state's counts must fit
+  // its sample, and the assistants' answers must fit the whole.
+  if (youRec !== null && answers !== null && youRec > answers) return undefined;
+  if ((state === "no_rival" || state === "no_local_rival") && !sampled) return undefined;
+  if (hasRival) {
     if (rivalName === null || rivalRec === null || youRec === null || answers === null || answers <= 0) return undefined;
-    const agrees = state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
-    if (!agrees || rivalRec > answers || youRec > answers) return undefined;
-    if (overall.points === null || Math.abs(overall.points - exactPoints(rivalRec, answers, youRec, answers)) > 1) return undefined;
+    if (!stateMatches(state, rivalRec, youRec) || rivalRec > answers) return undefined;
   }
+  if (answers !== null && per_engine.reduce((t, e) => t + (e.answers ?? 0), 0) > answers) return undefined;
+
+  const points = hasRival && rivalRec !== null && youRec !== null && answers !== null
+    ? exactPoints(rivalRec, answers, youRec, answers) : null;
   const tiedAll = rival && hasRival && Array.isArray(rival.tied_with)
     ? distinctNames(rival.tied_with.map((n) => cleanName(n)), rivalName) : [];
   const tied = tiedAll.slice(0, MAX_TIED);
-  const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, tiedExtra: tiedAll.length - tied.length, rivalRec, youRec, answers });
+  const sentence = gapSentence({ state, points, rival: rivalName, tied, tiedExtra: tiedAll.length - tied.length, rivalRec, youRec, answers });
   return {
     state,
-    // The points the counts give (the same figure compare_competitors computes),
-    // not the engine's, which has been checked to be within a rounding of it.
-    gap_points: hasRival && rivalRec !== null && youRec !== null && answers !== null && answers > 0
-      ? exactPoints(rivalRec, answers, youRec, answers) : overall.points,
+    gap_points: points,
     rival: rivalName,
     rival_recommended: rivalRec,
     tied_with: tied,
@@ -436,6 +406,37 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
     per_engine,
     sentence,
   };
+}
+
+/** Does the state say what the counts say? */
+function stateMatches(state: "behind" | "level" | "ahead" | string, rivalRec: number, youRec: number): boolean {
+  return state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
+}
+
+/**
+ * One assistant's entry, or null. Known assistants only. A behind/level/ahead
+ * entry is whole (its sample, both counts, a state its counts give) and carries
+ * the points its counts give; any other state carries no points and no rival
+ * count; and a count over no sample is null, not the engine's placeholder.
+ */
+function engineEntry(raw: unknown): RecommendationGapEngine | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const e = raw as Record<string, unknown>;
+  const key = typeof e.engine === "string" ? e.engine.toLowerCase() : "";
+  const st = text(e.state);
+  if (!KNOWN_ENGINES.has(key) || st === null || !ENGINE_STATES.has(st)) return null;
+  const answers = count(e.answers);
+  const sampled = answers !== null && answers > 0;
+  const you = sampled ? count(e.client) : null;
+  const rivalCount = sampled ? count(e.rival) : null;
+  if ((you !== null && you > answers!) || (rivalCount !== null && rivalCount > answers!)) return null;
+  const hasRival = st === "behind" || st === "level" || st === "ahead";
+  if (hasRival) {
+    if (you === null || rivalCount === null || !stateMatches(st, rivalCount, you)) return null;
+    return { engine: key, state: st, gap_points: exactPoints(rivalCount, answers!, you, answers!),
+      you_recommended: you, rival_recommended: rivalCount, answers };
+  }
+  return { engine: key, state: st, gap_points: null, you_recommended: you, rival_recommended: null, answers: sampled ? answers : null };
 }
 
 /** The engine's stance_counts (its "uncertain" is "unclear" here), or undefined unless every count is whole. */
@@ -653,12 +654,22 @@ function sameSet(a: Set<string>, b: Set<string>): boolean {
  * the fabricated number this change exists to stop. `gap` is passed in when the
  * caller has already mapped it.
  */
-function gapAndCounts(av: AiVisibilityBlock, gap: RecommendationGap | undefined) {
+function reconcileGap(av: AiVisibilityBlock): { gap?: RecommendationGap; counts?: StanceCounts } {
   if (av.is_simulated) return {};
+  const gap = toRecommendationGap(av);
   const counts = toStanceCounts(av);
+  // The gap and the counts come from two blocks of the report, built from the
+  // same answers: if they disagree about them, neither is handed on.
+  if (gap && counts
+      && ((gap.you_recommended !== null && gap.you_recommended !== counts.recommended)
+        || (gap.answers !== null && gap.answers !== counts.answers))) return {};
+  return { ...(gap ? { gap } : {}), ...(counts ? { counts } : {}) };
+}
+
+function gapAndCounts(reconciled: { gap?: RecommendationGap; counts?: StanceCounts }) {
   return {
-    ...(gap ? { recommendation_gap: gap } : {}),
-    ...(counts ? { stance_counts: counts } : {}),
+    ...(reconciled.gap ? { recommendation_gap: reconciled.gap } : {}),
+    ...(reconciled.counts ? { stance_counts: reconciled.counts } : {}),
   };
 }
 
@@ -737,7 +748,8 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   // changes nothing (the same reasoning as the notes above).
   // Nothing scored, or an estimated run: no gap at all, in the sentence or the
   // result (it would contradict the "no score" summary beside it).
-  const gap = scoredNames.length > 0 && !av.is_simulated ? toRecommendationGap(av) : undefined;
+  const reconciled = scoredNames.length > 0 ? reconcileGap(av) : {};
+  const gap = reconciled.gap;
   const asked = questionsAsked(av);
   const gapSuffix = gap && gap.sentence ? ` ${gap.sentence}` : "";
 
@@ -750,7 +762,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     appears_by_engine,
     top_competitor: competitor,
     summary: `${summary}${gapSuffix}`,
-    ...(scoredNames.length > 0 ? gapAndCounts(av, gap) : {}),
+    ...gapAndCounts(reconciled),
     ...(asked.length > 0 ? { questions_asked: asked } : {}),
     ...(coverage_note ? { coverage_note } : {}),
     trend: null,
@@ -792,7 +804,6 @@ function seoProxyScore(av: AiVisibilityBlock): number | null {
 
 const MAX_QUESTIONS = 50;
 const MAX_QUESTION_CHARS = 200;
-const MAX_COMPETITOR_CHARS = 200;
 
 /** The questions this audit put to the assistants, trimmed, as the report recorded them (none when there are more than 50). */
 function questionsAsked(av: AiVisibilityBlock): string[] {
@@ -842,7 +853,7 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
     top_issues,
     report_url,
     // As in get_ai_visibility: nothing scored, nothing to say about a gap.
-    ...(anyEngineScored(av) ? gapAndCounts(av, toRecommendationGap(av)) : {}),
+    ...(anyEngineScored(av) ? gapAndCounts(reconcileGap(av)) : {}),
     // Only when unverified. ai_visibility above is scored on queries built
     // around the business name, so this caveat qualifies that number.
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),
