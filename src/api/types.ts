@@ -585,9 +585,9 @@ export interface CompetitorRecommendationGap {
 export interface ComparisonRecommendationGap {
   state: "behind" | "level" | "ahead";
   gap_points: number;
-  /** The competitor recommended at the highest rate. */
+  /** The competitor you trail most, on the assistants that answered for both sites. */
   rival: string;
-  /** Other competitors recommended at exactly that rate: one gap, all named. */
+  /** Other competitors with identical counts over the identical basis: one gap, all named. */
   tied_with: string[];
   /** Whether both audits asked the same set of questions; null when either did not record them. */
   same_questions: boolean | null;

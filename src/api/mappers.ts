@@ -275,7 +275,11 @@ const MAX_TIED = 5;
 /** A business name read from a third-party answer, bounded: no control characters, 80 characters at most. */
 function cleanName(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const t = value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  // Controls (C0, DEL, C1), zero-width and bidirectional marks go; they read as nothing and steer nothing.
+  const t = value
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .replace(/\s+/g, " ").trim();
   return t === "" ? null : t.slice(0, MAX_NAME_CHARS);
 }
 
@@ -365,9 +369,11 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
       return { within, points, entry: { engine: key, state: st, gap_points: points.points, you_recommended: you, rival_recommended: rivalCount, answers } };
     })
     .filter(({ within, points }) => within && points.ok)    // a "behind" with no magnitude is left out, as the overall gap is
-    .map(({ entry }) => entry);
-  const rivalName = rival ? cleanName(rival.name) : null;
-  const rivalRec = rival ? count(rival.recommended) : null;
+    .map(({ entry }) => entry)
+    .filter((entry, i, all) => all.findIndex((x) => x.engine === entry.engine) === i);   // one entry per assistant
+  const hasRival = state === "behind" || state === "level" || state === "ahead";
+  const rivalName = rival && hasRival ? cleanName(rival.name) : null;
+  const rivalRec = rival && hasRival ? count(rival.recommended) : null;
   const youRec = client ? count(client.recommended) : null;
   const answers = sample ? count(sample.answers) : null;
   // WHOLE OR ABSENT. A behind, level or ahead gap needs its rival, both counts
@@ -380,7 +386,7 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
     if (!agrees || rivalRec > answers || youRec > answers) return undefined;
     if (overall.points === null || Math.abs(overall.points - exactPoints(rivalRec, answers, youRec, answers)) > 1) return undefined;
   }
-  const tied = rival && Array.isArray(rival.tied_with)
+  const tied = rival && hasRival && Array.isArray(rival.tied_with)
     ? rival.tied_with.map(cleanName).filter((n): n is string => n !== null).slice(0, MAX_TIED) : [];
   const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, rivalRec, youRec, answers });
   return {
@@ -460,7 +466,10 @@ export function toComparisonRecommendationGap(
         youRec: sum(youEngines, "rec"), youAns: sum(youEngines, "ans"),
         rivRec: sum(theirEngines, "rec"), rivAns: sum(theirEngines, "ans"),
         assistants: shared,
-        narrowed: shared.length < youEngines.size || shared.length < theirEngines.size,
+        // Narrowed also when answers were left out for want of a usable entry
+        // (both audits' overall answers exceed what the shared assistants hold).
+        narrowed: shared.length < youEngines.size || shared.length < theirEngines.size
+          || sum(youEngines, "ans") < youCounts.answers || sum(theirEngines, "ans") < c.counts.answers,
       };
     } else {
       basis = {
@@ -487,7 +496,8 @@ export function toComparisonRecommendationGap(
   })
     // The competitor you trail MOST first, each on its own like-for-like
     // basis; then the higher share (exact, cross-multiplied); then by name.
-    .sort((a, b) => (b.gap_points - a.gap_points)
+    .sort((a, b) => (Number(b.assistants !== null) - Number(a.assistants !== null))   // a checked basis outranks an unchecked one
+      || (b.gap_points - a.gap_points)
       || (b.recommended * a.answers - a.recommended * b.answers)
       || a.domain.localeCompare(b.domain));
   const top = measured[0];
@@ -554,7 +564,13 @@ function engineCounts(entries: RecommendationGapEngine[] | undefined): Map<strin
   return out.size > 0 ? out : null;
 }
 
-/** A set of questions, compared without regard to order, case or padding; null when none were recorded. */
+/**
+ * A set of questions, compared without regard to order, case or padding; null
+ * when none were recorded. Unlike the history's `question.key` (one business
+ * across time, which includes the name), this compares two DIFFERENT businesses
+ * audited in one call, so the name cannot be part of it: what is compared is
+ * what the assistants were asked.
+ */
 function questionSet(questions: string[] | undefined): Set<string> | null {
   if (!questions) return null;
   const set = new Set(questions.map((q) => q.trim().toLowerCase()).filter((q) => q !== ""));
@@ -712,7 +728,7 @@ const MAX_QUESTIONS = 50;
 
 /** The questions this audit put to the assistants, trimmed, as the report recorded them (none when there are more than 50). */
 function questionsAsked(av: AiVisibilityBlock): string[] {
-  const raw = (av as { queries?: unknown }).queries;
+  const raw = av.queries;
   if (!isStringArray(raw)) return [];
   const questions = raw.map((q) => q.trim()).filter((q) => q !== "");
   // A list this long is not one audit's question set: leave it unrecorded

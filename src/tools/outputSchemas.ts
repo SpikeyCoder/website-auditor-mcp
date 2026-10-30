@@ -235,8 +235,8 @@ const stanceCounts = open({
 const comparisonRecommendationGap = open({
   state: z.enum(["behind", "level", "ahead"]),
   gap_points: z.number().describe("Positive when the top competitor is recommended more often."),
-  rival: z.string(),
-  tied_with: z.array(z.string()).describe("Other competitors recommended at exactly the top rate: one gap, all named."),
+  rival: z.string().describe("The competitor you trail most, compared on the assistants that answered for both sites."),
+  tied_with: z.array(z.string()).describe("Other competitors with identical counts over the identical basis: one gap, all named."),
   same_questions: z.boolean().nullable().describe(
     "Whether both audits asked the same set of questions; null when either did not record them."),
   assistants: z.array(z.string()).nullable().describe(

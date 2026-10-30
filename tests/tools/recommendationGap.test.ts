@@ -1,5 +1,5 @@
 /**
- * The recommendation gap and the stance counts (chaos_tester Trello 226 / 225).
+ * The recommendation gap and the stance counts (the recommendation gap).
  *
  * The engine computes `ai_visibility.recommendation_gap`, how far behind the top
  * beatable rival the business is in points of the answers that RECOMMEND it, and
@@ -741,5 +741,70 @@ describe("review round 4: a gap is whole or absent, and its names are bounded", 
     }));
     if (!res.ok) throw new Error("expected ok");
     expect(res.data.recommendation_gap!.tied_with).toEqual([]);
+  });
+});
+
+describe("review round 5: no mixed bases, no leaked rival on a no-rival state, no hidden narrowing", () => {
+  const run = (audits: Record<string, Parameters<typeof auditReport>[1]>, competitors: string[]) =>
+    compareCompetitors({ domain: "you.com", competitors }, makeDeps({
+      tier: "pro",
+      client: { runAudit: vi.fn(async (req: { domain: string }) => ({ runId: req.domain, report: auditReport(req.domain, audits[req.domain]!), raw: {} })) },
+    }));
+
+  it("ranks a competitor whose basis was verified above one whose basis could not be checked", async () => {
+    // a.com: per-assistant detail missing (basis unchecked), a 25-point gap on overall counts.
+    // b.com: verified, a smaller gap. The verified one is named.
+    const res = await run({
+      "you.com": { recommended: 8, answers: 32 },
+      "a.com": { recommended: 16, answers: 32, engines: null },
+      "b.com": { recommended: 12, answers: 32 },
+    }, ["a.com", "b.com"]);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.rival).toBe("b.com");
+    expect(res.data.recommendation_gap!.assistants).not.toBeNull();
+  });
+
+  it("returns no rival, count or tied names on a no-rival state", async () => {
+    for (const state of ["no_rival", "no_local_rival"]) {
+      const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+        state, gap_points: null, rival: { name: "DoorDash", recommended: 9, tied_with: ["Grubhub"], included: false },
+      }))));
+      if (!res.ok) throw new Error("expected ok");
+      expect(res.data.recommendation_gap).toMatchObject({ rival: null, rival_recommended: null, tied_with: [] });
+    }
+  });
+
+  it("strips zero-width, bidirectional and C1 control characters from a name", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({
+      rival: { name: "Nor​th‮side\u0085 Bread", recommended: 11, tied_with: [], included: false },
+    }))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.rival).toBe("Northside Bread");
+  });
+
+  it("says the comparison was narrowed when an assistant both sites answered has no usable entry on either side", async () => {
+    const reports: Record<string, AuditReport> = {
+      "you.com": auditReport("you.com", { recommended: 4, answers: 32 }),
+      "rival.com": auditReport("rival.com", { recommended: 11, answers: 32 }),
+    };
+    for (const r of Object.values(reports)) {
+      const gap = r.ai_visibility!.recommendation_gap as { engines: Array<Record<string, unknown>> };
+      gap.engines = gap.engines.filter((e) => e.engine !== "Gemini");           // gone from both, still in the overall counts
+    }
+    const res = await compareCompetitors({ domain: "you.com", competitors: ["rival.com"] }, makeDeps({
+      tier: "pro",
+      client: { runAudit: vi.fn(async (req: { domain: string }) => ({ runId: req.domain, report: reports[req.domain]!, raw: {} })) },
+    }));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.sentence).toContain("Compared on ChatGPT, Perplexity and Claude only");
+  });
+
+  it("keeps one entry per assistant", async () => {
+    const res = await getAiVisibility({ domain: "example.com" }, depsFor(reportWith(engineGap({ engines: [
+      { engine: "ChatGPT", answers: 8, client: 1, rival: 3, gap_points: 25, state: "behind" },
+      { engine: "chatgpt", answers: 8, client: 2, rival: 3, gap_points: 13, state: "behind" },
+    ] }))));
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.data.recommendation_gap!.per_engine).toHaveLength(1);
   });
 });
