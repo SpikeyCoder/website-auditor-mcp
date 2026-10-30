@@ -289,7 +289,7 @@ export async function compareCompetitors(
     cachedReused: quota.cachedReused,
   });
 
-  // How far behind each competitor you are in RECOMMENDED answers (Trello 226):
+  // How far behind each competitor you are in RECOMMENDED answers:
   // each audit's own stance counts, so the audits' sample sizes need not match.
   // Absent when your audit or every competitor's recorded none. The sentence
   // goes in `summary`, the text the model actually reads.

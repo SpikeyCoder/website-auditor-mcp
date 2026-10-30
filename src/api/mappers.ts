@@ -252,7 +252,7 @@ function citedSources(av: AiVisibilityBlock): { sources?: AiVisibilitySource[] |
 }
 
 
-// ─── The recommendation gap and the stance counts (Trello 226 / 225) ─────────
+// ─── The recommendation gap and the stance counts  ─────────
 //
 // The engine measures both; these only validate and rename. Every number is
 // checked before it reaches a result, because the consumer is a language model:
@@ -264,6 +264,43 @@ function citedSources(av: AiVisibilityBlock): { sources?: AiVisibilitySource[] |
 const GAP_STATES = new Set([
   "behind", "level", "ahead", "no_rival", "no_local_rival", "not_enough_answers",
 ]);
+// What an assistant's own entry may say: the overall states, and not_measured.
+const ENGINE_STATES = new Set([...GAP_STATES, "not_measured"]);
+
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
+}
+
+function joinNames(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * The one plain sentence, rebuilt from the CHECKED fields. The engine's own
+ * text is never relayed: it carries rival names read out of third-party
+ * answers beside numbers this file has just validated, and the two must agree.
+ * "" when a field the wording needs is missing.
+ */
+function gapSentence(g: {
+  state: RecommendationGap["state"]; points: number | null; rival: string | null; tied: string[];
+  rivalRec: number | null; youRec: number | null; answers: number | null;
+}): string {
+  if (g.state === "not_enough_answers") return "Not enough answers yet to measure a gap.";
+  if (g.answers === null) return "";
+  if (g.state === "no_rival") return `No rival is recommended in these ${g.answers} answers.`;
+  if (g.state === "no_local_rival") return `No local rival is recommended in these ${g.answers} answers.`;
+  if (g.rival === null || g.rivalRec === null || g.youRec === null || g.points === null) return "";
+  const group = [g.rival, ...g.tied];
+  const of = `of ${g.answers} ${plural(g.answers, "answer", "answers")}`;
+  const pts = `${Math.abs(g.points)} ${plural(Math.abs(g.points), "point", "points")}`;
+  if (g.state === "level") return `You are level with ${joinNames(group)}: recommended in ${g.youRec} ${of} each.`;
+  if (g.state === "ahead") {
+    return `You lead ${joinNames(group)}: recommended in ${g.youRec} ${of}, ${group.length > 1 ? "each" : g.rival} in ${g.rivalRec}: ${pts} ahead.`;
+  }
+  return group.length > 1
+    ? `${joinNames(group)} are each recommended in ${g.rivalRec} ${of}, you in ${g.youRec}: ${pts} behind.`
+    : `${g.rival} is recommended in ${g.rivalRec} ${of}, you in ${g.youRec}: ${pts} behind.`;
+}
 
 function wholeNumber(v: unknown): number | null {
   return typeof v === "number" && Number.isInteger(v) ? v : null;
@@ -303,25 +340,38 @@ export function toRecommendationGap(av: AiVisibilityBlock): RecommendationGap | 
   if (!overall.ok) return undefined;
   const per_engine: RecommendationGapEngine[] = (Array.isArray(g.engines) ? g.engines : [])
     .filter((e): e is Record<string, unknown> => !!e && typeof e === "object" && typeof (e as { engine?: unknown }).engine === "string")
-    .map((e) => ({
+    .map((e) => ({ e, state: text(e.state) }))
+    .filter(({ state: st }) => st !== null && ENGINE_STATES.has(st))
+    .map(({ e, state: st }) => ({ e, state: st, points: pointsFor(st, e.gap_points) }))
+    .filter(({ points }) => points.ok)           // a "behind" with no magnitude is left out, as the overall gap is
+    .map(({ e, state: st, points }) => ({
       engine: String(e.engine).toLowerCase(),
-      state: text(e.state),
-      gap_points: pointsFor(text(e.state), e.gap_points).points,
+      state: st,
+      gap_points: points.points,
       you_recommended: count(e.client),
       rival_recommended: count(e.rival),
       answers: count(e.answers),
     }));
-  const sentence = text(g.sentence)
-    ?? (state === "not_enough_answers" ? "Not enough answers yet to measure a gap." : "");
+  const rivalName = rival ? text(rival.name) : null;
+  const rivalRec = rival ? count(rival.recommended) : null;
+  const youRec = client ? count(client.recommended) : null;
+  const answers = sample ? count(sample.answers) : null;
+  // A state that disagrees with its own counts is not a measurement.
+  if ((state === "behind" || state === "level" || state === "ahead") && rivalRec !== null && youRec !== null) {
+    const agrees = state === "behind" ? rivalRec > youRec : state === "ahead" ? rivalRec < youRec : rivalRec === youRec;
+    if (!agrees) return undefined;
+  }
+  const tied = rival && Array.isArray(rival.tied_with)
+    ? rival.tied_with.filter((n): n is string => typeof n === "string" && n !== "") : [];
+  const sentence = gapSentence({ state, points: overall.points, rival: rivalName, tied, rivalRec, youRec, answers });
   return {
     state,
     gap_points: overall.points,
-    rival: rival ? text(rival.name) : null,
-    rival_recommended: rival ? count(rival.recommended) : null,
-    tied_with: rival && Array.isArray(rival.tied_with)
-      ? rival.tied_with.filter((n): n is string => typeof n === "string" && n !== "") : [],
-    you_recommended: client ? count(client.recommended) : null,
-    answers: sample ? count(sample.answers) : null,
+    rival: rivalName,
+    rival_recommended: rivalRec,
+    tied_with: tied,
+    you_recommended: youRec,
+    answers,
     per_engine,
     sentence,
   };
@@ -386,19 +436,28 @@ export function toComparisonRecommendationGap(
     .sort((a, b) => b.rate - a.rate || a.domain.localeCompare(b.domain));
   const top = measured[0];
   if (!top) return undefined;
+  // Every competitor recommended at exactly the top rate is named, as the
+  // single-site gap names its ties (exact: cross-multiplied, not float).
+  const tied = measured.slice(1)
+    .filter((c) => c.recommended * top.answers === top.recommended * c.answers)
+    .map((c) => c.domain);
+  const group = [top.domain, ...tied];
   const pts = Math.abs(top.gap_points);
-  const noun = pts === 1 ? "point" : "points";
+  const noun = plural(pts, "point", "points");
   const yours = `${you.recommended} of ${you.answers}`;
   const theirs = `${top.recommended} of ${top.answers}`;
   const sentence = top.state === "behind"
-    ? `${top.domain} is recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`
+    ? (group.length > 1
+      ? `${joinNames(group)} are each recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`
+      : `${top.domain} is recommended in ${theirs} answers, you in ${yours}: ${pts} ${noun} behind.`)
     : top.state === "ahead"
-      ? `You lead ${top.domain}: recommended in ${yours} answers, ${top.domain} in ${theirs}: ${pts} ${noun} ahead.`
-      : `${top.domain} and you are level: recommended in ${yours} answers, ${top.domain} in ${theirs}.`;
+      ? `You lead ${joinNames(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}: ${pts} ${noun} ahead.`
+      : `You are level with ${joinNames(group)}: recommended in ${yours} answers, ${group.length > 1 ? "each" : top.domain} in ${theirs}.`;
   return {
     state: top.state,
     gap_points: top.gap_points,
     rival: top.domain,
+    tied_with: tied,
     rival_recommended: top.recommended,
     rival_answers: top.answers,
     you_recommended: you.recommended,
@@ -414,7 +473,7 @@ export function toComparisonRecommendationGap(
  * the fabricated number this change exists to stop. `gap` is passed in when the
  * caller has already mapped it.
  */
-function gapAndCounts(av: AiVisibilityBlock, gap: RecommendationGap | undefined = toRecommendationGap(av)) {
+function gapAndCounts(av: AiVisibilityBlock, gap: RecommendationGap | undefined) {
   if (av.is_simulated) return {};
   const counts = toStanceCounts(av);
   return {
@@ -549,6 +608,11 @@ function seoProxyScore(av: AiVisibilityBlock): number | null {
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);
 }
 
+/** Did at least one assistant return an answer this run? */
+function anyEngineScored(av: AiVisibilityBlock): boolean {
+  return (["ChatGPT", "Perplexity", "Claude", "Gemini"] as const).some((n) => engineReading(av, n).state === "scored");
+}
+
 export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): AuditSummary {
   const av = report.ai_visibility ?? {};
 
@@ -578,7 +642,8 @@ export function toAuditSummary(report: AuditReport, opts: { siteUrl: string }): 
     },
     top_issues,
     report_url,
-    ...gapAndCounts(av),
+    // As in get_ai_visibility: nothing scored, nothing to say about a gap.
+    ...(anyEngineScored(av) ? gapAndCounts(av, toRecommendationGap(av)) : {}),
     // Only when unverified. ai_visibility above is scored on queries built
     // around the business name, so this caveat qualifies that number.
     ...(provenance.warning ? { name_warning: provenance.warning } : {}),

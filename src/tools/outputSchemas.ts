@@ -196,11 +196,12 @@ const changes = open({
     "Present exactly when score_delta is null: which engines answered each snapshot. Relay it."),
 });
 
-// ─── the recommendation gap and the stance counts (Trello 226 / 225) ───────
+// ─── the recommendation gap and the stance counts  ───────
+
+const GAP_STATE = z.enum(["behind", "level", "ahead", "no_rival", "no_local_rival", "not_enough_answers"]);
 
 const recommendationGap = open({
-  state: z.string().describe(
-    '"behind" | "level" | "ahead" | "no_rival" | "no_local_rival" | "not_enough_answers".'),
+  state: GAP_STATE.describe("Which kind of gap this is, or why there is none."),
   gap_points: z.number().nullable().describe(
     "Points behind the top rival in the answers that RECOMMEND the site (negative when ahead). Null, never 0, "
     + "when there is no rival or too few answers."),
@@ -213,7 +214,7 @@ const recommendationGap = open({
   answers: z.number().nullable().describe("The answers this is a share of: one per question, per assistant."),
   per_engine: z.array(open({
     engine: z.string(),
-    state: z.string().nullable(),
+    state: GAP_STATE.or(z.literal("not_measured")).nullable(),
     gap_points: z.number().nullable(),
     you_recommended: z.number().nullable(),
     rival_recommended: z.number().nullable(),
@@ -232,9 +233,10 @@ const stanceCounts = open({
 });
 
 const comparisonRecommendationGap = open({
-  state: z.string().describe('"behind" | "level" | "ahead".'),
+  state: z.enum(["behind", "level", "ahead"]),
   gap_points: z.number().describe("Positive when the top competitor is recommended more often."),
   rival: z.string(),
+  tied_with: z.array(z.string()).describe("Other competitors recommended at exactly the top rate: one gap, all named."),
   rival_recommended: z.number(),
   rival_answers: z.number(),
   you_recommended: z.number(),
@@ -242,7 +244,7 @@ const comparisonRecommendationGap = open({
   sentence: z.string(),
   by_competitor: z.array(open({
     domain: z.string(),
-    state: z.string(),
+    state: z.enum(["behind", "level", "ahead"]),
     gap_points: z.number(),
     recommended: z.number(),
     answers: z.number(),

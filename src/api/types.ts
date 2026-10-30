@@ -94,7 +94,7 @@ export interface AiVisibilityBlock {
   site_signals?: Record<string, unknown>;
   /**
    * How far behind the top beatable rival the business is, in points of the
-   * answers that RECOMMEND it (chaos_tester Trello 226), and how many answers
+   * answers that RECOMMEND it , and how many answers
    * recommended / mentioned / cautioned against it (card 225). Optional and
    * `unknown`: a report from before either has neither, and the mappers
    * validate every field before it reaches a result.
@@ -318,9 +318,9 @@ export interface AiVisibility {
   appears_by_engine: EnginePresence;
   top_competitor: string | null;
   summary: string;
-  /** Present when the engine measured it (Trello 226); also folded into `summary`. */
+  /** Present when the engine measured it; also folded into `summary`. */
   recommendation_gap?: RecommendationGap;
-  /** Present when the engine recorded stances (Trello 225). */
+  /** Present when the engine recorded stances. */
   stance_counts?: StanceCounts;
   /** Pro only; null when unavailable — `trend_note` says why. */
   trend: AiVisibilityTrend | null;
@@ -366,9 +366,9 @@ export interface AuditSummary {
   scores: { ai_visibility: number | null; seo: number | null; security: number | null; performance: number | null };
   top_issues: AuditIssue[];
   report_url: string;
-  /** Present when the engine measured it (Trello 226). */
+  /** Present when the engine measured it. */
   recommendation_gap?: RecommendationGap;
-  /** Present when the engine recorded stances (Trello 225). */
+  /** Present when the engine recorded stances. */
   stance_counts?: StanceCounts;
   /**
    * Set ONLY when the business name could not be verified — the AI-visibility
@@ -574,6 +574,8 @@ export interface ComparisonRecommendationGap {
   gap_points: number;
   /** The competitor recommended at the highest rate. */
   rival: string;
+  /** Other competitors recommended at exactly that rate: one gap, all named. */
+  tied_with: string[];
   rival_recommended: number;
   rival_answers: number;
   you_recommended: number;
@@ -593,7 +595,7 @@ export interface Comparison {
   /** Human/agent-readable summary of what was compared vs. skipped and why. */
   summary: string;
   /**
-   * How far behind the competitor recommended most often you are (Trello 226).
+   * How far behind the competitor recommended most often you are.
    * Present only when your audit and at least one competitor's recorded stances.
    */
   recommendation_gap?: ComparisonRecommendationGap;
