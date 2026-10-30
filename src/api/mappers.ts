@@ -332,7 +332,9 @@ export function toStanceCounts(av: AiVisibilityBlock): StanceCounts | undefined 
 
 /** Whole points, halves away from zero (12.5 is 13, -12.5 is -13), as the engine rounds. */
 function roundPoints(value: number): number {
-  return value === 0 ? 0 : Math.sign(value) * Math.floor(Math.abs(value) + 0.5);
+  if (Math.abs(value) < 1e-9) return 0;
+  // A gap that exists is never 0 points: 1 more recommendation in 300 is 1.
+  return Math.sign(value) * Math.max(1, Math.floor(Math.abs(value) + 0.5));
 }
 
 /**

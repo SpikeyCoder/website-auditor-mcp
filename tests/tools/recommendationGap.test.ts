@@ -22,6 +22,7 @@ import { compareCompetitors } from "../../src/tools/compareCompetitors.js";
 import { createServer } from "../../src/mcp/server.js";
 import { OUTPUT_SCHEMAS } from "../../src/tools/outputSchemas.js";
 import { makeDeps } from "../helpers.js";
+import { toComparisonRecommendationGap } from "../../src/api/mappers.js";
 import { reachableReport } from "../fixtures/reports.js";
 import type { AuditReport } from "../../src/api/types.js";
 
@@ -313,5 +314,14 @@ describe("the declared output schemas accept the gap (through the real server)",
     const parsed = z.object(OUTPUT_SCHEMAS.compare_competitors).safeParse(result.structuredContent);
     expect(parsed.success, JSON.stringify(parsed.success ? null : parsed.error.issues)).toBe(true);
     expect((result.structuredContent as { recommendation_gap?: unknown }).recommendation_gap).toBeDefined();
+  });
+});
+
+describe("a gap that exists is never zero points", () => {
+  it("rounds 1 more recommendation in 300 answers to 1 point behind, not level", () => {
+    const counts = (recommended: number) => ({ recommended, mentioned: 0, cautioned: 0, unclear: 0, not_named: 300 - recommended, answers: 300 });
+    const out = toComparisonRecommendationGap(counts(1), [{ domain: "rival.example", counts: counts(2) }]);
+    expect(out?.state).toBe("behind");
+    expect(out?.gap_points).toBe(1);
   });
 });
