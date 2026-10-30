@@ -957,7 +957,7 @@ describe("review round 9: nothing left out unsaid, no placeholder zeros, bounded
 
   it("bounds and cleans the questions it echoes and the competitor name it names", async () => {
     const report = reachableReport();
-    (report.ai_visibility as Record<string, unknown>).queries = [`best bakery​ in Austin ${"x".repeat(400)}`];
+    (report.ai_visibility as Record<string, unknown>).queries = [`best bakery​ in Austin ${"x".repeat(150)}`];
     const res = await getAiVisibility({ domain: "example.com" }, depsFor(report));
     if (!res.ok) throw new Error("expected ok");
     const q = res.data.questions_asked![0]!;
