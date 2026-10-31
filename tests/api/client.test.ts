@@ -739,6 +739,17 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(changes.summary).not.toContain("answered both runs moved");
   });
 
+  it("leaves no newer unmeasured run out of the summary, so an older change is not read as current", async () => {
+    const changes = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 55), by_engine: { chatgpt: 60, claude: 50 } },
+      { ...row("2026-09-08T09:00:00Z", 40), by_engine: { chatgpt: 30, claude: 50 } },
+      measuredNothing("2026-09-15T09:00:00Z"),
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.note).toBeTruthy();
+    // The summary carries the note's caveat too, before what Pro checks.
+    expect(changes.summary).toContain(`(as of 2026-09-08). By assistant: ChatGPT down 30 (60 to 30). ${changes.note}`);
+  });
+
   it("reports a re-baseline, its date and what changed, instead of a number", async () => {
     const error = await failure(clientFor([
       row("2026-09-01T09:00:00Z", 40),
@@ -750,7 +761,8 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(error.message).toBe(
       "AI visibility for example.com re-baselined on 2026-09-08: that day's snapshot asked about the market "
       + '"Honolulu, HI" rather than none, compared with the snapshot on 2026-09-01, and no earlier snapshot '
-      + "asked the same question, so there is no like-for-like change for it yet.");
+      + "asked the same question, so there is no like-for-like change for it yet. "
+      + "On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.");
   });
 
   it("a snapshot that recorded nothing compares with nothing, on either side", async () => {
@@ -990,7 +1002,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     ]).getChanges({ domain: "example.com" }));
     expect(onlyOne.message).toBe(
       "Not enough history in the weekly series for example.com yet: its only measured re-audit so far, on "
-      + "2026-08-31, has no measured snapshot before it to compare with. Left out as not part of the weekly series: "
+      + "2026-08-31, has no measured snapshot before it to compare with. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same. Left out as not part of the weekly series: "
       + "1 snapshot that asked a different question, newer than 2026-08-31. The newest of them that records its "
       + `question, on 2026-09-10, asked about the market "Honolulu, HI" rather than none.${named}`);
 
@@ -1011,7 +1023,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       "AI visibility for example.com re-baselined on 2026-08-31: that day's snapshot asked about the market "
       + '"Honolulu, HI" rather than none, compared with the snapshot on 2026-08-24, and no earlier snapshot asked the '
       + "same question, so there is no like-for-like change for it yet. The most recent like-for-like change before "
-      + `it was up 5, from 2026-08-17 to 2026-08-24.${named}`);
+      + `it was up 5, from 2026-08-17 to 2026-08-24. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.${named}`);
   });
 
   it("names a weekly re-audit that measured nothing after the series' latest, before a newer audit beside the series", async () => {
@@ -1107,7 +1119,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(error.code).toBe("NOT_YET_AVAILABLE");
     expect(error.message).toBe(
       "Not enough history in the weekly series for example.com yet: its only measured re-audit so far, on "
-      + "2026-09-01, has no measured snapshot before it to compare with. Left out as not part of the weekly series: "
+      + "2026-09-01, has no measured snapshot before it to compare with. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same. Left out as not part of the weekly series: "
       + "1 snapshot that asked a different question, newer than 2026-09-01. The newest of them that records its "
       + 'question, on 2026-09-05, asked about the market "Honolulu, HI" rather than none.');
   });
@@ -1121,7 +1133,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     ]).getChanges({ domain: "example.com" }));
     expect(error.message).toBe(
       "Not enough history in the weekly series for example.com yet: its only measured re-audit so far, on "
-      + "2026-08-25, has no measured snapshot before it to compare with. Left out as not part of the weekly series: "
+      + "2026-08-25, has no measured snapshot before it to compare with. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same. Left out as not part of the weekly series: "
       + "2 snapshots that asked a different question, newer than 2026-08-25. The newest of them that records its "
       + 'question, on 2026-09-02, asked about the market "Honolulu, HI" rather than none. The most recent '
       + "like-for-like change among them was up 40, from 2026-08-28 to 2026-09-02.");
@@ -1192,7 +1204,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(error.details).toEqual({ reason: "earlier_not_recorded", rebaselined_at: "2026-09-08T09:00:00Z" });
     expect(error.message).toBe(
       "AI visibility for example.com re-baselined on 2026-09-08: the snapshots before it do not record what they "
-      + "asked, so there is no like-for-like change for it yet. Left out as not part of the weekly series: 1 "
+      + "asked, so there is no like-for-like change for it yet. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same. Left out as not part of the weekly series: 1 "
       + "snapshot that asked a different question, newer than 2026-09-08. The newest of them that records its "
       + 'question, on 2026-09-10, asked about the market "Honolulu, HI" rather than none.');
   });
@@ -1237,7 +1249,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       "AI visibility for example.com re-baselined on 2026-09-07: that day's snapshot asked about the market "
       + '"Honolulu, HI" rather than none, compared with the snapshot on 2026-08-31, and no earlier snapshot asked the '
       + "same question, so there is no like-for-like change for it yet. The most recent like-for-like change before "
-      + "it was unchanged, from 2026-08-24 to 2026-08-31.");
+      + "it was unchanged, from 2026-08-24 to 2026-08-31. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.");
   });
 
   it("takes a later audit of the weekly question past a weekly re-audit that recorded nothing", async () => {

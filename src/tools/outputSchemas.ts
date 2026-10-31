@@ -325,8 +325,9 @@ export const getChangesOutput: ZodRawShape = {
   resolved_issues: alwaysEmpty("audit issues"),
   ...comparedSpan,
   summary: z.string().optional().describe(
-    "The change in plain sentences: the overall move, each assistant that moved, and what Pro checks each week. "
-    + "Read it back as it stands; it says nothing the numbers beside it do not."),
+    "The change in plain sentences, built from this result's two snapshots: the overall scores and move, each "
+    + "assistant that moved, any newer run the comparison leaves out, and what Pro checks each week; note beside it "
+    + "carries any snapshot passed over in between."),
   overall_note: z.string().optional().describe(
     "Present exactly when score_delta is null: the two snapshots were answered by different engines, and which "
     + "answered each. Relay it — a null delta for this reason must not read like a null for want of history."),

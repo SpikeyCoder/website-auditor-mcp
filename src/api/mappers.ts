@@ -1370,10 +1370,12 @@ export const WEEKLY_CHECK_SENTENCE =
   "On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.";
 
 /**
- * A change, in plain sentences: the overall move, every engine that moved, and
- * what Pro checks each week. Built only from the result it sits beside, so it
- * can never say more than the numbers do: a null overall is not narrated as a
- * move, and an engine is named only when `engine_changes` holds it.
+ * A change, in plain sentences: the overall move, every engine that moved, any
+ * newer run that is not in the comparison (`later`, the sentence the result's
+ * `note` carries), and what Pro checks each week. Built only from the result it
+ * sits beside, so it can never say more than the numbers do: a null overall is
+ * not narrated as a move, an engine is named only when `engine_changes` holds
+ * it, and an old change is not read back as current.
  */
 export function changesSummary(
   domain: string,
@@ -1382,6 +1384,7 @@ export function changesSummary(
   fromAt: string,
   toAt: string,
   byEngine: { from: Record<string, number | null>; to: Record<string, number | null> },
+  later: string,
 ): string {
   const label = (engine: string) => ENGINE_LABELS[engine] ?? engine;
   const overall = result.score_delta === null
@@ -1396,7 +1399,7 @@ export function changesSummary(
     : Object.keys(byEngine.to).some((e) => typeof byEngine.to[e] === "number" && typeof byEngine.from[e] === "number")
       ? "No assistant that answered both runs moved."
       : "No assistant has a score recorded for both runs, so none is compared.";
-  return `${overall} ${engines} ${WEEKLY_CHECK_SENTENCE}`;
+  return `${overall} ${engines}${later} ${WEEKLY_CHECK_SENTENCE}`;
 }
 
 /**
