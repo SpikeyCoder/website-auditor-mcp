@@ -404,9 +404,9 @@ export interface Changes {
   /** When the later one was. */
   to_captured_at?: string;
   /**
-   * The change in plain sentences an assistant can read back: the overall move, each assistant that moved, and what
-   * Pro checks each week. Built from the numbers beside it, so it never says more than they do. `note` still
-   * carries what was passed over or left out.
+   * The change in plain sentences an assistant can read back: the overall move, each assistant that moved, any newer
+   * run the comparison leaves out, and what Pro checks each week. Built from the two snapshots and those newer runs,
+   * so it never says more than they do. `note` also carries any snapshot passed over in between.
    */
   summary?: string;
   /** Snapshots passed over: they asked a different question, or do not record what they asked. */

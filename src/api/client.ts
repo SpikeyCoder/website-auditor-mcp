@@ -870,7 +870,7 @@ function changesInHistory(
     // and `after` names them.
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `Not enough history in the weekly series for ${domain} yet: its only measured re-audit so far, on ${on}, has no measured snapshot before it to compare with.${later}`,
+      `Not enough history in the weekly series for ${domain} yet: its only measured re-audit so far, on ${on}, has no measured snapshot before it to compare with. ${WEEKLY_CHECK_SENTENCE}${later}`,
     );
   }
 
@@ -913,7 +913,7 @@ function changesInHistory(
       : `The latest AI-visibility snapshot for ${domain}, on ${on},`;
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `${which} does not record what it asked the assistants, so it can't be compared like for like.${priorChange}${later}`,
+      `${which} does not record what it asked the assistants, so it can't be compared like for like.${priorChange} ${WEEKLY_CHECK_SENTENCE}${later}`,
       { details: { reason: "question_not_recorded", ...withPrevious } },
     );
   }
@@ -952,7 +952,7 @@ function changesInHistory(
     }
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `AI visibility for ${domain} re-baselined on ${on}: ${asked ? `that day's snapshot ${asked}, and no earlier snapshot asked the same question` : unrecorded}, so there is no like-for-like change for it yet.${priorChange}${later}`,
+      `AI visibility for ${domain} re-baselined on ${on}: ${asked ? `that day's snapshot ${asked}, and no earlier snapshot asked the same question` : unrecorded}, so there is no like-for-like change for it yet.${priorChange} ${WEEKLY_CHECK_SENTENCE}${later}`,
       { details: { reason, rebaselined_at: current.captured_at, ...withPrevious } },
     );
   }
@@ -972,7 +972,7 @@ function changesInHistory(
   };
   result.summary = changesSummary(
     domain, result, { from: base.score, to: current.score }, base.captured_at, current.captured_at,
-    { from: base.by_engine, to: current.by_engine });
+    { from: base.by_engine, to: current.by_engine }, later);
   const notes: string[] = [];
   if (skipped > 0) {
     notes.push(since
