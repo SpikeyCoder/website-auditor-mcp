@@ -1362,6 +1362,44 @@ export function measuredRun(snapshots: AiVisibilitySnapshot[], runId: string): b
 }
 
 /**
+ * What Pro does each week, in the words a trialist's assistant can read back.
+ * Said beside the change when there is one and beside the refusal when there is
+ * not yet, so a member who asks "what changed" learns what the answer will rest on.
+ */
+export const WEEKLY_CHECK_SENTENCE =
+  "On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.";
+
+/**
+ * A change, in plain sentences: the overall move, every engine that moved, and
+ * what Pro checks each week. Built only from the result it sits beside, so it
+ * can never say more than the numbers do: a null overall is not narrated as a
+ * move, and an engine is named only when `engine_changes` holds it.
+ */
+export function changesSummary(
+  domain: string,
+  result: Changes,
+  scores: { from: number; to: number },
+  fromAt: string,
+  toAt: string,
+  byEngine: { from: Record<string, number | null>; to: Record<string, number | null> },
+): string {
+  const label = (engine: string) => ENGINE_LABELS[engine] ?? engine;
+  const overall = result.score_delta === null
+    ? `${domain}'s AI-visibility score was ${scores.from} on ${day(fromAt)} and ${scores.to} on ${day(toAt)}, but different assistants answered the two, so the overall is not compared.`
+    : result.score_delta === 0
+      ? `${domain}'s AI-visibility score is unchanged at ${scores.to} since ${day(fromAt)} (as of ${day(toAt)}).`
+      : `${domain}'s AI-visibility score is ${movement(result.score_delta)} since ${day(fromAt)}, from ${scores.from} to ${scores.to} (as of ${day(toAt)}).`;
+  const moved = result.engine_changes.map(
+    (c) => `${label(c.engine)} ${movement(c.delta)} (${c.from} to ${c.to})`);
+  const engines = moved.length
+    ? `By assistant: ${moved.join("; ")}.`
+    : Object.keys(byEngine.to).some((e) => typeof byEngine.to[e] === "number" && typeof byEngine.from[e] === "number")
+      ? "No assistant that answered both runs moved."
+      : "No assistant has a score recorded for both runs, so none is compared.";
+  return `${overall} ${engines} ${WEEKLY_CHECK_SENTENCE}`;
+}
+
+/**
  * The deltas between two snapshots: the overall move, and every engine's move
  * for engines that answered BOTH sides. The engine deltas skip an engine
  * unmeasured on either side (below); the OVERALL is compared only when the

@@ -674,6 +674,71 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       + "1 snapshot that asked a different question.");
   });
 
+  it("says the change in plain sentences, from the numbers it sits beside", async () => {
+    const changes = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 40), by_engine: { chatgpt: 30, claude: 50 } },
+      { ...row("2026-09-08T09:00:00Z", 55), by_engine: { chatgpt: 60, claude: 50 } },
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.summary).toBe(
+      "example.com's AI-visibility score is up 15 since 2026-09-01, from 40 to 55 (as of 2026-09-08). "
+      + "By assistant: ChatGPT up 30 (30 to 60). "
+      + "On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.");
+  });
+
+  it("says unchanged when nothing moved, and never narrates a null overall as a move", async () => {
+    const same = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 40), by_engine: { chatgpt: 40, claude: 40 } },
+      { ...row("2026-09-08T09:00:00Z", 40), by_engine: { chatgpt: 40, claude: 40 } },
+    ]).getChanges({ domain: "example.com" });
+    expect(same.summary).toContain("is unchanged at 40 since 2026-09-01 (as of 2026-09-08).");
+    expect(same.summary).toContain("No assistant that answered both runs moved.");
+
+    const different = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 60), by_engine: { chatgpt: 60, claude: 60 } },
+      { ...row("2026-09-08T09:00:00Z", 45), by_engine: { chatgpt: 45, claude: null } },
+    ]).getChanges({ domain: "example.com" });
+    expect(different.score_delta).toBeNull();
+    expect(different.summary).toContain("so the overall is not compared.");
+    // ChatGPT really moved (60 to 45) and is named; the overall is not called a move.
+    expect(different.summary).toContain("ChatGPT down 15 (60 to 45)");
+    expect(different.summary).not.toMatch(/score is (up|down|unchanged)/);
+  });
+
+  it("says a fall as a fall, and names engines that moved in opposite directions", async () => {
+    const changes = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 60), by_engine: { chatgpt: 50, claude: 70 } },
+      { ...row("2026-09-08T09:00:00Z", 45), by_engine: { chatgpt: 60, claude: 30 } },
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.summary).toContain("score is down 15 since 2026-09-01, from 60 to 45 (as of 2026-09-08).");
+    expect(changes.summary).toContain("ChatGPT up 10 (50 to 60)");
+    expect(changes.summary).toContain("Claude down 40 (70 to 30)");
+  });
+
+  it("reads the base from the first snapshot in the window when 'since' is set", async () => {
+    const snapshots = [
+      row("2026-08-01T09:00:00Z", 10),
+      row("2026-09-01T09:00:00Z", 40),
+      row("2026-09-04T09:00:00Z", 50),
+      row("2026-09-08T09:00:00Z", 55),
+    ];
+    // Without `since` the base is the most recent same-question snapshot (09-04);
+    // with it, the earliest in the window (09-01). The summary follows the base.
+    const latest = await clientFor(snapshots).getChanges({ domain: "example.com" });
+    expect(latest.summary).toContain("up 5 since 2026-09-04, from 50 to 55");
+    const windowed = await clientFor(snapshots).getChanges({ domain: "example.com", since: "2026-08-25" });
+    expect(windowed.from_captured_at).toBe("2026-09-01T09:00:00Z");
+    expect(windowed.summary).toContain("up 15 since 2026-09-01, from 40 to 55");
+  });
+
+  it("does not say an assistant held steady when none has a score for both runs", async () => {
+    const changes = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 40), by_engine: {} },
+      { ...row("2026-09-08T09:00:00Z", 55), by_engine: {} },
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.summary).toContain("No assistant has a score recorded for both runs, so none is compared.");
+    expect(changes.summary).not.toContain("answered both runs moved");
+  });
+
   it("reports a re-baseline, its date and what changed, instead of a number", async () => {
     const error = await failure(clientFor([
       row("2026-09-01T09:00:00Z", 40),
@@ -862,7 +927,8 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
       .getChanges({ domain: "example.com" }));
     expect(refused.message).toBe(
       "Not enough AI-visibility history for example.com yet — at least two measured snapshots are needed to show what "
-      + "changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site). The weekly re-audit on "
+      + "changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site). "
+      + "On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same. The weekly re-audit on "
       + "2026-09-07 measured nothing of the business, so it is not compared.");
 
     // A row without a usable timestamp still counts for nothing.
@@ -872,7 +938,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     ];
     expect(await clientFor([...measured, ...undated]).getChanges({ domain: "example.com" })).not.toHaveProperty("note");
     const bare = await failure(clientFor(undated).getChanges({ domain: "example.com" }));
-    expect(bare.message.endsWith("re-audited weekly (see track_site).")).toBe(true);
+    expect(bare.message.endsWith("re-audited weekly (see track_site). On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.")).toBe(true);
   });
 
   it("names a newer weekly re-audit that measured nothing in each refusal about a window", async () => {
@@ -964,7 +1030,8 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
 
   it("names only the weekly re-audits newer than the measured snapshot when there are fewer than two", async () => {
     const refusal = "Not enough AI-visibility history for example.com yet — at least two measured snapshots are needed to "
-      + "show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site).";
+      + "show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site). "
+      + "On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.";
     // One before the measured snapshot, with a score and without: neither is why no second one came.
     for (const older of [measuredNothing("2026-08-24T09:00:00Z", 30), measuredNothing("2026-08-24T09:00:00Z")]) {
       const error = await failure(clientFor([older, weekly("2026-08-31T09:00:00Z", 55), measuredNothing("2026-09-07T09:00:00Z")])
