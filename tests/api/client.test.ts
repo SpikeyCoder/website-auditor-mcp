@@ -682,7 +682,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(changes.summary).toBe(
       "example.com's AI-visibility score is up 15 since 2026-09-01, from 40 to 55 (as of 2026-09-08). "
       + "By assistant: ChatGPT up 30 (30 to 60). "
-      + "Pro asks the same questions of the AI assistants every week and compares each run with the last like-for-like one.");
+      + "On Pro, a tracked site is asked the same questions every week, and each run is compared with an earlier one that asked the same.");
   });
 
   it("says unchanged when nothing moved, and never narrates a null overall as a move", async () => {
@@ -702,6 +702,35 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     // ChatGPT really moved (60 to 45) and is named; the overall is not called a move.
     expect(different.summary).toContain("ChatGPT down 15 (60 to 45)");
     expect(different.summary).not.toMatch(/score is (up|down|unchanged)/);
+  });
+
+  it("says a fall as a fall, and names engines that moved in opposite directions", async () => {
+    const changes = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 60), by_engine: { chatgpt: 50, claude: 70 } },
+      { ...row("2026-09-08T09:00:00Z", 45), by_engine: { chatgpt: 60, claude: 30 } },
+    ]).getChanges({ domain: "example.com" });
+    expect(changes.summary).toContain("score is down 15 since 2026-09-01, from 60 to 45 (as of 2026-09-08).");
+    expect(changes.summary).toContain("ChatGPT up 10 (50 to 60)");
+    expect(changes.summary).toContain("Claude down 40 (70 to 30)");
+  });
+
+  it("reads 'since' from the first snapshot in the window, and never calls the overall a move when it is null", async () => {
+    const changes = await clientFor([
+      row("2026-08-01T09:00:00Z", 10),
+      row("2026-09-01T09:00:00Z", 40),
+      row("2026-09-08T09:00:00Z", 55),
+    ]).getChanges({ domain: "example.com", since: "2026-08-25" });
+    expect(changes.from_captured_at).toBe("2026-09-01T09:00:00Z");
+    expect(changes.summary).toContain("up 15 since 2026-09-01, from 40 to 55");
+    expect(changes.summary).not.toContain("2026-08-01");
+    // The weekly sentence makes no claim about which run is the base.
+    expect(changes.summary).not.toContain("last like-for-like");
+
+    const nullOverall = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 60), by_engine: { chatgpt: 60, claude: 60 } },
+      { ...row("2026-09-08T09:00:00Z", 45), by_engine: { chatgpt: 45, claude: null } },
+    ]).getChanges({ domain: "example.com" });
+    expect(nullOverall.summary).not.toMatch(/down 15 since|from 60 to 45 \(as of/);
   });
 
   it("reports a re-baseline, its date and what changed, instead of a number", async () => {
@@ -893,7 +922,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(refused.message).toBe(
       "Not enough AI-visibility history for example.com yet — at least two measured snapshots are needed to show what "
       + "changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site). "
-      + "Pro asks the same questions of the AI assistants every week and compares each run with the last like-for-like one. The weekly re-audit on "
+      + "On Pro, a tracked site is asked the same questions every week, and each run is compared with an earlier one that asked the same. The weekly re-audit on "
       + "2026-09-07 measured nothing of the business, so it is not compared.");
 
     // A row without a usable timestamp still counts for nothing.
@@ -903,7 +932,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     ];
     expect(await clientFor([...measured, ...undated]).getChanges({ domain: "example.com" })).not.toHaveProperty("note");
     const bare = await failure(clientFor(undated).getChanges({ domain: "example.com" }));
-    expect(bare.message.endsWith("re-audited weekly (see track_site). Pro asks the same questions of the AI assistants every week and compares each run with the last like-for-like one.")).toBe(true);
+    expect(bare.message.endsWith("re-audited weekly (see track_site). On Pro, a tracked site is asked the same questions every week, and each run is compared with an earlier one that asked the same.")).toBe(true);
   });
 
   it("names a newer weekly re-audit that measured nothing in each refusal about a window", async () => {
@@ -996,7 +1025,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
   it("names only the weekly re-audits newer than the measured snapshot when there are fewer than two", async () => {
     const refusal = "Not enough AI-visibility history for example.com yet — at least two measured snapshots are needed to "
       + "show what changed. Snapshots accrue as the tracked domain is re-audited weekly (see track_site). "
-      + "Pro asks the same questions of the AI assistants every week and compares each run with the last like-for-like one.";
+      + "On Pro, a tracked site is asked the same questions every week, and each run is compared with an earlier one that asked the same.";
     // One before the measured snapshot, with a score and without: neither is why no second one came.
     for (const older of [measuredNothing("2026-08-24T09:00:00Z", 30), measuredNothing("2026-08-24T09:00:00Z")]) {
       const error = await failure(clientFor([older, weekly("2026-08-31T09:00:00Z", 55), measuredNothing("2026-09-07T09:00:00Z")])

@@ -1367,7 +1367,7 @@ export function measuredRun(snapshots: AiVisibilitySnapshot[], runId: string): b
  * not yet, so a member who asks "what changed" learns what the answer will rest on.
  */
 export const WEEKLY_CHECK_SENTENCE =
-  "Pro asks the same questions of the AI assistants every week and compares each run with the last like-for-like one.";
+  "On Pro, a tracked site is asked the same questions every week, and each run is compared with an earlier one that asked the same.";
 
 /**
  * A change, in plain sentences: the overall move, every engine that moved, and
