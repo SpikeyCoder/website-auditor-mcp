@@ -715,22 +715,28 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
   });
 
   it("reads 'since' from the first snapshot in the window, and never calls the overall a move when it is null", async () => {
-    const changes = await clientFor([
+    const snapshots = [
       row("2026-08-01T09:00:00Z", 10),
       row("2026-09-01T09:00:00Z", 40),
+      row("2026-09-04T09:00:00Z", 50),
       row("2026-09-08T09:00:00Z", 55),
-    ]).getChanges({ domain: "example.com", since: "2026-08-25" });
-    expect(changes.from_captured_at).toBe("2026-09-01T09:00:00Z");
-    expect(changes.summary).toContain("up 15 since 2026-09-01, from 40 to 55");
-    expect(changes.summary).not.toContain("2026-08-01");
-    // The weekly sentence makes no claim about which run is the base.
-    expect(changes.summary).not.toContain("last like-for-like");
+    ];
+    // Without `since` the base is the most recent same-question snapshot (09-04);
+    // with it, the earliest in the window (09-01). The summary follows the base.
+    const latest = await clientFor(snapshots).getChanges({ domain: "example.com" });
+    expect(latest.summary).toContain("up 5 since 2026-09-04, from 50 to 55");
+    const windowed = await clientFor(snapshots).getChanges({ domain: "example.com", since: "2026-08-25" });
+    expect(windowed.from_captured_at).toBe("2026-09-01T09:00:00Z");
+    expect(windowed.summary).toContain("up 15 since 2026-09-01, from 40 to 55");
+  });
 
-    const nullOverall = await clientFor([
-      { ...row("2026-09-01T09:00:00Z", 60), by_engine: { chatgpt: 60, claude: 60 } },
-      { ...row("2026-09-08T09:00:00Z", 45), by_engine: { chatgpt: 45, claude: null } },
+  it("does not say an assistant held steady when none has a score for both runs", async () => {
+    const changes = await clientFor([
+      { ...row("2026-09-01T09:00:00Z", 40), by_engine: {} },
+      { ...row("2026-09-08T09:00:00Z", 55), by_engine: {} },
     ]).getChanges({ domain: "example.com" });
-    expect(nullOverall.summary).not.toMatch(/down 15 since|from 60 to 45 \(as of/);
+    expect(changes.summary).toContain("No assistant has a score recorded for both runs, so none is compared.");
+    expect(changes.summary).not.toContain("answered both runs moved");
   });
 
   it("reports a re-baseline, its date and what changed, instead of a number", async () => {

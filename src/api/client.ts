@@ -971,7 +971,8 @@ function changesInHistory(
     skipped_snapshots: skipped,
   };
   result.summary = changesSummary(
-    domain, result, { from: base.score, to: current.score }, base.captured_at, current.captured_at);
+    domain, result, { from: base.score, to: current.score }, base.captured_at, current.captured_at,
+    { from: base.by_engine, to: current.by_engine });
   const notes: string[] = [];
   if (skipped > 0) {
     notes.push(since

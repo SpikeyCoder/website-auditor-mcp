@@ -1381,6 +1381,7 @@ export function changesSummary(
   scores: { from: number; to: number },
   fromAt: string,
   toAt: string,
+  byEngine: { from: Record<string, number | null>; to: Record<string, number | null> },
 ): string {
   const label = (engine: string) => ENGINE_LABELS[engine] ?? engine;
   const overall = result.score_delta === null
@@ -1392,7 +1393,9 @@ export function changesSummary(
     (c) => `${label(c.engine)} ${movement(c.delta)} (${c.from} to ${c.to})`);
   const engines = moved.length
     ? `By assistant: ${moved.join("; ")}.`
-    : "No assistant that answered both runs moved.";
+    : Object.keys(byEngine.to).some((e) => typeof byEngine.to[e] === "number" && typeof byEngine.from[e] === "number")
+      ? "No assistant that answered both runs moved."
+      : "No assistant has a score recorded for both runs, so none is compared.";
   return `${overall} ${engines} ${WEEKLY_CHECK_SENTENCE}`;
 }
 
