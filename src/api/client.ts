@@ -913,7 +913,7 @@ function changesInHistory(
       : `The latest AI-visibility snapshot for ${domain}, on ${on},`;
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
-      `${which} does not record what it asked the assistants, so it can't be compared like for like.${priorChange}${later}`,
+      `${which} does not record what it asked the assistants, so it can't be compared like for like.${priorChange} ${WEEKLY_CHECK_SENTENCE}${later}`,
       { details: { reason: "question_not_recorded", ...withPrevious } },
     );
   }

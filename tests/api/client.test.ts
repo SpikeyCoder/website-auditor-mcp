@@ -842,6 +842,8 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
         "Left out as not part of the weekly series: 1 snapshot that asked a different question, newer than "
         + "2026-09-08. The newest of them that records its question, on 2026-09-10, asked about the market "
         + '"Honolulu, HI" rather than none.');
+      // The summary carries it too, so the 09-08 change is not read as current.
+      expect(changes.summary).toContain(`By assistant: ChatGPT down 10 (40 to 30); Claude down 10 (40 to 30). ${changes.note} On Pro`);
     }
 
     // Two of them that asked the same question and scored the same: the change among them is still named, as unchanged.
@@ -1013,7 +1015,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(unrecorded.message).toBe(
       "The latest AI-visibility snapshot for example.com, on 2026-08-31, does not record what it asked the "
       + "assistants, so it can't be compared like for like. The most recent like-for-like change before it was up 5, "
-      + `from 2026-08-17 to 2026-08-24.${named}`);
+      + `from 2026-08-17 to 2026-08-24. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.${named}`);
 
     const rebaselined = await failure(clientFor([
       ...earlier, weekly("2026-08-31T09:00:00Z", 30, ELSEWHERE), measuredNothing("2026-09-07T09:00:00Z"),
@@ -1231,7 +1233,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(error.message).toBe(
       "The latest AI-visibility snapshot for example.com, on 2026-09-15, does not record what it asked the "
       + "assistants, so it can't be compared like for like. The most recent like-for-like change before it was "
-      + "down 10, from 2026-09-01 to 2026-09-08.");
+      + "down 10, from 2026-09-01 to 2026-09-08. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same.");
   });
 
   it("gives a like-for-like change of 0 before a re-baseline as unchanged, in the message and in details", async () => {
@@ -1268,7 +1270,7 @@ describe("WaApiClient.getChanges — only between snapshots that asked the same 
     expect(error.details).toEqual({ reason: "question_not_recorded" });
     expect(error.message).toBe(
       "The newest AI-visibility snapshot in the weekly series for example.com, on 2026-09-08, does not record what "
-      + "it asked the assistants, so it can't be compared like for like. Left out as not part of the weekly series: "
+      + "it asked the assistants, so it can't be compared like for like. On Pro, a tracked site is asked the same questions every week, so each run can be compared with an earlier one that asked the same. Left out as not part of the weekly series: "
       + "1 newer snapshot, on 2026-09-10.");
   });
 
