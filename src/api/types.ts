@@ -87,7 +87,7 @@ export interface AiVisibilityBlock {
   overall_score?: number;
   total_queries?: number;
   total_appearances?: number;
-  platform_scores?: Partial<Record<"ChatGPT" | "Perplexity" | "Claude" | "Gemini", AiPlatformScore>>;
+  platform_scores?: Partial<Record<"ChatGPT" | "Perplexity" | "Claude" | "Gemini" | "Google AI Overviews" | "Microsoft Copilot", AiPlatformScore>>;
   queries?: string[];
   is_simulated?: boolean;
   has_api_key?: boolean;
@@ -165,6 +165,9 @@ export interface EnginePresence {
   perplexity: boolean | null;
   claude: boolean | null;
   gemini: boolean | null;
+  /** The keyed engines: null on a free audit, which never asks them. */
+  google_ai_overviews: boolean | null;
+  copilot: boolean | null;
 }
 
 /**
@@ -304,11 +307,13 @@ export interface AiVisibility {
   by_engine: {
     chatgpt: number | null; perplexity: number | null;
     claude: number | null; gemini: number | null;
+    google_ai_overviews: number | null; copilot: number | null;
   };
   /** Why each engine's score is what it is. */
   engine_status: {
     chatgpt: EngineState; perplexity: EngineState;
     claude: EngineState; gemini: EngineState;
+    google_ai_overviews: EngineState; copilot: EngineState;
   };
   /**
    * Whether the site appeared at all on each engine (derived from the per-query
@@ -467,7 +472,11 @@ export interface UntrackResult {
 /** One AI-visibility snapshot as returned by monitoring-status (read shape). */
 export interface MonitoringSnapshot {
   score: number | null;
-  by_engine: { chatgpt: number | null; perplexity: number | null; claude: number | null; gemini: number | null };
+  by_engine: {
+    chatgpt: number | null; perplexity: number | null; claude: number | null; gemini: number | null;
+    /** The keyed engines: absent from an API that predates them, null on a free audit. */
+    google_ai_overviews?: number | null; copilot?: number | null;
+  };
   captured_at: string;
   is_simulated: boolean | null;
   source?: string | null;

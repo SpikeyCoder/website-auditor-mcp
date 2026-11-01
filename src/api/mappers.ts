@@ -26,8 +26,19 @@ import type {
   SiteReading,
 } from "./types.js";
 
-const ENGINE_KEYS = ["ChatGPT", "Perplexity", "Claude", "Gemini"] as const;
-type EngineKey = (typeof ENGINE_KEYS)[number];
+/** The engines the audit scores, by report name and payload key: the four
+ *  every audit asks, then the two a paid audit asks too. A free report has no row for the two: "not_asked". */
+const ENGINES = [
+  { report: "ChatGPT", key: "chatgpt" },
+  { report: "Perplexity", key: "perplexity" },
+  { report: "Claude", key: "claude" },
+  { report: "Gemini", key: "gemini" },
+  { report: "Google AI Overviews", key: "google_ai_overviews" },
+  { report: "Microsoft Copilot", key: "copilot" },
+] as const;
+const ENGINE_KEYS = ENGINES.map((e) => e.report);
+type EngineKey = (typeof ENGINES)[number]["report"];
+type EngineSlot = (typeof ENGINES)[number]["key"];
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
 
@@ -58,9 +69,7 @@ export function detectUnreachable(report: AuditReport): boolean {
 
 /** Lowercase payload key -> the display name upstream uses. One map, because
  *  a second spelling of this is how a raw key like "grok" reaches prose. */
-const ENGINE_LABELS: Record<string, string> = {
-  chatgpt: "ChatGPT", perplexity: "Perplexity", claude: "Claude", gemini: "Gemini",
-};
+const ENGINE_LABELS: Record<string, string> = Object.fromEntries(ENGINES.map((e) => [e.key, e.report]));
 
 /** "A", "A and B", "A, B and C" — for engine names in prose. */
 function listOf(names: string[]): string {
@@ -272,7 +281,9 @@ const GAP_STATES = new Set([
 ]);
 // What an assistant's own entry may say: the overall states, and not_measured.
 const ENGINE_STATES = new Set([...GAP_STATES, "not_measured"]);
-const KNOWN_ENGINES = new Set(ENGINE_KEYS.map((k) => k.toLowerCase()));
+/** An assistant's name, any case, to its payload key: the keyed two's keys
+ *  are not their names lowercased. */
+const ENGINE_KEY_BY_NAME = new Map<string, string>(ENGINES.map((e) => [e.report.toLowerCase(), e.key]));
 
 /** The names, each once (however spelled in case), and none that repeats `except`. */
 function distinctNames(names: Array<string | null>, except: string | null): string[] {
@@ -438,9 +449,9 @@ function stateMatches(state: string, rivalRec: number, youRec: number): boolean 
 function engineEntry(raw: unknown): RecommendationGapEngine | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const e = raw as Record<string, unknown>;
-  const key = typeof e.engine === "string" ? e.engine.toLowerCase() : "";
+  const key = typeof e.engine === "string" ? ENGINE_KEY_BY_NAME.get(e.engine.toLowerCase()) : undefined;
   const st = text(e.state);
-  if (!KNOWN_ENGINES.has(key) || st === null || !ENGINE_STATES.has(st)) return null;
+  if (key === undefined || st === null || !ENGINE_STATES.has(st)) return null;
   const answers = count(e.answers);
   const sampled = answers !== null && answers > 0;
   const you = sampled ? count(e.client) : null;
@@ -712,34 +723,18 @@ function gapAndCounts(reconciled: { gap?: RecommendationGap; counts?: StanceCoun
 export function toAiVisibility(report: AuditReport): AiVisibility {
   const av = report.ai_visibility ?? {};
   const score = av.overall_score ?? 0;
-  const readings = {
-    chatgpt: engineReading(av, "ChatGPT"),
-    perplexity: engineReading(av, "Perplexity"),
-    claude: engineReading(av, "Claude"),
-    gemini: engineReading(av, "Gemini"),
-  };
-  const by_engine = {
-    chatgpt: readings.chatgpt.value,
-    perplexity: readings.perplexity.value,
-    claude: readings.claude.value,
-    gemini: readings.gemini.value,
-  };
+  const readings = Object.fromEntries(
+    ENGINES.map((e) => [e.key, engineReading(av, e.report)]),
+  ) as Record<EngineSlot, ReturnType<typeof engineReading>>;
+  const perEngine = <T,>(pick: (e: (typeof ENGINES)[number]) => T) =>
+    Object.fromEntries(ENGINES.map((e) => [e.key, pick(e)])) as Record<EngineSlot, T>;
+  const by_engine = perEngine((e) => readings[e.key].value);
   // A SIBLING MAP, not a nullable number alone. The consumer is a language
   // model, and a null it rounds to zero is no better than the bug — it reads a
   // named state word far more reliably. Same shape as the existing
   // by_engine / appears_by_engine pair.
-  const engine_status = {
-    chatgpt: readings.chatgpt.state,
-    perplexity: readings.perplexity.state,
-    claude: readings.claude.state,
-    gemini: readings.gemini.state,
-  };
-  const appears_by_engine = {
-    chatgpt: engineAppears(av, "ChatGPT", readings.chatgpt.state),
-    perplexity: engineAppears(av, "Perplexity", readings.perplexity.state),
-    claude: engineAppears(av, "Claude", readings.claude.state),
-    gemini: engineAppears(av, "Gemini", readings.gemini.state),
-  };
+  const engine_status = perEngine((e) => readings[e.key].state);
+  const appears_by_engine = perEngine((e) => engineAppears(av, e.report, readings[e.key].state));
   const competitor = topCompetitor(av);
   const name = av.business_info?.business_name ?? report.base_url;
   const simulatedNote = av.is_simulated ? " (estimated — live AI queries were unavailable)" : "";

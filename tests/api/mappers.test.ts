@@ -95,7 +95,7 @@ describe("toAiVisibility", () => {
   it("maps overall score and per-engine breakdown with lowercase engine keys", () => {
     const av = toAiVisibility(reachableReport());
     expect(av.score).toBe(62);
-    expect(av.by_engine).toEqual({ chatgpt: 75, perplexity: 62, claude: 50, gemini: 62 });
+    expect(av.by_engine).toEqual({ chatgpt: 75, perplexity: 62, claude: 50, gemini: 62, google_ai_overviews: null, copilot: null });
   });
 
   it("derives the most common competitor as top_competitor", () => {
@@ -113,7 +113,7 @@ describe("toAiVisibility", () => {
   it("marks each engine's appearance from the per-engine client_appears signal", () => {
     // reachableReport: every engine has appearances > 0.
     const av = toAiVisibility(reachableReport());
-    expect(av.appears_by_engine).toEqual({ chatgpt: true, perplexity: true, claude: true, gemini: true });
+    expect(av.appears_by_engine).toEqual({ chatgpt: true, perplexity: true, claude: true, gemini: true, google_ai_overviews: null, copilot: null });
   });
 
   it("reports an engine as not appearing when the site was recommended zero times", () => {
@@ -199,8 +199,9 @@ describe("toAiVisibility: an engine that did not answer", () => {
     const av = toAiVisibility(reachableReport());
     expect(av.coverage_note).toBeUndefined();
     expect(av.summary).not.toContain("did not return an answer");
+    // A free report: the keyed two were not asked, which the summary never says.
     expect(Object.values(av.engine_status)).toEqual(
-      ["scored", "scored", "scored", "scored"]);
+      ["scored", "scored", "scored", "scored", "not_asked", "not_asked"]);
   });
 
   it("distinguishes an engine never asked from one that stayed silent", () => {
@@ -265,14 +266,14 @@ describe("mapEngines: the monitoring path must not re-coerce", () => {
   // exactly how the first version of this change shipped a false claim.
   it("preserves a null rather than reporting it as zero", () => {
     expect(mapEngines({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 }))
-      .toEqual({ chatgpt: 60, perplexity: null, claude: null, gemini: 40 });
+      .toEqual({ chatgpt: 60, perplexity: null, claude: null, gemini: 40, google_ai_overviews: null, copilot: null });
   });
 
   it("preserves a null for ChatGPT and Gemini too, the engines the test above leaves scored", () => {
     // Above, ChatGPT and Gemini are scored, so coercing either one alone to
     // zero would pass it.
     expect(mapEngines({ chatgpt: null, perplexity: 50, claude: 55, gemini: null }))
-      .toEqual({ chatgpt: null, perplexity: 50, claude: 55, gemini: null });
+      .toEqual({ chatgpt: null, perplexity: 50, claude: 55, gemini: null, google_ai_overviews: null, copilot: null });
   });
 
   it("feeds computeChanges values it will actually skip", () => {

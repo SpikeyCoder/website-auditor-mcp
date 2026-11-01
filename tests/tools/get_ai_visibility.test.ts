@@ -10,7 +10,7 @@ describe("get_ai_visibility [Subscription]", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.score).toBe(62);
-    expect(res.data.by_engine).toEqual({ chatgpt: 75, perplexity: 62, claude: 50, gemini: 62 });
+    expect(res.data.by_engine).toEqual({ chatgpt: 75, perplexity: 62, claude: 50, gemini: 62, google_ai_overviews: null, copilot: null });
     expect(res.data.top_competitor).toBe("Globex");
   });
 

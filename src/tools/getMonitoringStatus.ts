@@ -230,11 +230,16 @@ export async function getMonitoringStatus(
  * published to a paying customer. computeChanges now skips an engine missing
  * on either side, and coercing here would route straight around that guard.
  */
-export function mapEngines(by: { chatgpt: number | null; perplexity: number | null; claude: number | null; gemini: number | null }): Record<string, number | null> {
+export function mapEngines(by: MonitoringSnapshot["by_engine"]): Record<string, number | null> {
+  // The keyed two too: a paid audit pools its overall
+  // over six, and computeChanges refuses the overall only when it can see the
+  // engine sets differ. Absent (an API from before it sent them) reads null.
   return {
     chatgpt: by.chatgpt,
     perplexity: by.perplexity,
     claude: by.claude,
     gemini: by.gemini,
+    google_ai_overviews: by.google_ai_overviews ?? null,
+    copilot: by.copilot ?? null,
   };
 }
