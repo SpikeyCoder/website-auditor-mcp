@@ -72,6 +72,8 @@ const engineScores = open({
   perplexity: z.number().nullable(),
   claude: z.number().nullable(),
   gemini: z.number().nullable(),
+  google_ai_overviews: z.number().nullable(),
+  copilot: z.number().nullable(),
 }).describe(
   "Per-engine AI-visibility score, 0–100. NULL means the engine was not "
   + "scored — see engine_status for which of the two reasons. A null is NOT a "
@@ -82,17 +84,22 @@ const engineStatus = open({
   perplexity: z.enum(["scored", "unanswered", "not_asked"]),
   claude: z.enum(["scored", "unanswered", "not_asked"]),
   gemini: z.enum(["scored", "unanswered", "not_asked"]),
+  google_ai_overviews: z.enum(["scored", "unanswered", "not_asked"]),
+  copilot: z.enum(["scored", "unanswered", "not_asked"]),
 }).describe(
   "Why each engine's score is what it is. 'scored' — the engine answered and "
   + "the number is a measurement. 'unanswered' — it was asked and returned "
   + "nothing, so there is no score; do not report it as 0. 'not_asked' — it "
-  + "was not part of this run at all.");
+  + "was not part of this run at all — Google AI Overviews and Microsoft "
+  + "Copilot are asked on paid plans only.");
 
 const enginePresence = open({
   chatgpt: z.boolean().nullable(),
   perplexity: z.boolean().nullable(),
   claude: z.boolean().nullable(),
   gemini: z.boolean().nullable(),
+  google_ai_overviews: z.boolean().nullable(),
+  copilot: z.boolean().nullable(),
 }).describe(
   "Whether the site appeared at all on each engine. Distinct from the scores: "
   + "an engine can have appearances yet a low score, or the reverse. NULL when "
@@ -276,7 +283,8 @@ export const getAiVisibilityOutput: ZodRawShape = {
   trend_note: z.string().optional().describe("Present exactly when trend is null: the reason."),
   coverage_note: z.string().optional().describe(
     "Present exactly when an engine was asked and did not answer. Relay it: "
-    + "the score covers fewer engines than the four this tool can query."),
+    + "the score covers fewer engines than the run asked (four on a free "
+    + "audit, six on a paid one)."),
   name_warning: z.string().optional().describe(
     "Set ONLY when the business name behind the score could not be verified. The score is "
     + "computed from queries built around that name, so relay this caveat rather than "

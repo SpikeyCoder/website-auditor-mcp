@@ -31,7 +31,7 @@ export const NEUTRAL_SCHEMA_EDITS: Array<[string, string]> = [
   [". Relay it — a null delta for this reason must not read like a null for want of history.", ". A null delta for this reason is not a lack of history."],
   [". Relay it — a difference between scores that answered different questions is not a change in visibility.",
     ". A difference between scores that answered different questions is not a change in visibility."],
-  [". Relay it: the score covers fewer engines than the four this tool can query.", ". The score then covers fewer engines than the four this tool can query."],
+  [". Relay it: the score covers fewer engines than the run asked (four on a free audit, six on a paid one).", ". The score then covers fewer engines than the run asked (four on a free audit, six on a paid one)."],
   [", so relay this caveat rather than presenting the score as settled.", ", so the score is in question."],
   // generate_schema: the placeholders and the order of the notes, as facts.
   [

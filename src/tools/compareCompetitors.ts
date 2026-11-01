@@ -52,7 +52,7 @@ export interface CompareCompetitorsArgs {
   business_location?: string;
 }
 
-const ENGINES = ["chatgpt", "perplexity", "claude", "gemini"] as const;
+const ENGINES = ["chatgpt", "perplexity", "claude", "gemini", "google_ai_overviews", "copilot"] as const;
 
 /**
  * The whole call must answer inside this. Claude's limit on one tool call
