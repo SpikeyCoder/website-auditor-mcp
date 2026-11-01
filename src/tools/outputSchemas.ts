@@ -283,7 +283,8 @@ export const getAiVisibilityOutput: ZodRawShape = {
   trend_note: z.string().optional().describe("Present exactly when trend is null: the reason."),
   coverage_note: z.string().optional().describe(
     "Present exactly when an engine was asked and did not answer. Relay it: "
-    + "the score covers fewer engines than the four this tool can query."),
+    + "the score covers fewer engines than the run asked (four on a free "
+    + "audit, six on a paid one)."),
   name_warning: z.string().optional().describe(
     "Set ONLY when the business name behind the score could not be verified. The score is "
     + "computed from queries built around that name, so relay this caveat rather than "

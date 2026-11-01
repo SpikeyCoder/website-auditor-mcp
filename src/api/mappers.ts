@@ -1214,7 +1214,7 @@ export function unmeasuredNote<T extends { captured_at: string; source?: string 
  * change of a denominator as a change of visibility.
  *
  * An engine ANSWERED a snapshot when its `by_engine` value is a finite number.
- * Not a null (the monitoring path, which keeps all four keys), and not a
+ * Not a null (the monitoring path, which keeps every engine's key), and not a
  * missing key (the history path, which drops unanswered engines at the read).
  * A MISSING MAP reads as no engines — `by_engine || {}`, the digest's own
  * defensive read — and never throws: laterNote's snapshots come from callers
@@ -1225,7 +1225,7 @@ export function unmeasuredNote<T extends { captured_at: string; source?: string 
  */
 function answeredEngines(by: Record<string, number | null> | undefined): string[] {
   // KNOWN ENGINES FIRST, IN THE DIGEST'S ORDER, then any other key that
-  // carries a score: the digest decides over the four it knows, and an unknown
+  // carries a score: the digest decides over the six it knows, and an unknown
   // key that answered one side only changes the overall's denominator just as
   // well, so it is refused rather than ignored.
   const known = Object.keys(ENGINE_LABELS).filter((k) => numeric(by?.[k]) !== undefined);
