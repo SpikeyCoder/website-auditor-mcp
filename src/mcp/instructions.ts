@@ -151,8 +151,8 @@ export function buildInstructions(
   const errorGuidance = mixedAuth
     ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", the request ` +
       `carried no connection: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
-      "meanwhile; the error's message also says what to do if they already connected, so relay that part " +
-      "only if the user says they have. " +
+      "meanwhile; the error's message also says what to do if they already connected: relay that part only " +
+      "if the user says they have, and then do not quote a price. " +
       `When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +
       "tell the user to reconnect when prompted and offer get_sample_audit meanwhile; do not quote a price " +
       `for it. With details.connection "${CONNECTION_UNVERIFIED.connection}", the connection could not be ` +

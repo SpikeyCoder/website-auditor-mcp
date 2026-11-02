@@ -397,7 +397,9 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // 2026-11-02): the way out is said here too.
     expect(error.message).toContain(ALREADY_CONNECTED_NOTE);
     expect(error.message).not.toMatch(/has none|no account is connected/i);
-    expect(error.wwwAuthenticate).toContain("Already connected an account");
+    expect(error.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    // Not on the linking card: a first-time visitor must press Connect there.
+    expect(error.wwwAuthenticate).not.toContain("Already connected");
   });
 
   it("words the already-connected note as a condition, ending in a new chat", () => {
@@ -405,6 +407,8 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // it as being for somebody else, and the remedy must stay "a new chat".
     expect(ALREADY_CONNECTED_NOTE).toMatch(/^Already connected an account and still seeing this\? /);
     expect(ALREADY_CONNECTED_NOTE).toContain("Start a new chat and ask there");
+    // It reaches a WWW-Authenticate header (http.ts): printable ASCII only.
+    expect(ALREADY_CONNECTED_NOTE).toMatch(/^[\x20-\x7e]+$/);
   });
 
   it("answers a token that did not resolve as unverified — retry or reconnect, no price", async () => {
@@ -533,7 +537,7 @@ describe("handshake instructions", () => {
     expect(notConnected).toContain("audits need a Website Auditor plan");
     expect(notConnected).toContain("no price, no trial");
     expect(notConnected).toContain("connect when prompted");
-    expect(notConnected).toContain("relay that part only if the user says they have");
+    expect(notConnected).toContain("relay that part only if the user says they have, and then do not quote a price");
     expect(notConnected).not.toContain("no account is connected");
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");
