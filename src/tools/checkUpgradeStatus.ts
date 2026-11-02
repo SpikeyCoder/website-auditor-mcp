@@ -66,7 +66,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
         deps.transport === "http" && oauthEnabled(deps.config) && deps.authVia === "unresolved_token"
           ? UNVERIFIED_MESSAGE
           : deps.transport === "http" && oauthEnabled(deps.config)
-          ? `No Website Auditor account is connected to this conversation yet. ` +
+          ? `This request arrived without a Website Auditor connection. ` +
             `Connect one when prompted — there is no key to paste. ${ALREADY_CONNECTED_NOTE} Audits also need ` +
             (deps.config.upsellStyle === "info"
               ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`

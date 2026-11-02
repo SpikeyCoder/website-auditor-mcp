@@ -216,12 +216,15 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     expect(res.data.message).not.toMatch(/\$\d/);
   });
 
-  it("still says no account is connected yet to a caller who sent nothing", async () => {
+  it("tells a caller who sent nothing that the request carried no connection", async () => {
     const deps = { ...makeDeps({ config: { apiKey: undefined, ...OAUTH } }), transport: "http" as const };
     const res = await checkUpgradeStatus({}, deps);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.message).toContain("No Website Auditor account is connected");
+    expect(res.data.message).toContain("arrived without a Website Auditor connection");
+    // Never that the ACCOUNT has none: false for a member whose old chat
+    // sends no credential.
+    expect(res.data.message).not.toMatch(/no Website Auditor account is connected|has none/i);
     // The way out for a chat begun before connecting (support, 2026-11-02).
     expect(res.data.message).toContain(ALREADY_CONNECTED_NOTE);
   });

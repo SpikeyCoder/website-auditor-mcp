@@ -162,10 +162,13 @@ export const UNVERIFIED_MESSAGE =
  * Support, 2026-11-02: a member connected twice and every call from the chat
  * they started before connecting still arrived with no credential. Nothing
  * here can tell that from a first visit (no credential is no credential), so
- * every no-credential answer carries it: the gate's AUTH_REQUIRED,
- * check_upgrade_status, and the transport-level 401 (http.ts). Worded as a
- * condition so a first-time visitor connects here rather than leaving.
- * One copy, as UNVERIFIED_MESSAGE, so no surface is missed.
+ * every no-credential answer carries it: the gate's AUTH_REQUIRED message and
+ * its challenge description, check_upgrade_status, and the transport-level
+ * 401 (http.ts). Worded as a condition so a first-time visitor connects here
+ * rather than leaving. The surrounding copy says the REQUEST carried no
+ * connection, never that the account has none: for this reader the second is
+ * false. One copy, as UNVERIFIED_MESSAGE; instructions.ts points at it rather
+ * than restating it.
  */
 export const ALREADY_CONNECTED_NOTE =
   `Already connected an account and still seeing this? Start a new chat and ask there: ` +
@@ -361,7 +364,7 @@ export async function gateKeyedTool(
     if (deps.transport === "http" && oauthEnabled(deps.config)) {
       return err(
         "AUTH_REQUIRED",
-        `This tool needs a connected Website Auditor account, and this conversation has none yet. ` +
+        `This tool needs a connected Website Auditor account, and this request arrived without one. ` +
           `Connect one when prompted — there is no key to paste. ` +
           `${ALREADY_CONNECTED_NOTE} ` +
           `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
@@ -375,7 +378,7 @@ export async function gateKeyedTool(
           details: NOT_CONNECTED,
           wwwAuthenticate: wwwAuthenticateChallenge(
             deps.config,
-            "Connect a Website Auditor account to use this tool.",
+            `Connect a Website Auditor account to use this tool. ${ALREADY_CONNECTED_NOTE}`,
           ),
         },
       );
