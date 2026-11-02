@@ -405,6 +405,8 @@ describe("gateProTool — the runtime half, and who gets it", () => {
   it("ends the not_connected message with the note under info style too (ChatGPT)", async () => {
     const error = await authError({ tier: "none", config: { ...OAUTH, apiKey: undefined, upsellStyle: "info" } }, "http");
     expect(error.details).toEqual({ connection: "not_connected" });
+    expect(error.message).not.toMatch(/has none|no account is connected/i);
+    expect(error.wwwAuthenticate).not.toContain("Already connected");
     expect(error.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
     expect(error.message).toMatch(/ \. Already connected/);
   });
@@ -414,6 +416,8 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // it as being for somebody else, and the remedy must stay "a new chat".
     expect(ALREADY_CONNECTED_NOTE).toMatch(/^Already connected an account and still seeing this\? /);
     expect(ALREADY_CONNECTED_NOTE).toContain("Start a new chat and ask there");
+    // Codex and Cursor reach this too, where the fix is signing in again.
+    expect(ALREADY_CONNECTED_NOTE).toContain("or sign in to Website Auditor again");
   });
 
   it("answers a token that did not resolve as unverified — retry or reconnect, no price", async () => {

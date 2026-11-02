@@ -159,6 +159,10 @@ export const UNVERIFIED_MESSAGE =
 /**
  * The way out for someone told "not connected" who already connected.
  *
+ * Two remedies, because the hosts differ: in ChatGPT a chat begun before
+ * connecting can keep sending no credential; in Codex or Cursor the cause is
+ * a login to this server that did not take, fixed by signing in again.
+ *
  * Support, 2026-11-02: a member connected twice and every call from the chat
  * they started before connecting still arrived with no credential. Nothing
  * here can tell that from a first visit (no credential is no credential), so
@@ -175,8 +179,8 @@ export const UNVERIFIED_MESSAGE =
  * UNVERIFIED_MESSAGE; instructions.ts points at it rather than restating it.
  */
 export const ALREADY_CONNECTED_NOTE =
-  `Already connected an account and still seeing this? Start a new chat and ask there: ` +
-  `a chat begun before connecting may not use the connection.`;
+  `Already connected an account and still seeing this? Start a new chat and ask there ` +
+  `(a chat begun before connecting may not use the connection), or sign in to Website Auditor again in your app.`;
 
 export function err(
   code: ErrorCode,

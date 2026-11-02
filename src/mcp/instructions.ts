@@ -152,7 +152,7 @@ export function buildInstructions(
     ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", the request ` +
       `carried no connection: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
       "meanwhile. But if the user says they already connected, or this conversation already asked them to " +
-      "connect, give them instead the message's own words for that case (start a new chat and ask there), " +
+      "connect, give them instead the message's own words for that case, " +
       "with no price and no further request to connect. The same goes for those words in " +
       "check_upgrade_status's message, which is all some clients show you of an unconnected request. " +
       `When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +

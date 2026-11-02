@@ -453,9 +453,11 @@ Observed range to put in the listing: `________________`
   Plus a human-readable `message`, and a `current_period_end` that is a
   timestamp **or `null`** — `checkUpgradeStatusOutput` declares it nullable,
   and a tier with no billing period legitimately has none.
-- **Watch for:** `tier: "none"` here means the OAuth token did not resolve to
-  the account — that is the rejection's failure mode returning, not a
-  subscription problem.
+- **Watch for:** `tier: "none"` here means the OAuth token did not reach or
+  did not resolve to the account. Either it is the rejection's failure mode
+  returning, or the chat was begun before connecting and sends no credential:
+  the message then ends with the already-connected line, and the case should
+  be retried in a new chat before it is logged. Not a subscription problem.
 
 | Web ☐ | Mobile ☐ | tier: `____` status: `____` | Notes: |
 |---|---|---|---|
@@ -495,8 +497,9 @@ Observed range to put in the listing: `________________`
 - **Decides it:** the model offers the **sample** instead of dead-ending, and
   ChatGPT offers to connect an account.
 - **Expected:** `get_ai_visibility` returns `AUTH_REQUIRED` whose message says
-  audits need a plan (the listing runs info style: no price or trial), points at the informational plans page (**never a
-  checkout**), and recommends `get_sample_audit`. Under Mixed Auth the same
+  audits need a plan (the listing runs info style: no price or trial), points
+  at the informational plans page (**never a checkout**), and recommends
+  `get_sample_audit`. Under Mixed Auth the same
   error also carries `_meta["mcp/www_authenticate"]`, which is what makes
   ChatGPT surface the connect affordance. The message ends with a conditional
   line for someone who already connected ("Already connected an account and

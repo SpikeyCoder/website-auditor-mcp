@@ -240,6 +240,7 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     const res = await checkUpgradeStatus({}, deps);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
+    expect(res.data.message).not.toMatch(/no Website Auditor account is connected|has none/i);
     expect(res.data.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
     // The URL clause ends before the note, with the stop spaced off the URL.
     expect(res.data.message).toMatch(/ \. Already connected/);
