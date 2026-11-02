@@ -47,12 +47,12 @@ export const PROMPT_SPECS: PromptSpec[] = [
     name: "check_ai_visibility",
     title: "Check my AI visibility",
     description:
-      "See whether ChatGPT, Claude, Gemini and Perplexity recommend your business — and who they name instead.",
+      "See whether ChatGPT, Claude, Gemini, Perplexity, Microsoft Copilot and Google AI Overviews recommend your business — and who they name instead.",
     argsSchema: { domain: arg("The website to check, e.g. example.com") },
     render: ({ domain }) =>
       `Check the AI visibility of ${domain} with Website Auditor.\n\n` +
       `Call get_ai_visibility for ${domain}. Then tell me in plain language: the overall score, ` +
-      `which of ChatGPT, Claude, Gemini and Perplexity name the business and which do not, and ` +
+      `which of ChatGPT, Claude, Gemini, Perplexity, Microsoft Copilot and Google AI Overviews name the business and which do not, and ` +
       `which competitor is being named in its place.\n\n${KEYLESS_FALLBACK}`,
   },
   {

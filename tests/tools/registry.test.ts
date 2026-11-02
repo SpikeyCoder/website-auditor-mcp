@@ -23,7 +23,7 @@ describe("tool registry", () => {
   it("uses the verbatim, trigger-first descriptions from the listing doc", () => {
     const av = P0_TOOLS.find((t) => t.name === "get_ai_visibility")!;
     // The differentiator phrase must be present so we own the intent in registries.
-    expect(av.description).toContain("does ChatGPT/Perplexity/Claude/Gemini recommend");
+    expect(av.description).toContain("does ChatGPT/Perplexity/Claude/Gemini/Copilot recommend");
     expect(av.description.startsWith("Check how visible a website is to AI assistants right now.")).toBe(true);
 
     const audit = P0_TOOLS.find((t) => t.name === "run_audit")!;

@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.SpikeyCoder/website-auditor-mcp",
   "title": "Website Auditor",
-  "description": "AI visibility + site audits: see if ChatGPT, Perplexity, Claude & Gemini recommend a website.",
+  "description": "AI visibility in ChatGPT, Gemini, Claude, Perplexity, Copilot & AI Overviews, plus site audits.",
   "version": "1.0.28",
   "icon": "icon.png",
   "websiteUrl": "https://website-auditor.io",
