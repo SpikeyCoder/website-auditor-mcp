@@ -1,6 +1,6 @@
 {
   "name": "website-auditor-mcp",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "mcpName": "io.github.SpikeyCoder/website-auditor-mcp",
   "description": "MCP server for website-auditor.io — AI-visibility (GEO) and site-audit tools for ChatGPT, Perplexity, Claude, Gemini, Microsoft Copilot and Google AI Overviews, callable from any MCP client.",
   "type": "module",
