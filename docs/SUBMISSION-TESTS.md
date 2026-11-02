@@ -498,7 +498,11 @@ Observed range to put in the listing: `________________`
   the price and trial terms, points at the informational plans page (**never a
   checkout**), and recommends `get_sample_audit`. Under Mixed Auth the same
   error also carries `_meta["mcp/www_authenticate"]`, which is what makes
-  ChatGPT surface the connect affordance.
+  ChatGPT surface the connect affordance. The message ends with a conditional
+  line for someone who already connected ("Already connected an account and
+  still seeing this? Start a new chat…"); the model should relay it only if the
+  user says they connected, so a first-time user is told to connect, not to
+  start a new chat.
 - **Rationale:** capability discovery must not require payment, and the keyless
   path is the designed first-run experience.
 

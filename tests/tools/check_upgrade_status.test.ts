@@ -225,7 +225,19 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     // Never that the ACCOUNT has none: false for a member whose old chat
     // sends no credential.
     expect(res.data.message).not.toMatch(/no Website Auditor account is connected|has none/i);
-    // The way out for a chat begun before connecting (support, 2026-11-02).
-    expect(res.data.message).toContain(ALREADY_CONNECTED_NOTE);
+    // The way out for a chat begun before connecting (support, 2026-11-02),
+    // last, so a first-time visitor reads "connect" first.
+    expect(res.data.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+  });
+
+  it("ends with the already-connected note under info style too", async () => {
+    const deps = {
+      ...makeDeps({ config: { apiKey: undefined, ...OAUTH, upsellStyle: "info" as const } }),
+      transport: "http" as const,
+    };
+    const res = await checkUpgradeStatus({}, deps);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
   });
 });

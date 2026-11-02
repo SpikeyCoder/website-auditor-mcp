@@ -144,7 +144,10 @@ describe("Claude lazy authentication: the HTTP 401 gate (WA_AUTH_CHALLENGE=http)
     });
     expect(resp.status).toBe(401);
     expect(resp.headers.get("www-authenticate")).toContain("resource_metadata=");
-    expect((await resp.json()).error_description).toMatch(/could not be verified/);
+    const body = await resp.json();
+    expect(body.error_description).toMatch(/could not be verified/);
+    // A dead token is fixed by a refresh, not a new chat.
+    expect(body.error_description).not.toContain("Already connected");
   });
 
   it("gates even the open tools for a rejected token: the 401 is how Claude refreshes a dead one", async () => {

@@ -70,7 +70,8 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
             `Connect one when your app offers to — there is no key to paste. Audits also need ` +
             (deps.config.upsellStyle === "info"
               ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
-              : `an active subscription on the connected account: ${upgradeUrl}`) +
+              // The space before the stop keeps the URL a token of its own.
+              : `an active subscription on the connected account: ${upgradeUrl} .`) +
             ` ${ALREADY_CONNECTED_NOTE}`
           : deps.config.upsellStyle === "info"
           ? `No API key is configured. A key comes from a Website Auditor plan. ` +
