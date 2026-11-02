@@ -694,7 +694,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     if (gatedTool) {
       const description = authVia === "unresolved_token"
         ? "The Website Auditor connection could not be verified. Sign in again to continue."
-        : `Sign in to Website Auditor to use this tool. ${ALREADY_CONNECTED_NOTE}`;
+        : "Sign in to Website Auditor to use this tool.";
       // Recorded like the 200 path records its AUTH_REQUIRED, so the sign-in
       // funnel reads the same on this server as on the others. Client identity
       // is unknown here (stateless: it arrives only on initialize).
@@ -717,7 +717,12 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
       // The OAuth error shape RFC 6750 §3 describes. The status and header carry
       // the signal; the body is advisory.
-      sendJson(res, 401, { error: "invalid_token", error_description: description });
+      // The body, not the header, carries the already-connected note: the
+      // header drives Claude's sign-in, the body is what a reader sees.
+      sendJson(res, 401, {
+        error: "invalid_token",
+        error_description: authVia === "unresolved_token" ? description : `${description} ${ALREADY_CONNECTED_NOTE}`,
+      });
       return;
     }
     // Spread, not mutate: the bundle is CACHED and shared across every request

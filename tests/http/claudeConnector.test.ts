@@ -119,6 +119,9 @@ describe("Claude lazy authentication: the HTTP 401 gate (WA_AUTH_CHALLENGE=http)
     );
     expect(challenge).toContain('scope="audit openid email"');
     expect(challenge).toContain('error="invalid_token"');
+    // The sign-in Claude starts from this header: never "start a new chat".
+    expect(challenge).toContain('error_description="Sign in to Website Auditor to use this tool."');
+    expect(challenge).not.toContain("Already connected");
     expect(resp.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate");
     expect(await resp.json()).toEqual({
       error: "invalid_token",

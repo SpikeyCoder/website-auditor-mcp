@@ -163,14 +163,16 @@ export const UNVERIFIED_MESSAGE =
  * they started before connecting still arrived with no credential. Nothing
  * here can tell that from a first visit (no credential is no credential), so
  * the answers that say "not connected" carry it: the gate's AUTH_REQUIRED
- * message, check_upgrade_status, and the transport-level 401 (http.ts). Not
- * the gate's challenge description, which drives the host's linking card, and
- * not get_sample_audit, an open tool every first-time visitor is sent to.
- * Worded as a condition, and placed last, so a first-time visitor connects
- * here rather than leaving. Printable ASCII: it reaches a header (http.ts). The surrounding copy says the REQUEST carried no
- * connection, never that the account has none: for this reader the second is
- * false. One copy, as UNVERIFIED_MESSAGE; instructions.ts points at it rather
- * than restating it.
+ * message, check_upgrade_status, and the body of the transport-level 401
+ * (http.ts). Never a WWW-Authenticate description, the gate's or the 401's:
+ * that drives the host's sign-in, where "start a new chat" would turn a
+ * first-time visitor away from Connect. Not get_sample_audit either, an open
+ * tool every first-time visitor is sent to. Worded as a condition, and placed
+ * last, so a first-time visitor connects here rather than leaving.
+ *
+ * The surrounding copy says the REQUEST carried no connection, never that the
+ * account has none: for this reader the second is false. One copy, as
+ * UNVERIFIED_MESSAGE; instructions.ts points at it rather than restating it.
  */
 export const ALREADY_CONNECTED_NOTE =
   `Already connected an account and still seeing this? Start a new chat and ask there: ` +
