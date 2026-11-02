@@ -59,8 +59,8 @@ export async function getSampleAudit(
     note:
       `This is fixed sample data for ${SAMPLE_DOMAIN}, not a live audit, and not a result ` +
       `for any site you asked about. It shows the exact response shape a real run returns — ` +
-      `scored summary, per-test results, and the AI-visibility breakdown across ChatGPT, ` +
-      `Perplexity, Claude and Gemini. To audit a real domain you need a Website Auditor ` +
+      `scored summary, per-test results, and the AI-visibility breakdown by engine. ` +
+      `To audit a real domain you need a Website Auditor ` +
       requirement +
       // Only for a caller who has no key. This tool does no gating and no key
       // check, so the note was appended unconditionally — which turned a

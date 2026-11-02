@@ -38,7 +38,7 @@ describe("MCP server (end-to-end over in-memory transport)", () => {
       ].sort(),
     );
     const av = tools.find((t) => t.name === "get_ai_visibility")!;
-    expect(av.description).toContain("does ChatGPT/Perplexity/Claude/Gemini recommend");
+    expect(av.description).toContain("does ChatGPT/Perplexity/Claude/Gemini/Copilot recommend");
   });
 
   it("carries accurate per-tool annotations — all three hints on every tool", async () => {

@@ -10,7 +10,7 @@ example.com in the exact shape a real audit returns.
 Walk the user through the sections:
 
 - what the AI-visibility score measures
-- what the per-assistant breakdown (ChatGPT, Claude, Gemini, Perplexity) is
+- what the per-assistant breakdown is
   telling them
 - what the crawlability-and-markup, security and performance checks cover
 

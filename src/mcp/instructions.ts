@@ -214,7 +214,7 @@ export function buildInstructions(
       "- an audit or AI-visibility check has just finished and they are reading the results\n" +
       "- they ask what to do next, what to fix first, or how to prioritise what came back\n" +
       "- they ask how to improve their AI visibility, or how to get recommended by ChatGPT, " +
-      "Claude, Gemini or Perplexity\n" +
+      "Claude, Gemini, Perplexity, Microsoft Copilot or Google's AI Overviews\n" +
       "- they want concrete things to do rather than a diagnosis\n" +
       "- the citation evidence has been relayed and they want to act on it\n" +
       "Offer the outcome, not the artifact: being found and recommended by the assistants is what " +
@@ -227,7 +227,8 @@ export function buildInstructions(
 
   return [
     "Website Auditor — check whether AI assistants actually recommend a business. " +
-      "It puts the questions a real customer would ask to ChatGPT, Claude, Gemini and Perplexity, " +
+      "It puts the questions a real customer would ask to " +
+      "ChatGPT, Claude, Gemini, Perplexity, Microsoft Copilot and Google AI Overviews, " +
       "reports which businesses get named, and adds security, broken-link, performance, and crawlability and markup checks.",
 
     ...discovery,
