@@ -19,7 +19,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createWaHttpServer, mixedAuthSummary, type HttpServerOptions } from "../../src/http.js";
 import type { TokenExchange } from "../../src/auth/tokenExchange.js";
 import { loadConfig, type WaConfig } from "../../src/config.js";
-import type { ToolDeps } from "../../src/tools/context.js";
+import { ALREADY_CONNECTED_NOTE, type ToolDeps } from "../../src/tools/context.js";
 import { NEUTRAL_EDITS, SERVED_TOOLS, descriptionFor, titleFor } from "../../src/tools/registry.js";
 import { IntrospectionTokenExchange, type TokenResolution } from "../../src/auth/tokenExchange.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
@@ -119,10 +119,13 @@ describe("Claude lazy authentication: the HTTP 401 gate (WA_AUTH_CHALLENGE=http)
     );
     expect(challenge).toContain('scope="audit openid email"');
     expect(challenge).toContain('error="invalid_token"');
+    // The sign-in Claude starts from this header: never "start a new chat".
+    expect(challenge).toContain('error_description="Sign in to Website Auditor to use this tool."');
+    expect(challenge).not.toContain("Already connected");
     expect(resp.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate");
     expect(await resp.json()).toEqual({
       error: "invalid_token",
-      error_description: "Sign in to Website Auditor to use this tool.",
+      error_description: `Sign in to Website Auditor to use this tool. ${ALREADY_CONNECTED_NOTE}`,
     });
 
     // No audit started. (The 401 status above is what proves the gate ran
@@ -141,7 +144,10 @@ describe("Claude lazy authentication: the HTTP 401 gate (WA_AUTH_CHALLENGE=http)
     });
     expect(resp.status).toBe(401);
     expect(resp.headers.get("www-authenticate")).toContain("resource_metadata=");
-    expect((await resp.json()).error_description).toMatch(/could not be verified/);
+    const body = await resp.json();
+    expect(body.error_description).toMatch(/could not be verified/);
+    // A dead token is fixed by a refresh, not a new chat.
+    expect(body.error_description).not.toContain("Already connected");
   });
 
   it("gates even the open tools for a rejected token: the 401 is how Claude refreshes a dead one", async () => {

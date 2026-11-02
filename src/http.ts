@@ -44,7 +44,7 @@ import { NoopEventSink } from "./telemetry/events.js";
 import { createServer } from "./mcp/server.js";
 import { refreshPrice } from "./tools/upgrade.js";
 import { SERVER_VERSION } from "./version.js";
-import type { ToolDeps } from "./tools/context.js";
+import { ALREADY_CONNECTED_NOTE, type ToolDeps } from "./tools/context.js";
 import {
   looksLikeApiKey,
   oauthEnabled,
@@ -692,9 +692,20 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       ? undefined
       : toolCalledBy(parsedBody, authVia !== "unresolved_token");
     if (gatedTool) {
-      const description = authVia === "unresolved_token"
-        ? "The Website Auditor connection could not be verified. Sign in again to continue."
-        : "Sign in to Website Auditor to use this tool.";
+      // The header's words drive Claude's sign-in; the body, what a reader
+      // sees, adds the already-connected note for a request that sent nothing
+      // (never for a token that was presented and rejected: that reader is not
+      // in a chat without a connection, and its own words say sign in again).
+      // Chosen together.
+      const { description, bodyDescription } = authVia === "unresolved_token"
+        ? {
+            description: "The Website Auditor connection could not be verified. Sign in again to continue.",
+            bodyDescription: "The Website Auditor connection could not be verified. Sign in again to continue.",
+          }
+        : {
+            description: "Sign in to Website Auditor to use this tool.",
+            bodyDescription: `Sign in to Website Auditor to use this tool. ${ALREADY_CONNECTED_NOTE}`,
+          };
       // Recorded like the 200 path records its AUTH_REQUIRED, so the sign-in
       // funnel reads the same on this server as on the others. Client identity
       // is unknown here (stateless: it arrives only on initialize).
@@ -717,7 +728,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
       res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
       // The OAuth error shape RFC 6750 §3 describes. The status and header carry
       // the signal; the body is advisory.
-      sendJson(res, 401, { error: "invalid_token", error_description: description });
+      sendJson(res, 401, { error: "invalid_token", error_description: bodyDescription });
       return;
     }
     // Spread, not mutate: the bundle is CACHED and shared across every request

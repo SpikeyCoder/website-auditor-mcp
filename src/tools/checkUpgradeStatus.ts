@@ -16,7 +16,7 @@
  */
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
-import { fromApiError, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
+import { ALREADY_CONNECTED_NOTE, fromApiError, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
 import { oauthEnabled } from "../auth/oauth.js";
 import { PRICE, upgradeLink, plansAreDescribedAt } from "./upgrade.js";
 
@@ -66,11 +66,16 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
         deps.transport === "http" && oauthEnabled(deps.config) && deps.authVia === "unresolved_token"
           ? UNVERIFIED_MESSAGE
           : deps.transport === "http" && oauthEnabled(deps.config)
-          ? `No Website Auditor account is connected to this conversation yet. ` +
-            `Connect one when prompted — there is no key to paste. Audits also need ` +
+          ? `This request arrived without a Website Auditor connection. ` +
+            // This success carries no challenge, so no prompt follows it; and
+            // how a host connects differs (ChatGPT offers it mid-chat, Codex
+            // and Cursor sign in ahead), so the copy names neither.
+            `Connect a Website Auditor account in your app — there is no key to paste. Audits also need ` +
             (deps.config.upsellStyle === "info"
-              ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
-              : `an active subscription on the connected account: ${upgradeUrl}`)
+              // The space before each stop keeps the URL a token of its own.
+              ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)} .`
+              : `an active subscription on the connected account: ${upgradeUrl} .`) +
+            ` ${ALREADY_CONNECTED_NOTE}`
           : deps.config.upsellStyle === "info"
           ? `No API key is configured. A key comes from a Website Auditor plan. ` +
             `${plansAreDescribedAt(deps.config)}. ${keySetupNote(deps.transport)}`

@@ -23,7 +23,7 @@ import {
   wwwAuthenticateChallenge,
 } from "../../src/auth/oauth.js";
 import { IntrospectionTokenExchange } from "../../src/auth/tokenExchange.js";
-import { fromApiError, gateProTool, type ToolDeps } from "../../src/tools/context.js";
+import { ALREADY_CONNECTED_NOTE, ALREADY_CONNECTED_OPENING, fromApiError, gateProTool, type ToolDeps } from "../../src/tools/context.js";
 import { WaApiError } from "../../src/api/errors.js";
 import { toCallResult } from "../../src/mcp/server.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
@@ -393,6 +393,38 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // The instructions quote the trial on this one and not on an expired one,
     // and this is the only thing that tells them apart.
     expect(error.details).toEqual({ connection: "not_connected" });
+    // A chat begun before connecting sends no credential either (support,
+    // 2026-11-02): the way out is said here too.
+    expect(error.message).not.toMatch(/has none|no account is connected/i);
+    // Load-bearing for the instructions, which relay the note from its
+    // opening on: anything after it would be relayed as part of it.
+    expect(error.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    expect(error.message).toMatch(/ \. Already connected/);
+    // Not on the linking card: a first-time visitor must press Connect there.
+    expect(error.wwwAuthenticate).not.toContain("Already connected");
+  });
+
+  it("ends the not_connected message with the note under info style too (ChatGPT)", async () => {
+    const error = await authError({ tier: "none", config: { ...OAUTH, apiKey: undefined, upsellStyle: "info" } }, "http");
+    expect(error.details).toEqual({ connection: "not_connected" });
+    expect(error.message).not.toMatch(/has none|no account is connected/i);
+    expect(error.wwwAuthenticate).not.toContain("Already connected");
+    expect(error.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    expect(error.message).toMatch(/ \. Already connected/);
+  });
+
+  it("words the already-connected note as a condition, with both remedies", () => {
+    // Literal, not the constant against itself: a first-time visitor must read
+    // it as being for somebody else, and both remedies must stay.
+    expect(ALREADY_CONNECTED_OPENING).toBe("Already connected an account and still seeing this?");
+    // The whole shipped text, literally: every surface compares against the
+    // constant, so this is the one place its words are pinned.
+    expect(ALREADY_CONNECTED_NOTE).toBe(
+      "Already connected an account and still seeing this? Start a new chat and ask there " +
+        "(a chat begun before connecting may not use the connection), or sign in to Website Auditor again in your app.",
+    );
+    // Two remedies: a new chat for ChatGPT, signing in again for Codex and
+    // Cursor, which reach these answers too.
   });
 
   it("answers a token that did not resolve as unverified — retry or reconnect, no price", async () => {
@@ -521,6 +553,11 @@ describe("handshake instructions", () => {
     expect(notConnected).toContain("audits need a Website Auditor plan");
     expect(notConnected).toContain("no price, no trial");
     expect(notConnected).toContain("connect when prompted");
+    expect(notConnected).toContain("if the user says they already connected, or this conversation already asked them to connect");
+    // Names the note by its opening and relays all of it, keeping the sample.
+    expect(notConnected).toContain(`give them instead the closing note from "${ALREADY_CONNECTED_OPENING}" on, and the sample, with no price`);
+    expect(notConnected).toContain("Likewise for that note in check_upgrade_status's message");
+    expect(notConnected).not.toMatch(/no (website auditor )?account is connected|has none/i);
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");
     expect(expired).not.toContain("the trial");

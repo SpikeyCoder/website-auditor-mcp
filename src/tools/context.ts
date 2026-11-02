@@ -133,6 +133,10 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
  * who signed in and may already be paying. Before this the instructions could not tell them apart and
  * answered both with "do not quote a price" — so a ChatGPT user first heard
  * about the subscription from the PRO_REQUIRED after connecting.
+ *
+ * not_connected is not always a first visit: a member whose chat sends no
+ * credential gets it too (ALREADY_CONNECTED_NOTE), and the instructions give
+ * that reader the note and the sample with no price.
  */
 // Frozen: each is placed by reference into every error's `details`, so a
 // consumer that wrote to one would change it for the rest of the process.
@@ -155,6 +159,37 @@ export const UNVERIFIED_MESSAGE =
   `Website Auditor could not verify this conversation's connection. ` +
   `Reconnect Website Auditor, or if you only just connected, try again in a moment. ` +
   `get_sample_audit keeps working with no account at all in the meantime.`;
+
+/** The note's opening question: how instructions.ts names the note below. */
+export const ALREADY_CONNECTED_OPENING = "Already connected an account and still seeing this?";
+
+/**
+ * The way out for someone told "not connected" who already connected.
+ *
+ * Two remedies, because the hosts differ: in ChatGPT a chat begun before
+ * connecting can keep sending no credential; in Codex or Cursor the cause is
+ * a login to this server that did not take, fixed by signing in again.
+ *
+ * Support, 2026-11-02: a member connected twice and every call from the chat
+ * they started before connecting still arrived with no credential. Nothing
+ * here can tell that from a first visit (no credential is no credential), so
+ * every answer to a request that carried no connection (details
+ * "not_connected", or tier "none" over Mixed Auth) carries it: the gate's AUTH_REQUIRED
+ * message, check_upgrade_status, and the body of the transport-level 401
+ * (http.ts). Never a WWW-Authenticate description, the gate's or the 401's:
+ * that drives the host's sign-in, where "start a new chat" would turn a
+ * first-time visitor away from Connect. Not get_sample_audit either, an open
+ * tool every first-time visitor is sent to. Worded as a condition, and placed
+ * last, so a first-time visitor connects here rather than leaving.
+ *
+ * The surrounding copy says the REQUEST carried no connection, never that the
+ * account has none: for this reader the second is false. One copy, as
+ * UNVERIFIED_MESSAGE; instructions.ts names it by ALREADY_CONNECTED_OPENING
+ * rather than restating it.
+ */
+export const ALREADY_CONNECTED_NOTE =
+  `${ALREADY_CONNECTED_OPENING} Start a new chat and ask there ` +
+  `(a chat begun before connecting may not use the connection), or sign in to Website Auditor again in your app.`;
 
 export function err(
   code: ErrorCode,
@@ -346,19 +381,27 @@ export async function gateKeyedTool(
     if (deps.transport === "http" && oauthEnabled(deps.config)) {
       return err(
         "AUTH_REQUIRED",
-        `This tool needs a connected Website Auditor account, and this conversation has none yet. ` +
+        `This tool needs a connected Website Auditor account, and this request arrived without one. ` +
           `Connect one when prompted — there is no key to paste. ` +
           `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
           (deps.config.upsellStyle === "info"
             // No price or trial: see plansAreDescribedAt.
-            ? `Audits also need a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config, site)}.`
+            // The space before each stop keeps the URL a token of its own now
+            // that a sentence follows it.
+            ? `Audits also need a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config, site)} .`
             : `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
-              `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`),
+              `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl} .`) +
+          // Last, as a condition: the way out for the reader it is for, after
+          // everything a first-time visitor needs.
+          ` ${ALREADY_CONNECTED_NOTE}`,
         {
           upgrade_url: upgradeUrl,
           details: NOT_CONNECTED,
           wwwAuthenticate: wwwAuthenticateChallenge(
             deps.config,
+            // Not the note: this description drives the host's linking card,
+            // where "start a new chat" would turn a first-time visitor away
+            // from the Connect button.
             "Connect a Website Auditor account to use this tool.",
           ),
         },

@@ -49,7 +49,7 @@
  * billing can never precede or outweigh the trigger guidance again.
  */
 import { PRICE } from "../tools/upgrade.js";
-import { NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } from "../tools/context.js";
+import { ALREADY_CONNECTED_OPENING, NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } from "../tools/context.js";
 import type { ToolCopy, UpsellStyle } from "../config.js";
 
 export function buildInstructions(
@@ -143,15 +143,22 @@ export function buildInstructions(
   // not_connected, expired and unverified, with a catch-all for none. A first
   // connection is the decision point, so the plan is mentioned before the user
   // connects rather than discovered as a PRO_REQUIRED afterwards — under info
-  // style as "needs a plan, described here", never a price or a trial.
+  // style as "needs a plan, described here", never a price or a trial. But
+  // not_connected also reaches a member who already connected, in a chat that
+  // sends no credential: the clause's second half gives them the note, priceless.
   const planAnswer = info
     ? `say that audits need a Website Auditor plan and where plans are described (${signupUrl}) — ` +
       "no price, no trial, and no urging to subscribe"
     : `give the price, the trial and its prerequisites, and where plans are described (${signupUrl})`;
   const errorGuidance = mixedAuth
-    ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", no account is ` +
-      `connected yet: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
-      `meanwhile. When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +
+    ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", the request ` +
+      `carried no connection: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
+      "meanwhile. But if the user says they already connected, or this conversation already asked them to " +
+      // Named by its opening (a constant the note is built from), so the rule
+      // finds it whatever its remedies say. The note always ends the message.
+      `connect, give them instead the closing note from "${ALREADY_CONNECTED_OPENING}" on, and the ` +
+      "sample, with no price. Likewise for that note in check_upgrade_status's message. " +
+      `When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +
       "tell the user to reconnect when prompted and offer get_sample_audit meanwhile; do not quote a price " +
       `for it. With details.connection "${CONNECTION_UNVERIFIED.connection}", the connection could not be ` +
       "checked: suggest reconnecting, or trying again in a moment if they only just connected, and do not " +

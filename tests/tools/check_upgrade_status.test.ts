@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { checkUpgradeStatus } from "../../src/tools/checkUpgradeStatus.js";
 import { makeDeps } from "../helpers.js";
 import { WaApiError } from "../../src/api/errors.js";
+import { ALREADY_CONNECTED_NOTE } from "../../src/tools/context.js";
 
 describe("check_upgrade_status [Free]", () => {
   it("no API key -> tier none with the portal URL and setup guidance (not an error)", async () => {
@@ -215,11 +216,34 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     expect(res.data.message).not.toMatch(/\$\d/);
   });
 
-  it("still says no account is connected yet to a caller who sent nothing", async () => {
+  it("tells a caller who sent nothing that the request carried no connection", async () => {
     const deps = { ...makeDeps({ config: { apiKey: undefined, ...OAUTH } }), transport: "http" as const };
     const res = await checkUpgradeStatus({}, deps);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.message).toContain("No Website Auditor account is connected");
+    expect(res.data.message).toContain("arrived without a Website Auditor connection");
+    // Never that the ACCOUNT has none: false for a member whose old chat
+    // sends no credential.
+    expect(res.data.message).not.toMatch(/no Website Auditor account is connected|has none/i);
+    // The way out for a chat begun before connecting (support, 2026-11-02),
+    // last, so a first-time visitor reads "connect" first, and because the
+    // instructions relay the note from its opening on.
+    expect(res.data.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    // The URL clause ends before the note, with the stop spaced off the URL.
+    expect(res.data.message).toMatch(/ \. Already connected/);
+  });
+
+  it("ends with the already-connected note under info style too", async () => {
+    const deps = {
+      ...makeDeps({ config: { apiKey: undefined, ...OAUTH, upsellStyle: "info" as const } }),
+      transport: "http" as const,
+    };
+    const res = await checkUpgradeStatus({}, deps);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.message).not.toMatch(/no Website Auditor account is connected|has none/i);
+    expect(res.data.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    // The URL clause ends before the note, with the stop spaced off the URL.
+    expect(res.data.message).toMatch(/ \. Already connected/);
   });
 });
