@@ -228,6 +228,8 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     // The way out for a chat begun before connecting (support, 2026-11-02),
     // last, so a first-time visitor reads "connect" first.
     expect(res.data.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    // The URL clause ends before the note, with the stop spaced off the URL.
+    expect(res.data.message).toMatch(/ \. Already connected/);
   });
 
   it("ends with the already-connected note under info style too", async () => {
@@ -239,5 +241,7 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    // The URL clause ends before the note, with the stop spaced off the URL.
+    expect(res.data.message).toMatch(/ \. Already connected/);
   });
 });

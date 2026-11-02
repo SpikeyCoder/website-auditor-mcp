@@ -69,7 +69,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
           ? `This request arrived without a Website Auditor connection. ` +
             // This success carries no challenge, so it says what does: asking
             // for an audit is what makes the app offer to connect.
-            `To connect one, ask for an audit and connect when your app offers to — there is no key to paste. Audits also need ` +
+            `To connect an account, ask for an audit and connect when your app offers to — there is no key to paste. Audits also need ` +
             (deps.config.upsellStyle === "info"
               // The space before each stop keeps the URL a token of its own.
               ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)} .`

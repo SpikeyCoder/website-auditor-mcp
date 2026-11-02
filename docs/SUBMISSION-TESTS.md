@@ -501,8 +501,9 @@ Observed range to put in the listing: `________________`
   ChatGPT surface the connect affordance. The message ends with a conditional
   line for someone who already connected ("Already connected an account and
   still seeing this? Start a new chat…"); the model should relay it only if the
-  user says they connected, so a first-time user is told to connect, not to
-  start a new chat.
+  user says they connected, or on a repeat refusal after it already asked them
+  to connect in this chat. A first-time user's first refusal is told to
+  connect, not to start a new chat.
 - **Rationale:** capability discovery must not require payment, and the keyless
   path is the designed first-run experience.
 

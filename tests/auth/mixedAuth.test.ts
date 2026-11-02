@@ -542,8 +542,9 @@ describe("handshake instructions", () => {
     expect(notConnected).toContain("audits need a Website Auditor plan");
     expect(notConnected).toContain("no price, no trial");
     expect(notConnected).toContain("connect when prompted");
-    expect(notConnected).toContain("relay that part only if the user says they have, or if this conversation already asked them to connect, and then do not quote a price");
-    expect(notConnected).toContain("The same goes for that part of check_upgrade_status's message");
+    expect(notConnected).toContain("if the user says they already connected, or this conversation already asked them to connect");
+    expect(notConnected).toContain("with no price and no further request to connect");
+    expect(notConnected).toContain("The same goes for those words in check_upgrade_status's message");
     expect(notConnected).not.toMatch(/no (website auditor )?account is connected|has none/i);
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");
