@@ -16,7 +16,7 @@
  */
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
-import { fromApiError, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
+import { ALREADY_CONNECTED_NOTE, fromApiError, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
 import { oauthEnabled } from "../auth/oauth.js";
 import { PRICE, upgradeLink, plansAreDescribedAt } from "./upgrade.js";
 
@@ -67,7 +67,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
           ? UNVERIFIED_MESSAGE
           : deps.transport === "http" && oauthEnabled(deps.config)
           ? `No Website Auditor account is connected to this conversation yet. ` +
-            `Connect one when prompted — there is no key to paste. Audits also need ` +
+            `Connect one when prompted — there is no key to paste. ${ALREADY_CONNECTED_NOTE} Audits also need ` +
             (deps.config.upsellStyle === "info"
               ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
               : `an active subscription on the connected account: ${upgradeUrl}`)

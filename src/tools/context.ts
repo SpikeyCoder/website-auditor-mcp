@@ -156,6 +156,21 @@ export const UNVERIFIED_MESSAGE =
   `Reconnect Website Auditor, or if you only just connected, try again in a moment. ` +
   `get_sample_audit keeps working with no account at all in the meantime.`;
 
+/**
+ * The way out for someone told "not connected" who already connected.
+ *
+ * Support, 2026-11-02: a member connected twice and every call from the chat
+ * they started before connecting still arrived with no credential. Nothing
+ * here can tell that from a first visit (no credential is no credential), so
+ * every no-credential answer carries it: the gate's AUTH_REQUIRED,
+ * check_upgrade_status, and the transport-level 401 (http.ts). Worded as a
+ * condition so a first-time visitor connects here rather than leaving.
+ * One copy, as UNVERIFIED_MESSAGE, so no surface is missed.
+ */
+export const ALREADY_CONNECTED_NOTE =
+  `Already connected an account and still seeing this? Start a new chat and ask there: ` +
+  `a chat begun before connecting may not use the connection.`;
+
 export function err(
   code: ErrorCode,
   message: string,
@@ -348,11 +363,7 @@ export async function gateKeyedTool(
         "AUTH_REQUIRED",
         `This tool needs a connected Website Auditor account, and this conversation has none yet. ` +
           `Connect one when prompted — there is no key to paste. ` +
-          // Support, 2026-11-02: a member connected twice and every call from
-          // the chat they started before connecting still arrived with no
-          // credential. Nothing here can tell that apart from a first visit
-          // (no credential is no credential), so the way out is said to both.
-          `If an account is already connected, start a new chat and ask there: a chat begun before connecting may not use the connection. ` +
+          `${ALREADY_CONNECTED_NOTE} ` +
           `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
           (deps.config.upsellStyle === "info"
             // No price or trial: see plansAreDescribedAt.

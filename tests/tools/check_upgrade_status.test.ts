@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { checkUpgradeStatus } from "../../src/tools/checkUpgradeStatus.js";
 import { makeDeps } from "../helpers.js";
 import { WaApiError } from "../../src/api/errors.js";
+import { ALREADY_CONNECTED_NOTE } from "../../src/tools/context.js";
 
 describe("check_upgrade_status [Free]", () => {
   it("no API key -> tier none with the portal URL and setup guidance (not an error)", async () => {
@@ -221,5 +222,7 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.message).toContain("No Website Auditor account is connected");
+    // The way out for a chat begun before connecting (support, 2026-11-02).
+    expect(res.data.message).toContain(ALREADY_CONNECTED_NOTE);
   });
 });

@@ -44,7 +44,7 @@ import { NoopEventSink } from "./telemetry/events.js";
 import { createServer } from "./mcp/server.js";
 import { refreshPrice } from "./tools/upgrade.js";
 import { SERVER_VERSION } from "./version.js";
-import type { ToolDeps } from "./tools/context.js";
+import { ALREADY_CONNECTED_NOTE, type ToolDeps } from "./tools/context.js";
 import {
   looksLikeApiKey,
   oauthEnabled,
@@ -694,7 +694,7 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     if (gatedTool) {
       const description = authVia === "unresolved_token"
         ? "The Website Auditor connection could not be verified. Sign in again to continue."
-        : "Sign in to Website Auditor to use this tool.";
+        : `Sign in to Website Auditor to use this tool. ${ALREADY_CONNECTED_NOTE}`;
       // Recorded like the 200 path records its AUTH_REQUIRED, so the sign-in
       // funnel reads the same on this server as on the others. Client identity
       // is unknown here (stateless: it arrives only on initialize).

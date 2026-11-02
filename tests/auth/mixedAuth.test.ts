@@ -23,7 +23,7 @@ import {
   wwwAuthenticateChallenge,
 } from "../../src/auth/oauth.js";
 import { IntrospectionTokenExchange } from "../../src/auth/tokenExchange.js";
-import { fromApiError, gateProTool, type ToolDeps } from "../../src/tools/context.js";
+import { ALREADY_CONNECTED_NOTE, fromApiError, gateProTool, type ToolDeps } from "../../src/tools/context.js";
 import { WaApiError } from "../../src/api/errors.js";
 import { toCallResult } from "../../src/mcp/server.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
@@ -393,6 +393,9 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // The instructions quote the trial on this one and not on an expired one,
     // and this is the only thing that tells them apart.
     expect(error.details).toEqual({ connection: "not_connected" });
+    // A chat begun before connecting sends no credential either (support,
+    // 2026-11-02): the way out is said here too.
+    expect(error.message).toContain(ALREADY_CONNECTED_NOTE);
   });
 
   it("answers a token that did not resolve as unverified — retry or reconnect, no price", async () => {
@@ -521,6 +524,8 @@ describe("handshake instructions", () => {
     expect(notConnected).toContain("audits need a Website Auditor plan");
     expect(notConnected).toContain("no price, no trial");
     expect(notConnected).toContain("connect when prompted");
+    expect(notConnected).toContain("if the user says they already connected, suggest starting a new chat");
+    expect(notConnected).not.toContain("no account is connected");
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");
     expect(expired).not.toContain("the trial");

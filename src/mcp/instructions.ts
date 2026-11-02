@@ -149,8 +149,8 @@ export function buildInstructions(
       "no price, no trial, and no urging to subscribe"
     : `give the price, the trial and its prerequisites, and where plans are described (${signupUrl})`;
   const errorGuidance = mixedAuth
-    ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", no account is ` +
-      `connected yet: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
+    ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", the request ` +
+      `carried no connection: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
       "meanwhile; if the user says they already connected, suggest starting a new chat and asking there. " +
       `When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +
       "tell the user to reconnect when prompted and offer get_sample_audit meanwhile; do not quote a price " +

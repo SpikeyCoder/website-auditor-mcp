@@ -19,7 +19,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createWaHttpServer, mixedAuthSummary, type HttpServerOptions } from "../../src/http.js";
 import type { TokenExchange } from "../../src/auth/tokenExchange.js";
 import { loadConfig, type WaConfig } from "../../src/config.js";
-import type { ToolDeps } from "../../src/tools/context.js";
+import { ALREADY_CONNECTED_NOTE, type ToolDeps } from "../../src/tools/context.js";
 import { NEUTRAL_EDITS, SERVED_TOOLS, descriptionFor, titleFor } from "../../src/tools/registry.js";
 import { IntrospectionTokenExchange, type TokenResolution } from "../../src/auth/tokenExchange.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
@@ -122,7 +122,7 @@ describe("Claude lazy authentication: the HTTP 401 gate (WA_AUTH_CHALLENGE=http)
     expect(resp.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate");
     expect(await resp.json()).toEqual({
       error: "invalid_token",
-      error_description: "Sign in to Website Auditor to use this tool.",
+      error_description: `Sign in to Website Auditor to use this tool. ${ALREADY_CONNECTED_NOTE}`,
     });
 
     // No audit started. (The 401 status above is what proves the gate ran
