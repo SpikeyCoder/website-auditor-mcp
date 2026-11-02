@@ -133,6 +133,10 @@ export function keySetupNote(transport: ToolDeps["transport"]): string {
  * who signed in and may already be paying. Before this the instructions could not tell them apart and
  * answered both with "do not quote a price" — so a ChatGPT user first heard
  * about the subscription from the PRO_REQUIRED after connecting.
+ *
+ * not_connected is not always a first visit: a member whose chat sends no
+ * credential gets it too (ALREADY_CONNECTED_NOTE), and the instructions give
+ * that reader the note and the sample with no price.
  */
 // Frozen: each is placed by reference into every error's `details`, so a
 // consumer that wrote to one would change it for the rest of the process.
