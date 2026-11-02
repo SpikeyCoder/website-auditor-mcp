@@ -396,6 +396,8 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // A chat begun before connecting sends no credential either (support,
     // 2026-11-02): the way out is said here too.
     expect(error.message).not.toMatch(/has none|no account is connected/i);
+    // Load-bearing for the instructions, which relay the note from its
+    // opening on: anything after it would be relayed as part of it.
     expect(error.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
     expect(error.message).toMatch(/ \. Already connected/);
     // Not on the linking card: a first-time visitor must press Connect there.
@@ -411,9 +413,9 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.message).toMatch(/ \. Already connected/);
   });
 
-  it("words the already-connected note as a condition, ending in a new chat", () => {
+  it("words the already-connected note as a condition, with both remedies", () => {
     // Literal, not the constant against itself: a first-time visitor must read
-    // it as being for somebody else, and the remedy must stay "a new chat".
+    // it as being for somebody else, and both remedies must stay.
     expect(ALREADY_CONNECTED_OPENING).toBe("Already connected an account and still seeing this?");
     // The whole shipped text, literally: every surface compares against the
     // constant, so this is the one place its words are pinned.

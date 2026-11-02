@@ -457,8 +457,8 @@ Observed range to put in the listing: `________________`
   did not resolve to the account. Either it is the rejection's failure mode
   returning, or the chat was begun before connecting and sends no credential:
   the message then ends with the already-connected line, and the case should
-  be retried in a new chat, and after signing in to Website Auditor again,
-  before it is logged. Not a subscription problem.
+  be retried in a new chat (or, on a host whose sign-in did not take, after
+  signing in to Website Auditor again) before it is logged. Not a subscription problem.
 
 | Web ☐ | Mobile ☐ | tier: `____` status: `____` | Notes: |
 |---|---|---|---|

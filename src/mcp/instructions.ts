@@ -143,7 +143,9 @@ export function buildInstructions(
   // not_connected, expired and unverified, with a catch-all for none. A first
   // connection is the decision point, so the plan is mentioned before the user
   // connects rather than discovered as a PRO_REQUIRED afterwards — under info
-  // style as "needs a plan, described here", never a price or a trial.
+  // style as "needs a plan, described here", never a price or a trial. But
+  // not_connected also reaches a member who already connected, in a chat that
+  // sends no credential: the clause's second half gives them the note, priceless.
   const planAnswer = info
     ? `say that audits need a Website Auditor plan and where plans are described (${signupUrl}) — ` +
       "no price, no trial, and no urging to subscribe"

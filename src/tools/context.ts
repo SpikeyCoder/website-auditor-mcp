@@ -173,7 +173,8 @@ export const ALREADY_CONNECTED_OPENING = "Already connected an account and still
  * Support, 2026-11-02: a member connected twice and every call from the chat
  * they started before connecting still arrived with no credential. Nothing
  * here can tell that from a first visit (no credential is no credential), so
- * the answers that say "not connected" carry it: the gate's AUTH_REQUIRED
+ * every answer to a request that carried no connection (details
+ * "not_connected", or tier "none" over Mixed Auth) carries it: the gate's AUTH_REQUIRED
  * message, check_upgrade_status, and the body of the transport-level 401
  * (http.ts). Never a WWW-Authenticate description, the gate's or the 401's:
  * that drives the host's sign-in, where "start a new chat" would turn a

@@ -226,7 +226,8 @@ describe("check_upgrade_status — a token that did not resolve", () => {
     // sends no credential.
     expect(res.data.message).not.toMatch(/no Website Auditor account is connected|has none/i);
     // The way out for a chat begun before connecting (support, 2026-11-02),
-    // last, so a first-time visitor reads "connect" first.
+    // last, so a first-time visitor reads "connect" first, and because the
+    // instructions relay the note from its opening on.
     expect(res.data.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
     // The URL clause ends before the note, with the stop spaced off the URL.
     expect(res.data.message).toMatch(/ \. Already connected/);
