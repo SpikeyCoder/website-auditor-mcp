@@ -23,7 +23,7 @@ import {
   wwwAuthenticateChallenge,
 } from "../../src/auth/oauth.js";
 import { IntrospectionTokenExchange } from "../../src/auth/tokenExchange.js";
-import { ALREADY_CONNECTED_NOTE, fromApiError, gateProTool, type ToolDeps } from "../../src/tools/context.js";
+import { ALREADY_CONNECTED_NOTE, ALREADY_CONNECTED_OPENING, fromApiError, gateProTool, type ToolDeps } from "../../src/tools/context.js";
 import { WaApiError } from "../../src/api/errors.js";
 import { toCallResult } from "../../src/mcp/server.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
@@ -414,7 +414,8 @@ describe("gateProTool — the runtime half, and who gets it", () => {
   it("words the already-connected note as a condition, ending in a new chat", () => {
     // Literal, not the constant against itself: a first-time visitor must read
     // it as being for somebody else, and the remedy must stay "a new chat".
-    expect(ALREADY_CONNECTED_NOTE).toMatch(/^Already connected an account and still seeing this\? /);
+    expect(ALREADY_CONNECTED_OPENING).toBe("Already connected an account and still seeing this?");
+    expect(ALREADY_CONNECTED_NOTE.startsWith(`${ALREADY_CONNECTED_OPENING} `)).toBe(true);
     expect(ALREADY_CONNECTED_NOTE).toContain("Start a new chat and ask there");
     // Codex and Cursor reach this too, where the fix is signing in again.
     expect(ALREADY_CONNECTED_NOTE).toContain("or sign in to Website Auditor again");
@@ -547,10 +548,10 @@ describe("handshake instructions", () => {
     expect(notConnected).toContain("no price, no trial");
     expect(notConnected).toContain("connect when prompted");
     expect(notConnected).toContain("if the user says they already connected, or this conversation already asked them to connect");
-    // Names the note by its own opening, and relays it whole.
-    expect(notConnected).toContain(`the sentence beginning "${ALREADY_CONNECTED_NOTE.split("?")[0]}?", whole`);
-    expect(ALREADY_CONNECTED_NOTE.startsWith(ALREADY_CONNECTED_NOTE.split("?")[0] + "?")).toBe(true);
-    expect(notConnected).toContain("The same goes for that sentence in check_upgrade_status's message");
+    // Names the note by its opening and relays all of it, keeping the sample.
+    expect(notConnected).toContain(`from "${ALREADY_CONNECTED_OPENING}" to the end, with both its remedies, and offer get_sample_audit`);
+    expect(notConnected).toContain("no price and no other part of the message");
+    expect(notConnected).toContain("The same goes for that note in check_upgrade_status's message");
     expect(notConnected).not.toMatch(/no (website auditor )?account is connected|has none/i);
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");

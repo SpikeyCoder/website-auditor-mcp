@@ -49,7 +49,7 @@
  * billing can never precede or outweigh the trigger guidance again.
  */
 import { PRICE } from "../tools/upgrade.js";
-import { ALREADY_CONNECTED_NOTE, NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } from "../tools/context.js";
+import { ALREADY_CONNECTED_OPENING, NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } from "../tools/context.js";
 import type { ToolCopy, UpsellStyle } from "../config.js";
 
 export function buildInstructions(
@@ -152,10 +152,12 @@ export function buildInstructions(
     ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", the request ` +
       `carried no connection: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
       "meanwhile. But if the user says they already connected, or this conversation already asked them to " +
-      // Named by its opening, taken from the constant, so the rule finds the
-      // sentence whatever its remedies say and cannot drift from it.
-      `connect, give them instead the sentence beginning "${ALREADY_CONNECTED_NOTE.split("?")[0]}?", ` +
-      "whole, and nothing else from the message: no price. The same goes for that sentence in " +
+      // Named by its opening (a constant the note is built from), so the rule
+      // finds it whatever its remedies say and cannot drift from it. The note
+      // always ends the message, so "to the end" is its whole span.
+      `connect, give them instead the message's closing note, from "${ALREADY_CONNECTED_OPENING}" to the ` +
+      "end, with both its remedies, and offer get_sample_audit; no price and no other part of the message. " +
+      "The same goes for that note in " +
       "check_upgrade_status's message, which is all some clients show you of an unconnected request. " +
       `When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +
       "tell the user to reconnect when prompted and offer get_sample_audit meanwhile; do not quote a price " +

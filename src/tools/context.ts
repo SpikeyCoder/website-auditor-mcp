@@ -178,8 +178,11 @@ export const UNVERIFIED_MESSAGE =
  * account has none: for this reader the second is false. One copy, as
  * UNVERIFIED_MESSAGE; instructions.ts points at it rather than restating it.
  */
+/** The note's opening question: how instructions.ts names the note. */
+export const ALREADY_CONNECTED_OPENING = "Already connected an account and still seeing this?";
+
 export const ALREADY_CONNECTED_NOTE =
-  `Already connected an account and still seeing this? Start a new chat and ask there ` +
+  `${ALREADY_CONNECTED_OPENING} Start a new chat and ask there ` +
   `(a chat begun before connecting may not use the connection), or sign in to Website Auditor again in your app.`;
 
 export function err(
