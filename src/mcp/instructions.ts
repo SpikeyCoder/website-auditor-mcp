@@ -49,7 +49,7 @@
  * billing can never precede or outweigh the trigger guidance again.
  */
 import { PRICE } from "../tools/upgrade.js";
-import { NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } from "../tools/context.js";
+import { ALREADY_CONNECTED_NOTE, NOT_CONNECTED, CONNECTION_EXPIRED, CONNECTION_UNVERIFIED } from "../tools/context.js";
 import type { ToolCopy, UpsellStyle } from "../config.js";
 
 export function buildInstructions(
@@ -152,8 +152,10 @@ export function buildInstructions(
     ? `When a tool returns AUTH_REQUIRED with details.connection "${NOT_CONNECTED.connection}", the request ` +
       `carried no connection: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
       "meanwhile. But if the user says they already connected, or this conversation already asked them to " +
-      "connect, give them instead the message's own words for that case, " +
-      "with no price and no further request to connect. The same goes for those words in " +
+      // Named by its opening, taken from the constant, so the rule finds the
+      // sentence whatever its remedies say and cannot drift from it.
+      `connect, give them instead the sentence beginning "${ALREADY_CONNECTED_NOTE.split("?")[0]}?", ` +
+      "whole, and nothing else from the message: no price. The same goes for that sentence in " +
       "check_upgrade_status's message, which is all some clients show you of an unconnected request. " +
       `When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +
       "tell the user to reconnect when prompted and offer get_sample_audit meanwhile; do not quote a price " +

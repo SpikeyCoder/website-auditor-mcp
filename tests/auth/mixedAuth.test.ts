@@ -547,8 +547,10 @@ describe("handshake instructions", () => {
     expect(notConnected).toContain("no price, no trial");
     expect(notConnected).toContain("connect when prompted");
     expect(notConnected).toContain("if the user says they already connected, or this conversation already asked them to connect");
-    expect(notConnected).toContain("with no price and no further request to connect");
-    expect(notConnected).toContain("The same goes for those words in check_upgrade_status's message");
+    // Names the note by its own opening, and relays it whole.
+    expect(notConnected).toContain(`the sentence beginning "${ALREADY_CONNECTED_NOTE.split("?")[0]}?", whole`);
+    expect(ALREADY_CONNECTED_NOTE.startsWith(ALREADY_CONNECTED_NOTE.split("?")[0] + "?")).toBe(true);
+    expect(notConnected).toContain("The same goes for that sentence in check_upgrade_status's message");
     expect(notConnected).not.toMatch(/no (website auditor )?account is connected|has none/i);
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");
