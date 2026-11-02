@@ -156,6 +156,9 @@ export const UNVERIFIED_MESSAGE =
   `Reconnect Website Auditor, or if you only just connected, try again in a moment. ` +
   `get_sample_audit keeps working with no account at all in the meantime.`;
 
+/** The note's opening question: how instructions.ts names the note below. */
+export const ALREADY_CONNECTED_OPENING = "Already connected an account and still seeing this?";
+
 /**
  * The way out for someone told "not connected" who already connected.
  *
@@ -176,11 +179,9 @@ export const UNVERIFIED_MESSAGE =
  *
  * The surrounding copy says the REQUEST carried no connection, never that the
  * account has none: for this reader the second is false. One copy, as
- * UNVERIFIED_MESSAGE; instructions.ts points at it rather than restating it.
+ * UNVERIFIED_MESSAGE; instructions.ts names it by ALREADY_CONNECTED_OPENING
+ * rather than restating it.
  */
-/** The note's opening question: how instructions.ts names the note. */
-export const ALREADY_CONNECTED_OPENING = "Already connected an account and still seeing this?";
-
 export const ALREADY_CONNECTED_NOTE =
   `${ALREADY_CONNECTED_OPENING} Start a new chat and ask there ` +
   `(a chat begun before connecting may not use the connection), or sign in to Website Auditor again in your app.`;

@@ -153,12 +153,9 @@ export function buildInstructions(
       `carried no connection: tell the user to connect when prompted, ${planAnswer}, and offer get_sample_audit ` +
       "meanwhile. But if the user says they already connected, or this conversation already asked them to " +
       // Named by its opening (a constant the note is built from), so the rule
-      // finds it whatever its remedies say and cannot drift from it. The note
-      // always ends the message, so "to the end" is its whole span.
-      `connect, give them instead the message's closing note, from "${ALREADY_CONNECTED_OPENING}" to the ` +
-      "end, with both its remedies, and offer get_sample_audit; no price and no other part of the message. " +
-      "The same goes for that note in " +
-      "check_upgrade_status's message, which is all some clients show you of an unconnected request. " +
+      // finds it whatever its remedies say. The note always ends the message.
+      `connect, give them instead the closing note from "${ALREADY_CONNECTED_OPENING}" on, and the ` +
+      "sample, with no price. Likewise for that note in check_upgrade_status's message. " +
       `When it returns AUTH_REQUIRED with details.connection "${CONNECTION_EXPIRED.connection}", ` +
       "tell the user to reconnect when prompted and offer get_sample_audit meanwhile; do not quote a price " +
       `for it. With details.connection "${CONNECTION_UNVERIFIED.connection}", the connection could not be ` +

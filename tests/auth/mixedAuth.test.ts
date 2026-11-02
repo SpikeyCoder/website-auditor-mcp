@@ -415,10 +415,14 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     // Literal, not the constant against itself: a first-time visitor must read
     // it as being for somebody else, and the remedy must stay "a new chat".
     expect(ALREADY_CONNECTED_OPENING).toBe("Already connected an account and still seeing this?");
-    expect(ALREADY_CONNECTED_NOTE.startsWith(`${ALREADY_CONNECTED_OPENING} `)).toBe(true);
-    expect(ALREADY_CONNECTED_NOTE).toContain("Start a new chat and ask there");
-    // Codex and Cursor reach this too, where the fix is signing in again.
-    expect(ALREADY_CONNECTED_NOTE).toContain("or sign in to Website Auditor again");
+    // The whole shipped text, literally: every surface compares against the
+    // constant, so this is the one place its words are pinned.
+    expect(ALREADY_CONNECTED_NOTE).toBe(
+      "Already connected an account and still seeing this? Start a new chat and ask there " +
+        "(a chat begun before connecting may not use the connection), or sign in to Website Auditor again in your app.",
+    );
+    // Two remedies: a new chat for ChatGPT, signing in again for Codex and
+    // Cursor, which reach these answers too.
   });
 
   it("answers a token that did not resolve as unverified — retry or reconnect, no price", async () => {
@@ -549,9 +553,8 @@ describe("handshake instructions", () => {
     expect(notConnected).toContain("connect when prompted");
     expect(notConnected).toContain("if the user says they already connected, or this conversation already asked them to connect");
     // Names the note by its opening and relays all of it, keeping the sample.
-    expect(notConnected).toContain(`from "${ALREADY_CONNECTED_OPENING}" to the end, with both its remedies, and offer get_sample_audit`);
-    expect(notConnected).toContain("no price and no other part of the message");
-    expect(notConnected).toContain("The same goes for that note in check_upgrade_status's message");
+    expect(notConnected).toContain(`give them instead the closing note from "${ALREADY_CONNECTED_OPENING}" on, and the sample, with no price`);
+    expect(notConnected).toContain("Likewise for that note in check_upgrade_status's message");
     expect(notConnected).not.toMatch(/no (website auditor )?account is connected|has none/i);
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');
     expect(expired).toContain("do not quote a price for it");

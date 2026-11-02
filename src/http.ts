@@ -694,7 +694,9 @@ export function createWaHttpServer(options: HttpServerOptions): Server {
     if (gatedTool) {
       // The header's words drive Claude's sign-in; the body, what a reader
       // sees, adds the already-connected note for a request that sent nothing
-      // (never for a dead token, which a refresh fixes). Chosen together.
+      // (never for a token that was presented and rejected: that reader is not
+      // in a chat without a connection, and its own words say sign in again).
+      // Chosen together.
       const { description, bodyDescription } = authVia === "unresolved_token"
         ? {
             description: "The Website Auditor connection could not be verified. Sign in again to continue.",
