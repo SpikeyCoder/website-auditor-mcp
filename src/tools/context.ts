@@ -348,6 +348,11 @@ export async function gateKeyedTool(
         "AUTH_REQUIRED",
         `This tool needs a connected Website Auditor account, and this conversation has none yet. ` +
           `Connect one when prompted — there is no key to paste. ` +
+          // Support, 2026-11-02: a member connected twice and every call from
+          // the chat they started before connecting still arrived with no
+          // credential. Nothing here can tell that apart from a first visit
+          // (no credential is no credential), so the way out is said to both.
+          `If an account is already connected, start a new chat and ask there: a chat begun before connecting may not use the connection. ` +
           `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
           (deps.config.upsellStyle === "info"
             // No price or trial: see plansAreDescribedAt.
