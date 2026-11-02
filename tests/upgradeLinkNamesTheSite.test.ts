@@ -332,7 +332,7 @@ describe("info style under Mixed Auth: every gate branch carries the site", () =
     expect(e.code).toBe("AUTH_REQUIRED");
     expect((e.details as { connection: string }).connection).toBe("not_connected");
     expect(e.upgrade_url).toBe(SITE_LINK);
-    expect(e.message).toContain(`Plans are described at ${SITE_LINK}.`);
+    expect(e.message).toContain(`Plans are described at ${SITE_LINK} .`);
   });
 
   it("connection unverified: upgrade_url", async () => {

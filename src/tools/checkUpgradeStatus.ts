@@ -67,10 +67,12 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
           ? UNVERIFIED_MESSAGE
           : deps.transport === "http" && oauthEnabled(deps.config)
           ? `This request arrived without a Website Auditor connection. ` +
-            `Connect one when your app offers to — there is no key to paste. Audits also need ` +
+            // This success carries no challenge, so it says what does: asking
+            // for an audit is what makes the app offer to connect.
+            `To connect one, ask for an audit and connect when your app offers to — there is no key to paste. Audits also need ` +
             (deps.config.upsellStyle === "info"
-              ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)}.`
-              // The space before the stop keeps the URL a token of its own.
+              // The space before each stop keeps the URL a token of its own.
+              ? `a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config)} .`
               : `an active subscription on the connected account: ${upgradeUrl} .`) +
             ` ${ALREADY_CONNECTED_NOTE}`
           : deps.config.upsellStyle === "info"

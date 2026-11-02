@@ -373,9 +373,11 @@ export async function gateKeyedTool(
           `Meanwhile get_sample_audit needs no account at all and returns a full report in the real output format. ` +
           (deps.config.upsellStyle === "info"
             // No price or trial: see plansAreDescribedAt.
-            ? `Audits also need a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config, site)}.`
+            // The space before each stop keeps the URL a token of its own now
+            // that a sentence follows it.
+            ? `Audits also need a Website Auditor plan on the connected account. ${plansAreDescribedAt(deps.config, site)} .`
             : `Audits also require an active subscription on the connected account (${PRICE}; eligible new customers ` +
-              `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl}`) +
+              `get a 7-day free trial — payment method required to start, no charge until the trial ends): ${upgradeUrl} .`) +
           // Last, as a condition: the way out for the reader it is for, after
           // everything a first-time visitor needs.
           ` ${ALREADY_CONNECTED_NOTE}`,

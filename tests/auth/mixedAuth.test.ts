@@ -395,11 +395,18 @@ describe("gateProTool — the runtime half, and who gets it", () => {
     expect(error.details).toEqual({ connection: "not_connected" });
     // A chat begun before connecting sends no credential either (support,
     // 2026-11-02): the way out is said here too.
-    expect(error.message).toContain(ALREADY_CONNECTED_NOTE);
     expect(error.message).not.toMatch(/has none|no account is connected/i);
     expect(error.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    expect(error.message).toMatch(/ \. Already connected/);
     // Not on the linking card: a first-time visitor must press Connect there.
     expect(error.wwwAuthenticate).not.toContain("Already connected");
+  });
+
+  it("ends the not_connected message with the note under info style too (ChatGPT)", async () => {
+    const error = await authError({ tier: "none", config: { ...OAUTH, apiKey: undefined, upsellStyle: "info" } }, "http");
+    expect(error.details).toEqual({ connection: "not_connected" });
+    expect(error.message.endsWith(ALREADY_CONNECTED_NOTE)).toBe(true);
+    expect(error.message).toMatch(/ \. Already connected/);
   });
 
   it("words the already-connected note as a condition, ending in a new chat", () => {
@@ -535,7 +542,7 @@ describe("handshake instructions", () => {
     expect(notConnected).toContain("audits need a Website Auditor plan");
     expect(notConnected).toContain("no price, no trial");
     expect(notConnected).toContain("connect when prompted");
-    expect(notConnected).toContain("relay that part only if the user says they have, and then do not quote a price");
+    expect(notConnected).toContain("relay that part only if the user says they have, or if this conversation already asked them to connect, and then do not quote a price");
     expect(notConnected).toContain("The same goes for that part of check_upgrade_status's message");
     expect(notConnected).not.toMatch(/no (website auditor )?account is connected|has none/i);
     const expired = clause('details.connection "expired"', 'details.connection "unverified"');

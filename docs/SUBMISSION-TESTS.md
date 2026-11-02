@@ -494,8 +494,8 @@ Observed range to put in the listing: `________________`
 
 - **Decides it:** the model offers the **sample** instead of dead-ending, and
   ChatGPT offers to connect an account.
-- **Expected:** `get_ai_visibility` returns `AUTH_REQUIRED` whose message names
-  the price and trial terms, points at the informational plans page (**never a
+- **Expected:** `get_ai_visibility` returns `AUTH_REQUIRED` whose message says
+  audits need a plan (the listing runs info style: no price or trial), points at the informational plans page (**never a
   checkout**), and recommends `get_sample_audit`. Under Mixed Auth the same
   error also carries `_meta["mcp/www_authenticate"]`, which is what makes
   ChatGPT surface the connect affordance. The message ends with a conditional
