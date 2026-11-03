@@ -13,7 +13,7 @@
  * confirm block, the reason and, when the owner can answer, `seen` for
  * confirm_facts. Every other refusal stays an error with its own code.
  */
-import type { ConfirmBlock, FactsSeen, FixKind, FixRequest, ServedFix } from "../api/types.js";
+import type { ConfirmBlock, FactsSeen, FixRequest, ServedFix } from "../api/types.js";
 import { WaApiError } from "../api/errors.js";
 import { isRecord } from "../api/mappers.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
@@ -21,7 +21,7 @@ import { AFTER_THE_WEEKLY_CHECK, OWNER_ONLY } from "./fixCopy.js";
 
 export interface GetFixArgs {
   domain: string;
-  kind?: FixKind;
+  kind?: string;
   platform?: string;
 }
 

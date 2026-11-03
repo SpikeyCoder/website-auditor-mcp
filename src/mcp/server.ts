@@ -30,7 +30,7 @@ import { getFixFacts } from "../tools/getFixFacts.js";
 import { getFix } from "../tools/getFix.js";
 import { confirmFacts } from "../tools/confirmFacts.js";
 import { checkFix } from "../tools/checkFix.js";
-import type { FactsSeen, FixKind } from "../api/types.js";
+import type { FactsSeen } from "../api/types.js";
 import { upgradeLink } from "../tools/upgrade.js";
 import { oauthEnabled, securitySchemesFor } from "../auth/oauth.js";
 import { buildInstructions } from "./instructions.js";
@@ -66,7 +66,7 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   get_sample_audit: (_a, d) => getSampleAudit({}, d),
   list_fixes: (a, d) => listFixes(a as { domain: string }, d),
   get_fix_facts: (a, d) => getFixFacts(a as { domain: string }, d),
-  get_fix: (a, d) => getFix(a as { domain: string; kind?: FixKind; platform?: string }, d),
+  get_fix: (a, d) => getFix(a as { domain: string; kind?: string; platform?: string }, d),
   confirm_facts: (a, d) =>
     confirmFacts(a as { domain: string; facts: Record<string, string | null>; seen: FactsSeen }, d),
   check_fix: (a, d) => checkFix(a as { domain: string; id: string }, d),

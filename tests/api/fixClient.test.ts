@@ -452,12 +452,34 @@ describe("review round 4: client", () => {
     const e = await rejection(clientWith(makeFetch(403, { success: false, code: "subscription_required",
       error: "An active Website Auditor Pro subscription or trial is required for fixes.", upgrade_url: "https://x/up" })).getFix({ domain: "acme.com" }));
     expect(e.message).not.toContain("is required");
-    expect((e.details as Record<string, unknown>).upgrade_url).toBe("https://x/up");
+    expect((e.details as Record<string, unknown>).upgrade_url).toBeUndefined();
   });
 
   it("a facts read hands out no seen the confirm route would refuse", async () => {
     const c = clientWith(makeFetch(200, { success: true, confirm: CONFIRM, seen: { kind: "premises" }, name: "" }));
     const res = await c.getFixFacts({ domain: "acme.com" });
     expect(res.seen).toBeUndefined();
+  });
+});
+
+describe("review round 5: client", () => {
+  const fetchRejecting = (code: string) => (async () => {
+    const err = new TypeError("fetch failed");
+    (err as unknown as { cause: unknown }).cause = Object.assign(new Error(code), { code });
+    throw err;
+  }) as unknown as typeof fetch;
+
+  it("a refused connection sent nothing, so a write isn't marked maybe_recorded", async () => {
+    const c = new WaApiClient(baseCfg as never, { fetch: fetchRejecting("ECONNREFUSED") });
+    const e = await c.getFix({ domain: "acme.com" }).catch((x) => x as WaApiError);
+    expect(e.code).toBe("UPSTREAM_ERROR");
+    expect((e.details as Record<string, unknown>).maybe_recorded).toBeUndefined();
+    expect(e.message).not.toMatch(/may have been recorded/);
+  });
+
+  it("a reset after sending still may have landed", async () => {
+    const c = new WaApiClient(baseCfg as never, { fetch: fetchRejecting("ECONNRESET") });
+    const e = await c.getFix({ domain: "acme.com" }).catch((x) => x as WaApiError);
+    expect((e.details as Record<string, unknown>).maybe_recorded).toBe(true);
   });
 });

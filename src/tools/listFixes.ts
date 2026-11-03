@@ -52,7 +52,9 @@ function summaryOf(domain: string, top: string | null, fixes: FixOverview["fixes
   const first = fixes.find((f) => f.kind === top);
   const lead = first
     ? `Top fix for ${domain}: ${first.title ?? first.kind}.${first.why ? ` ${first.why}` : ""}`
-    : `No fix is waiting to be applied for ${domain} right now.`;
+    : top
+      ? `Top fix for ${domain}: ${top}.`
+      : `No fix is waiting to be applied for ${domain} right now.`;
   const said = (f: FixOverview["fixes"][number]) => {
     const platform = f.can_apply === false ? " The site's platform most likely can't take it." : "";
     const live = f.request?.status === "live";

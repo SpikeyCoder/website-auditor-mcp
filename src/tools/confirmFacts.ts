@@ -18,7 +18,6 @@ import { WaApiError } from "../api/errors.js";
 import { isRecord } from "../api/mappers.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 
-
 export interface ConfirmFactsArgs {
   domain: string;
   facts: Record<string, string | null>;
@@ -57,9 +56,7 @@ export async function confirmFacts(args: ConfirmFactsArgs, deps: ToolDeps): Prom
           status: "facts_changed",
           domain: args.domain,
           ...confirm,
-          // The API's sentence already says to read the facts again
-          // (get_fix_facts, after the client's rewrite); only the rule is added.
-          // The next step by the code, never by reading the API's sentence.
+          // A fixed message: the next step by the code, not the API's sentence.
           message: `Nothing was confirmed: the site's facts changed since they were shown. Read them again with get_fix_facts (it returns the new \`seen\`), show the owner the facts as they are now, and confirm only what the owner confirms from them.`,
         });
       }

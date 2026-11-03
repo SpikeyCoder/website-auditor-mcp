@@ -46,7 +46,6 @@ import type {
   FixOverview,
   FixFacts,
   FixPress,
-  FixKind,
   FactsSeen,
   ConfirmFactsResult,
   FixCheckResult,
@@ -163,7 +162,7 @@ export interface WaApiClientLike {
    * Throws CONFIRM_FIRST (details: reason, confirm, seen) before the owner has
    * confirmed the facts it states.
    */
-  getFix(params: { domain: string; kind?: FixKind; platform?: string }): Promise<FixPress>;
+  getFix(params: { domain: string; kind?: string; platform?: string }): Promise<FixPress>;
   /** Confirm the owner's facts, sending `seen` back exactly as handed out (Pro). */
   confirmFacts(params: { domain: string; facts: Record<string, string | null>; seen: FactsSeen }): Promise<ConfirmFactsResult>;
   /** "I've added it" (Pro): read the live site for request `id`'s fix. */
@@ -655,7 +654,7 @@ export class WaApiClient implements WaApiClientLike {
     return out;
   }
 
-  async getFix(params: { domain: string; kind?: FixKind; platform?: string }): Promise<FixPress> {
+  async getFix(params: { domain: string; kind?: string; platform?: string }): Promise<FixPress> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/fix`);
     const payload: Record<string, string> = { domain: params.domain };
     if (params.kind) payload.kind = params.kind;
@@ -691,18 +690,18 @@ export class WaApiClient implements WaApiClientLike {
 
   // ── internals ─────────────────────────────────────────────────────────
 
-  /**
-   * Authenticated JSON request with the same timeout/abort + error-mapping
-   * contract as runAudit, for the simpler JSON endpoints (history + tracking).
-   * Sends the X-API-Key header, applies the configured timeout, maps non-2xx to
-   * a WaApiError, and returns the parsed body.
-   */
   /** A fix-route write (a press, a confirmation): its failures say where to
    * look first when it may have gone through, whichever side failed. */
   private requestWrite(url: URL, jsonBody: unknown, lookFirst: string): Promise<unknown> {
     return mayHaveLanded(this.requestJson("POST", url, jsonBody, { fix: true, lookFirst }), lookFirst);
   }
 
+  /**
+   * Authenticated JSON request with the same timeout/abort + error-mapping
+   * contract as runAudit, for the simpler JSON endpoints (history + tracking).
+   * Sends the X-API-Key header, applies the configured timeout, maps non-2xx to
+   * a WaApiError, and returns the parsed body.
+   */
   private async requestJson(
     method: string,
     url: URL,
@@ -731,7 +730,12 @@ export class WaApiClient implements WaApiClientLike {
       if (err instanceof Error && err.name === "AbortError") {
         throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.", { details: String(err) });
       }
-      throw new WaApiError("UPSTREAM_ERROR", "Could not reach the Website Auditor API.", { details: String(err) });
+      // A connection never made (refused, no such host) sent nothing, so a
+      // write can't have landed; any other failure may have come after it was sent.
+      const cause = isRecord(err) && isRecord(err.cause) && typeof err.cause.code === "string" ? err.cause.code : undefined;
+      const notSent = cause !== undefined && NOT_SENT.has(cause);
+      throw new WaApiError("UPSTREAM_ERROR", "Could not reach the Website Auditor API.",
+        { details: notSent ? { cause: String(err), not_sent: true } : String(err) });
     }
 
     // The deadline holds over the body too: headers that arrive and a body
@@ -742,8 +746,8 @@ export class WaApiClient implements WaApiClientLike {
     } finally {
       clearTimeout(timer);
     }
-    if (controller.signal.aborted) {
-      // Its status in details, not on the error (callers branch on a
+    if (body === undefined && controller.signal.aborted) {
+      // A body read in full is kept even as the timer fires. Its status in details, not on the error (callers branch on a
       // status, as get_gtm_plan does on a 404): a refusal (4xx) whose body
       // stalled recorded nothing.
       throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.",
@@ -833,8 +837,8 @@ export class WaApiClient implements WaApiClientLike {
     }
     if (code === "SUBSCRIPTION_UNVERIFIED") {
       // The Pro gate just passed, so the API's "Pro is required" would
-      // contradict the code; its upgrade link is kept for a real lapse.
-      if (typeof b.upgrade_url === "string") details.upgrade_url = b.upgrade_url;
+      // contradict the code. Its upgrade link isn't passed on: it would skip
+      // fromApiError's tagging and the info-style servers' rewrite.
       message = "Website Auditor couldn't confirm the subscription for this just now. Try again in a moment; if it keeps happening, check the account's plan.";
     }
     return new WaApiError(code, message, { status, details });
@@ -990,7 +994,8 @@ async function mayHaveLanded<T>(request: Promise<T>, lookFirst: string): Promise
     const stalled = e instanceof WaApiError && isRecord(e.details) && typeof e.details.upstream_status === "number"
       ? e.details.upstream_status : undefined;
     const refused = stalled !== undefined && stalled >= 400 && stalled < 500;
-    const ours = e instanceof WaApiError && e.status === undefined && !refused;
+    const notSent = e instanceof WaApiError && isRecord(e.details) && e.details.not_sent === true;
+    const ours = e instanceof WaApiError && e.status === undefined && !refused && !notSent;
     if (e instanceof WaApiError && ours && (e.code === "TIMEOUT" || e.code === "UPSTREAM_ERROR")
       && !(isRecord(e.details) && e.details.maybe_recorded === true)) {
       // The cause (an abort, a reset) kept beside the mark.
@@ -999,6 +1004,9 @@ async function mayHaveLanded<T>(request: Promise<T>, lookFirst: string): Promise
     throw e;
   }
 }
+
+/** Connection failures from before anything was sent. */
+const NOT_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
 
 /** A Retry-After header in seconds, when it is one. */
 function retryAfterHeader(headers: Headers): number | undefined {
