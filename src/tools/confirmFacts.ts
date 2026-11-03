@@ -17,7 +17,7 @@ import type { ConfirmBlock, FactsSeen } from "../api/types.js";
 import { WaApiError } from "../api/errors.js";
 import { isRecord } from "../api/mappers.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
-import { AFTER_THE_WEEKLY_CHECK } from "./fixCopy.js";
+
 
 export interface ConfirmFactsArgs {
   domain: string;
@@ -63,7 +63,7 @@ export async function confirmFacts(args: ConfirmFactsArgs, deps: ToolDeps): Prom
           message: `Nothing was confirmed: the site's facts changed since they were shown. Read them again with get_fix_facts (it returns the new \`seen\`), show the owner the facts as they are now, and confirm only what the owner confirms from them.`,
         });
       }
-      return ok({ status: "facts_not_read", domain: args.domain, ...confirm, message: `Nothing was confirmed. ${e.message} ${AFTER_THE_WEEKLY_CHECK}` });
+      return ok({ status: "facts_not_read", domain: args.domain, ...confirm, message: `Nothing was confirmed. ${e.message} Read the facts again with get_fix_facts after the site's next weekly check reads it, and confirm them with the owner then.` });
     }
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }

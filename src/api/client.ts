@@ -649,7 +649,9 @@ export class WaApiClient implements WaApiClientLike {
     const body = (await this.requestJson("GET", url, undefined, { fix: true })) as Record<string, unknown>;
     if (!isRecord(body.confirm)) throw missingPayload("the facts to confirm");
     const out: FixFacts = { confirm: body.confirm, name: typeof body.name === "string" ? body.name : "" };
-    if (isRecord(body.seen)) out.seen = body.seen as FactsSeen;
+    // A seen the confirm route takes (with its facts), or none: never one
+    // confirm_facts would refuse when sent back unchanged.
+    if (isRecord(body.seen) && isRecord((body.seen as Record<string, unknown>).facts)) out.seen = body.seen as FactsSeen;
     return out;
   }
 
@@ -741,9 +743,11 @@ export class WaApiClient implements WaApiClientLike {
       clearTimeout(timer);
     }
     if (controller.signal.aborted) {
-      // With its status: a refusal (4xx) whose body stalled recorded nothing.
+      // Its status in details, not on the error (callers branch on a
+      // status, as get_gtm_plan does on a 404): a refusal (4xx) whose body
+      // stalled recorded nothing.
       throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.",
-        { status: resp.status, details: "the body did not arrive in time" });
+        { details: { upstream_status: resp.status, cause: "the body did not arrive in time" } });
     }
     if (!resp.ok) {
       if (opts.fix) throw this.mapFixError(resp, body, Date.now() - startedAt, opts.lookFirst);
@@ -827,8 +831,13 @@ export class WaApiClient implements WaApiClientLike {
     if (retryAfter !== undefined && !/\btry again\b/i.test(message)) {
       message += ` Try again in ${retryAfter} second${retryAfter === 1 ? "" : "s"}.`;
     }
-    const opts = { status, details, ...(code === "PRO_REQUIRED" ? { upgradeUrl: this.cfg.upgradeUrl } : {}) };
-    return new WaApiError(code, message, opts);
+    if (code === "SUBSCRIPTION_UNVERIFIED") {
+      // The Pro gate just passed, so the API's "Pro is required" would
+      // contradict the code; its upgrade link is kept for a real lapse.
+      if (typeof b.upgrade_url === "string") details.upgrade_url = b.upgrade_url;
+      message = "Website Auditor couldn't confirm the subscription for this just now. Try again in a moment; if it keeps happening, check the account's plan.";
+    }
+    return new WaApiError(code, message, { status, details });
   }
 
   private mapErrorResponse(
@@ -978,8 +987,10 @@ async function mayHaveLanded<T>(request: Promise<T>, lookFirst: string): Promise
     // Our side's failure (no status), or a timeout reading the body of an
     // answer that wasn't a refusal (a 2xx or 5xx whose body stalled): the
     // write may have landed. A 4xx recorded nothing.
-    const refused = e instanceof WaApiError && e.status !== undefined && e.status >= 400 && e.status < 500;
-    const ours = e instanceof WaApiError && (e.status === undefined || (e.code === "TIMEOUT" && !refused));
+    const stalled = e instanceof WaApiError && isRecord(e.details) && typeof e.details.upstream_status === "number"
+      ? e.details.upstream_status : undefined;
+    const refused = stalled !== undefined && stalled >= 400 && stalled < 500;
+    const ours = e instanceof WaApiError && e.status === undefined && !refused;
     if (e instanceof WaApiError && ours && (e.code === "TIMEOUT" || e.code === "UPSTREAM_ERROR")
       && !(isRecord(e.details) && e.details.maybe_recorded === true)) {
       // The cause (an abort, a reset) kept beside the mark.

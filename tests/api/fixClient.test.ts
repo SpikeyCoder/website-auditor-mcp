@@ -419,7 +419,8 @@ describe("review round 2: a stalled refusal", () => {
     });
     const c = new WaApiClient({ ...baseCfg, requestTimeoutMs: 50 } as never, { fetch: stalling as unknown as typeof fetch });
     const e = await rejection(c.getFix({ domain: "acme.com" }));
-    expect(e.status).toBe(409);
+    expect((e.details as Record<string, unknown>).upstream_status).toBe(409);
+    expect(e.status).toBeUndefined();
     expect((e.details as Record<string, unknown> | undefined)?.maybe_recorded).not.toBe(true);
   });
 });
@@ -443,5 +444,20 @@ describe("review round 3: client", () => {
     const c = clientWith(makeFetch(200, { success: true, top: null, fixes: [null, { kind: "llms_txt" }] }));
     const res = await c.listFixes({ domain: "acme.com" });
     expect(res.fixes).toEqual([{ kind: "llms_txt" }]);
+  });
+});
+
+describe("review round 4: client", () => {
+  it("subscription_required says what its code means, and keeps the API's upgrade link", async () => {
+    const e = await rejection(clientWith(makeFetch(403, { success: false, code: "subscription_required",
+      error: "An active Website Auditor Pro subscription or trial is required for fixes.", upgrade_url: "https://x/up" })).getFix({ domain: "acme.com" }));
+    expect(e.message).not.toContain("is required");
+    expect((e.details as Record<string, unknown>).upgrade_url).toBe("https://x/up");
+  });
+
+  it("a facts read hands out no seen the confirm route would refuse", async () => {
+    const c = clientWith(makeFetch(200, { success: true, confirm: CONFIRM, seen: { kind: "premises" }, name: "" }));
+    const res = await c.getFixFacts({ domain: "acme.com" });
+    expect(res.seen).toBeUndefined();
   });
 });
