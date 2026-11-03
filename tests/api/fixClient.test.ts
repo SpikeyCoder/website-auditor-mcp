@@ -483,3 +483,23 @@ describe("review round 5: client", () => {
     expect((e.details as Record<string, unknown>).maybe_recorded).toBe(true);
   });
 });
+
+describe("review round 6: client", () => {
+  it("a confirmation's seen without facts isn't handed out", async () => {
+    const res = await clientWith(makeFetch(200, { success: true, confirm: { facts: [] }, seen: { kind: "premises" } }))
+      .confirmFacts({ domain: "acme.com", facts: {}, seen: { facts: {} } as never });
+    expect(res.seen).toBeNull();
+  });
+
+  it("'Try again later.' still gets the wait in words", async () => {
+    const e = await rejection(clientWith(makeFetch(429, { success: false, code: "too_many_confirmations", retry_after: 14400,
+      error: "Too many confirmations. Try again later." })).confirmFacts({ domain: "acme.com", facts: {}, seen: { facts: {} } as never }));
+    expect(e.message).toContain("Try again in 14400 seconds.");
+  });
+
+  it("a connect timeout sent nothing", async () => {
+    const f = (async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } }); }) as unknown as typeof fetch;
+    const e = await rejection(new WaApiClient(baseCfg as never, { fetch: f }).getFix({ domain: "acme.com" }));
+    expect((e.details as Record<string, unknown>).maybe_recorded).toBeUndefined();
+  });
+});

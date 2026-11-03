@@ -398,3 +398,15 @@ describe("review round 3", () => {
     expect(res.data.message).toContain("get_fix_facts");
   });
 });
+
+describe("review round 6: list_fixes", () => {
+  it("a fix requested but not checked yet says so", async () => {
+    const res = await listFixes({ domain: "acme.com" }, makeDeps({
+      tier: "pro",
+      client: { listFixes: async () => ({ site: { domain: "acme.com" }, platform: "wordpress", platforms: [], top: "business_facts",
+        fixes: [{ kind: "business_facts", title: "Facts", needed: true, can_apply: true, request: { ...REQUEST, status: null } }] }) },
+    }));
+    if (!res.ok) throw new Error("expected an overview");
+    expect(res.data.summary).toContain("requested and hasn't been checked yet");
+  });
+});

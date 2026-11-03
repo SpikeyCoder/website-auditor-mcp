@@ -15,7 +15,7 @@
  */
 import type { ConfirmBlock, FactsSeen, FixRequest, ServedFix } from "../api/types.js";
 import { WaApiError } from "../api/errors.js";
-import { isRecord } from "../api/mappers.js";
+import { isRecord, isSeen } from "../api/mappers.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 import { AFTER_THE_WEEKLY_CHECK, OWNER_ONLY } from "./fixCopy.js";
 
@@ -72,16 +72,11 @@ function confirmFirst(domain: string, e: WaApiError): Extract<GetFixResult, { st
   // The engine's reason, never a guess at one.
   const reason = typeof d.reason === "string" ? d.reason : "unknown";
   const confirm = isRecord(d.confirm) ? (d.confirm as ConfirmBlock) : undefined;
-  const seen = isRecord(d.seen) && isRecord((d.seen as Record<string, unknown>).facts) ? (d.seen as FactsSeen) : undefined;
-  // facts_not_read: the engine's sentence says the site wasn't read, and only
-  // when to ask again is added. Any other reason without a seen (an API older
-  // than the one that hands it out) points at the facts read, which carries
-  // one. Otherwise the API's sentence already names the next step (rewritten
-  // to confirm_facts by the client), so only the rule is added to it.
+  const seen = isSeen(d.seen) ? (d.seen as FactsSeen) : undefined;
   // Built from the reason and what came back, never by reading the API's
-  // sentence: the API adds its next step (show the facts, confirm_facts with
-  // the seen) exactly when it hands out a seen, so with one only the rule is
-  // added here.
+  // sentence. facts_not_read: only when to ask again is added. No seen (an
+  // older API): point at get_fix_facts, which hands one out. With a seen the
+  // API's sentence already names confirm_facts, so only the rule is added.
   const message = reason === "facts_not_read"
     ? `${e.message} ${AFTER_THE_WEEKLY_CHECK}`
     : !seen

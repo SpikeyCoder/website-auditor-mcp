@@ -950,4 +950,3 @@ export interface FixCheckResult {
   check: FixCheck;
 }
 
-export type FixKind = "business_facts" | "llms_txt";

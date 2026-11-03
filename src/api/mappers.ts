@@ -203,6 +203,11 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** A `seen` confirm_facts can send back: a record carrying its facts. */
+export function isSeen(value: unknown): boolean {
+  return isRecord(value) && isRecord(value.facts);
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((p) => typeof p === "string");
 }

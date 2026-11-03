@@ -55,6 +55,7 @@ import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
 import {
   isRecord,
+  isSeen,
   WEEKLY_CHECK_SENTENCE, changesSummary,
   computeChanges, day, laterNote, measuredTheBusiness, movement, newestComparablePair, newestRecorded, unmeasuredNote,
   newestSameQuestion, notCompared, notComparedPhrase, oldestSameQuestion, questionDifference, seriesOf, toQuestion,
@@ -650,7 +651,7 @@ export class WaApiClient implements WaApiClientLike {
     const out: FixFacts = { confirm: body.confirm, name: typeof body.name === "string" ? body.name : "" };
     // A seen the confirm route takes (with its facts), or none: never one
     // confirm_facts would refuse when sent back unchanged.
-    if (isRecord(body.seen) && isRecord((body.seen as Record<string, unknown>).facts)) out.seen = body.seen as FactsSeen;
+    if (isSeen(body.seen)) out.seen = body.seen as FactsSeen;
     return out;
   }
 
@@ -671,7 +672,7 @@ export class WaApiClient implements WaApiClientLike {
     // that the owner was shown these facts, so nothing here rebuilds it.
     const body = (await this.requestWrite(url, { domain: params.domain, facts: params.facts, seen: params.seen }, LOOK_AT_FACTS)) as Record<string, unknown>;
     if (!isRecord(body.confirm)) throw missingPayload("the confirmed facts", LOOK_AT_FACTS);
-    return { confirm: body.confirm, seen: isRecord(body.seen) ? (body.seen as FactsSeen) : null };
+    return { confirm: body.confirm, seen: isSeen(body.seen) ? (body.seen as FactsSeen) : null };
   }
 
   async checkFix(params: { domain: string; id: string }): Promise<FixCheckResult> {
@@ -832,7 +833,7 @@ export class WaApiClient implements WaApiClientLike {
       ?? byStatus(status);
     // The wait is in details either way; said in words only where the API's
     // own sentence does not already say when ("Try again in a minute.").
-    if (retryAfter !== undefined && !/\btry again\b/i.test(message)) {
+    if (retryAfter !== undefined && !/\btry again in\b/i.test(message)) {
       message += ` Try again in ${retryAfter} second${retryAfter === 1 ? "" : "s"}.`;
     }
     if (code === "SUBSCRIPTION_UNVERIFIED") {
@@ -1006,7 +1007,12 @@ async function mayHaveLanded<T>(request: Promise<T>, lookFirst: string): Promise
 }
 
 /** Connection failures from before anything was sent. */
-const NOT_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
+const NOT_SENT = new Set([
+  "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT",
+  // A TLS handshake that failed sent no request.
+  "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
 
 /** A Retry-After header in seconds, when it is one. */
 function retryAfterHeader(headers: Headers): number | undefined {

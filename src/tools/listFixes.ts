@@ -62,19 +62,21 @@ function summaryOf(domain: string, top: string | null, fixes: FixOverview["fixes
     // hasn't run since) still says it needs.
     const need = live ? "added, and found live" : f.needed === true ? "needed" : f.needed === false ? "not needed" : "";
     const lead = need ? `${f.title ?? f.kind ?? "A fix"}: ${need}.` : `${f.title ?? f.kind ?? "A fix"}.`;
-    return `${lead}${!live && f.why ? ` ${f.why}` : ""}${platform}${live ? "" : requestSaid(f.request?.status)}`;
+    return `${lead}${!live && f.why ? ` ${f.why}` : ""}${platform}${live ? "" : requestSaid(f.request)}`;
   };
   const rest = fixes
     .filter((f) => f !== first)
     .map(said);
-  const topStatus = first ? requestSaid(first.request?.status) : "";
+  const topStatus = first ? requestSaid(first.request) : "";
   return [lead + topStatus, ...rest].join(" ");
 }
 
 /** A request's status in words: the engine's "missing" is the fix not found
  * live at its last check, not a missing request. */
-function requestSaid(status: string | null | undefined): string {
-  if (!status) return "";
+function requestSaid(request: { status?: string | null } | null | undefined): string {
+  if (!request) return "";
+  const status = request.status;
+  if (!status) return " It was requested and hasn't been checked yet.";
   if (status === "live") return " Its last check found it live.";
   if (status === "missing") return " Its last check didn't find it live yet.";
   return ` Its newest request is ${status}.`;
