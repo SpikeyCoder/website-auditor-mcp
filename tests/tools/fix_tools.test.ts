@@ -95,7 +95,14 @@ describe("get_fix — \"Get this fix\"", () => {
   });
 
   it("confirm_first is a result, not an error: the facts to show the owner, and seen to send back", async () => {
-    const res = await getFix({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getFix: confirmFirst("unconfirmed", { seen: SEEN }) } }));
+    // As the API words it: with a seen it always adds its next step (its
+    // CONFIRM_NEXT, routes rewritten to tools by the client).
+    const fn = () => {
+      throw new WaApiError("CONFIRM_FIRST", "Confirm your business facts first: the fix is written from them. Show the owner the facts in `confirm`, then confirm_facts with what they confirm and the `seen` beside it.", {
+        status: 409, details: { code: "confirm_first", reason: "unconfirmed", confirm: CONFIRM, seen: SEEN },
+      });
+    };
+    const res = await getFix({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getFix: fn } }));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data).toMatchObject({ status: "confirm_first", reason: "unconfirmed", confirm: CONFIRM, seen: SEEN });
@@ -368,5 +375,26 @@ describe("review round 2", () => {
     if (!res.ok) throw new Error("expected the facts");
     expect(res.data.can_confirm).toBe(false);
     expect(res.data.message).not.toContain("hasn't been read");
+  });
+});
+
+describe("review round 3", () => {
+  it("a fix found live is said as live, not as still needed", async () => {
+    const res = await listFixes({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { listFixes: async () => ({
+      top: null,
+      fixes: [{ kind: "business_facts", title: "Business facts", needed: true, why: "Not stated.", request: { ...REQUEST, status: "live" } }],
+    }) } }));
+    if (!res.ok) throw new Error("expected the overview");
+    expect(res.data.summary).toContain("found live");
+    expect(res.data.summary).not.toContain(": needed");
+  });
+
+  it("facts_changed's next step comes from the code, not the API's sentence", async () => {
+    const fn = () => {
+      throw new WaApiError("FACTS_CHANGED", "Something else entirely.", { status: 409, details: { code: "facts_changed", confirm: CONFIRM } });
+    };
+    const res = await confirmFacts({ domain: "acme.com", facts: { city: "Hilo, HI" }, seen: SEEN }, makeDeps({ tier: "pro", client: { confirmFacts: fn } }));
+    if (!res.ok) throw new Error("expected a result");
+    expect(res.data.message).toContain("get_fix_facts");
   });
 });

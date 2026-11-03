@@ -117,7 +117,7 @@ Checked against the live servers on 2026-10-15:
   `token_endpoint_auth_methods_supported: ["none"]`, refresh rotation, and a
   form-urlencoded `/oauth/token`.
 - **This server:** RFC 9728 metadata on both paths, stateless Streamable HTTP.
-- **Tools:** 15 of 15 have a `title` and all three hints.
+- **Tools:** 20 of 20 have a `title` and all three hints.
 - **Listing:** the privacy policy at https://website-auditor.io/privacy.
 
 ## Deploy runbook (NOT run — needs the owner's go)

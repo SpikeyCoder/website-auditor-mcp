@@ -59,9 +59,8 @@ export async function confirmFacts(args: ConfirmFactsArgs, deps: ToolDeps): Prom
           ...confirm,
           // The API's sentence already says to read the facts again
           // (get_fix_facts, after the client's rewrite); only the rule is added.
-          message: e.message.includes("get_fix_facts")
-            ? `Nothing was confirmed. ${e.message} Confirm only what the owner confirms from them.`
-            : `Nothing was confirmed. ${e.message} Use get_fix_facts for the facts and their new \`seen\`, and confirm only what the owner confirms from them.`,
+          // The next step by the code, never by reading the API's sentence.
+          message: `Nothing was confirmed: the site's facts changed since they were shown. Read them again with get_fix_facts (it returns the new \`seen\`), show the owner the facts as they are now, and confirm only what the owner confirms from them.`,
         });
       }
       return ok({ status: "facts_not_read", domain: args.domain, ...confirm, message: `Nothing was confirmed. ${e.message} ${AFTER_THE_WEEKLY_CHECK}` });

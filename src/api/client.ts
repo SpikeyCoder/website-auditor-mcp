@@ -636,7 +636,11 @@ export class WaApiClient implements WaApiClientLike {
     url.searchParams.set("domain", params.domain);
     const body = (await this.requestJson("GET", url, undefined, { fix: true })) as Record<string, unknown>;
     if (!Array.isArray(body.fixes)) throw missingPayload("the site's fixes");
-    return pickKeys(body, ["site", "platform", "platforms", "top", "fixes"]) as unknown as FixOverview;
+    // Only the entries that are fixes (objects): a null or a stray value is
+    // no fix to describe.
+    const out = pickKeys(body, ["site", "platform", "platforms", "top", "fixes"]) as Record<string, unknown>;
+    out.fixes = (body.fixes as unknown[]).filter(isRecord);
+    return out as unknown as FixOverview;
   }
 
   async getFixFacts(params: { domain: string }): Promise<FixFacts> {
@@ -654,7 +658,7 @@ export class WaApiClient implements WaApiClientLike {
     const payload: Record<string, string> = { domain: params.domain };
     if (params.kind) payload.kind = params.kind;
     if (params.platform?.trim()) payload.platform = params.platform.trim();
-    const body = (await mayHaveLanded(this.requestJson("POST", url, payload, { fix: true, lookFirst: LOOK_AT_FIX }), LOOK_AT_FIX)) as Record<string, unknown>;
+    const body = (await this.requestWrite(url, payload, LOOK_AT_FIX)) as Record<string, unknown>;
     // A 2xx is a press the API recorded, whatever its body lacks.
     if (!isRecord(body.request) || !isRecord(body.fix)) throw missingPayload("the fix", LOOK_AT_FIX);
     return { request: body.request, fix: body.fix } as FixPress;
@@ -664,10 +668,7 @@ export class WaApiClient implements WaApiClientLike {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/fix/confirm`);
     // `seen` goes back exactly as it was handed out: it is the engine's check
     // that the owner was shown these facts, so nothing here rebuilds it.
-    const body = (await mayHaveLanded(
-      this.requestJson("POST", url, { domain: params.domain, facts: params.facts, seen: params.seen }, { fix: true, lookFirst: LOOK_AT_FACTS }),
-      LOOK_AT_FACTS,
-    )) as Record<string, unknown>;
+    const body = (await this.requestWrite(url, { domain: params.domain, facts: params.facts, seen: params.seen }, LOOK_AT_FACTS)) as Record<string, unknown>;
     if (!isRecord(body.confirm)) throw missingPayload("the confirmed facts", LOOK_AT_FACTS);
     return { confirm: body.confirm, seen: isRecord(body.seen) ? (body.seen as FactsSeen) : null };
   }
@@ -694,6 +695,12 @@ export class WaApiClient implements WaApiClientLike {
    * Sends the X-API-Key header, applies the configured timeout, maps non-2xx to
    * a WaApiError, and returns the parsed body.
    */
+  /** A fix-route write (a press, a confirmation): its failures say where to
+   * look first when it may have gone through, whichever side failed. */
+  private requestWrite(url: URL, jsonBody: unknown, lookFirst: string): Promise<unknown> {
+    return mayHaveLanded(this.requestJson("POST", url, jsonBody, { fix: true, lookFirst }), lookFirst);
+  }
+
   private async requestJson(
     method: string,
     url: URL,
@@ -968,7 +975,12 @@ async function mayHaveLanded<T>(request: Promise<T>, lookFirst: string): Promise
   try {
     return await request;
   } catch (e) {
-    if (e instanceof WaApiError && e.status === undefined && (e.code === "TIMEOUT" || e.code === "UPSTREAM_ERROR")
+    // Our side's failure (no status), or a timeout reading the body of an
+    // answer that wasn't a refusal (a 2xx or 5xx whose body stalled): the
+    // write may have landed. A 4xx recorded nothing.
+    const refused = e instanceof WaApiError && e.status !== undefined && e.status >= 400 && e.status < 500;
+    const ours = e instanceof WaApiError && (e.status === undefined || (e.code === "TIMEOUT" && !refused));
+    if (e instanceof WaApiError && ours && (e.code === "TIMEOUT" || e.code === "UPSTREAM_ERROR")
       && !(isRecord(e.details) && e.details.maybe_recorded === true)) {
       // The cause (an abort, a reset) kept beside the mark.
       throw new WaApiError(e.code, `${e.message} ${lookFirst}`, { details: { maybe_recorded: true, cause: e.details } });
@@ -998,7 +1010,9 @@ const FIX_CODES: Readonly<Record<string, ErrorCode>> = {
   too_many_confirmations: "TOO_MANY_CONFIRMATIONS",
   rate_limited: "RATE_LIMITED",
   not_found: "NOT_FOUND",
-  subscription_required: "PRO_REQUIRED",
+  // The Pro gate passed just before: the engine disagreeing is a lapse in
+  // between or a token it couldn't verify, never a reason to sell the plan.
+  subscription_required: "SUBSCRIPTION_UNVERIFIED",
   invalid_domain: "INVALID_INPUT",
   invalid_id: "INVALID_INPUT",
   invalid_kind: "INVALID_INPUT",

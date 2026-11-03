@@ -17,7 +17,7 @@ import type { ConfirmBlock, FactsSeen, FixKind, FixRequest, ServedFix } from "..
 import { WaApiError } from "../api/errors.js";
 import { isRecord } from "../api/mappers.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
-import { AFTER_THE_WEEKLY_CHECK, OWNER_CONFIRMS, OWNER_ONLY } from "./fixCopy.js";
+import { AFTER_THE_WEEKLY_CHECK, OWNER_ONLY } from "./fixCopy.js";
 
 export interface GetFixArgs {
   domain: string;
@@ -78,13 +78,15 @@ function confirmFirst(domain: string, e: WaApiError): Extract<GetFixResult, { st
   // than the one that hands it out) points at the facts read, which carries
   // one. Otherwise the API's sentence already names the next step (rewritten
   // to confirm_facts by the client), so only the rule is added to it.
+  // Built from the reason and what came back, never by reading the API's
+  // sentence: the API adds its next step (show the facts, confirm_facts with
+  // the seen) exactly when it hands out a seen, so with one only the rule is
+  // added here.
   const message = reason === "facts_not_read"
     ? `${e.message} ${AFTER_THE_WEEKLY_CHECK}`
     : !seen
       ? `${e.message} Read the facts with get_fix_facts to show the owner; it returns the \`seen\` a confirmation sends back.`
-      : e.message.includes("confirm_facts")
-        ? `${e.message} ${OWNER_ONLY} After that, call get_fix again for the fix.`
-        : `${e.message} ${OWNER_CONFIRMS} After that, call get_fix again for the fix.`;
+      : `${e.message} ${OWNER_ONLY} After that, call get_fix again for the fix.`;
   return {
     status: "confirm_first",
     domain,

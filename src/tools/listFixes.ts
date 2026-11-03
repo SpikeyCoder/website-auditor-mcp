@@ -55,7 +55,12 @@ function summaryOf(domain: string, top: string | null, fixes: FixOverview["fixes
     : `No fix is waiting to be applied for ${domain} right now.`;
   const said = (f: FixOverview["fixes"][number]) => {
     const platform = f.can_apply === false ? " The site's platform most likely can't take it." : "";
-    return `${f.title ?? f.kind ?? "A fix"}: ${f.needed ? "needed" : "not needed"}.${f.why ? ` ${f.why}` : ""}${platform}${requestSaid(f.request?.status)}`;
+    const live = f.request?.status === "live";
+    // A fix found live is said as live, whatever the last audit (which
+    // hasn't run since) still says it needs.
+    const need = live ? "added, and found live" : f.needed === true ? "needed" : f.needed === false ? "not needed" : "";
+    const lead = need ? `${f.title ?? f.kind ?? "A fix"}: ${need}.` : `${f.title ?? f.kind ?? "A fix"}.`;
+    return `${lead}${!live && f.why ? ` ${f.why}` : ""}${platform}${live ? "" : requestSaid(f.request?.status)}`;
   };
   const rest = fixes
     .filter((f) => f !== first)

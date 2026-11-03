@@ -120,7 +120,7 @@ export function toCallResult(result: ToolResult<unknown>): CallToolResult {
   // where the comment describes an isError check the code never makes. So every
   // client built on this SDK that had called tools/list — which arms the
   // validator, and which every real client does — got a thrown McpError instead
-  // of our error result, for all 15 tools that declare a schema.
+  // of our error result, for all 20 tools that declare a schema.
   //
   // What that threw away was the AUTH_REQUIRED / PRO_REQUIRED body: the price,
   // the trial terms, the signup link, the get_sample_audit pointer. A keyless

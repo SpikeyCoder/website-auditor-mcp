@@ -356,11 +356,11 @@ describe("the fix routes: refusals read the API's own code", () => {
       expect(e.details).toMatchObject({ code });
     });
 
-  it("403 subscription_required is PRO_REQUIRED with the upgrade link", async () => {
+  it("403 subscription_required after the Pro gate passed is unverified, never an upsell", async () => {
     const e = await rejection(clientWith(makeFetch(403, { success: false, code: "subscription_required", error: "Pro is required for fixes." }))
       .getFix({ domain: "acme.com" }));
-    expect(e.code).toBe("PRO_REQUIRED");
-    expect(e.upgradeUrl).toBe(baseCfg.upgradeUrl);
+    expect(e.code).toBe("SUBSCRIPTION_UNVERIFIED");
+    expect(e.upgradeUrl).toBeUndefined();
   });
 
   it("401 keeps the shared key-rejection mapping", async () => {
@@ -421,5 +421,27 @@ describe("review round 2: a stalled refusal", () => {
     const e = await rejection(c.getFix({ domain: "acme.com" }));
     expect(e.status).toBe(409);
     expect((e.details as Record<string, unknown> | undefined)?.maybe_recorded).not.toBe(true);
+  });
+});
+
+describe("review round 3: client", () => {
+  it("a 2xx press whose body stalls may have been recorded", async () => {
+    const stalling = vi.fn(async (_url: unknown, init: { signal: AbortSignal }) => {
+      const stream = new ReadableStream({
+        start(ctrl) {
+          init.signal.addEventListener("abort", () => ctrl.error(Object.assign(new Error("aborted"), { name: "AbortError" })));
+        },
+      });
+      return new Response(stream, { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const c = new WaApiClient({ ...baseCfg, requestTimeoutMs: 50 } as never, { fetch: stalling as unknown as typeof fetch });
+    const e = await rejection(c.getFix({ domain: "acme.com" }));
+    expect((e.details as Record<string, unknown>).maybe_recorded).toBe(true);
+  });
+
+  it("list_fixes keeps only the entries that are fixes", async () => {
+    const c = clientWith(makeFetch(200, { success: true, top: null, fixes: [null, { kind: "llms_txt" }] }));
+    const res = await c.listFixes({ domain: "acme.com" });
+    expect(res.fixes).toEqual([{ kind: "llms_txt" }]);
   });
 });
