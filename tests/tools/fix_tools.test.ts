@@ -410,3 +410,15 @@ describe("review round 6: list_fixes", () => {
     expect(res.data.summary).toContain("requested and hasn't been checked yet");
   });
 });
+
+describe("review round 7: list_fixes", () => {
+  it("no top fix while one is needed: says none the platform can take", async () => {
+    const res = await listFixes({ domain: "acme.com" }, makeDeps({
+      tier: "pro",
+      client: { listFixes: async () => ({ site: { domain: "acme.com" }, platform: "wix", platforms: [], top: null,
+        fixes: [{ kind: "llms_txt", title: "An llms.txt", needed: true, can_apply: false, request: null }] }) },
+    }));
+    if (!res.ok) throw new Error("expected an overview");
+    expect(res.data.summary).toMatch(/^No fix the site's platform can take/);
+  });
+});

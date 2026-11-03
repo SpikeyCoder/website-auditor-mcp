@@ -54,7 +54,9 @@ function summaryOf(domain: string, top: string | null, fixes: FixOverview["fixes
     ? `Top fix for ${domain}: ${first.title ?? first.kind}.${first.why ? ` ${first.why}` : ""}`
     : top
       ? `Top fix for ${domain}: ${top}.`
-      : `No fix is waiting to be applied for ${domain} right now.`;
+      : fixes.some((f) => f.needed === true)
+        ? `No fix the site's platform can take is waiting for ${domain} right now.`
+        : `No fix is waiting to be applied for ${domain} right now.`;
   const said = (f: FixOverview["fixes"][number]) => {
     const platform = f.can_apply === false ? " The site's platform most likely can't take it." : "";
     const live = f.request?.status === "live";

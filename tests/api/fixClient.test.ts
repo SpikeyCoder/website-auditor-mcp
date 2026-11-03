@@ -494,7 +494,7 @@ describe("review round 6: client", () => {
   it("'Try again later.' still gets the wait in words", async () => {
     const e = await rejection(clientWith(makeFetch(429, { success: false, code: "too_many_confirmations", retry_after: 14400,
       error: "Too many confirmations. Try again later." })).confirmFacts({ domain: "acme.com", facts: {}, seen: { facts: {} } as never }));
-    expect(e.message).toContain("Try again in 14400 seconds.");
+    expect(e.message).toContain("Try again in 4 hours.");
   });
 
   it("a connect timeout sent nothing", async () => {

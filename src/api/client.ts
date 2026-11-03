@@ -739,15 +739,17 @@ export class WaApiClient implements WaApiClientLike {
         { details: notSent ? { cause: String(err), not_sent: true } : String(err) });
     }
 
-    // The deadline holds over the body too: headers that arrive and a body
-    // that stalls are a timeout, not a hang.
+    // On the fix routes the deadline holds over the body too: headers that
+    // arrive and a body that stalls are a timeout, not a hang. Elsewhere a
+    // body that never came still reads as {} (track_site's 200 is a success).
     let body: unknown;
+    if (!opts.fix) clearTimeout(timer);
     try {
       body = await this.parseJson(resp);
     } finally {
       clearTimeout(timer);
     }
-    if (body === undefined && controller.signal.aborted) {
+    if (opts.fix && body === undefined && controller.signal.aborted) {
       // A body read in full is kept even as the timer fires. Its status in details, not on the error (callers branch on a
       // status, as get_gtm_plan does on a 404): a refusal (4xx) whose body
       // stalled recorded nothing.
@@ -833,8 +835,8 @@ export class WaApiClient implements WaApiClientLike {
       ?? byStatus(status);
     // The wait is in details either way; said in words only where the API's
     // own sentence does not already say when ("Try again in a minute.").
-    if (retryAfter !== undefined && !/\btry again in\b/i.test(message)) {
-      message += ` Try again in ${retryAfter} second${retryAfter === 1 ? "" : "s"}.`;
+    if (retryAfter !== undefined && !/\b(?:try|check) again (?:in|tomorrow)\b/i.test(message)) {
+      message += ` Try again in ${inWords(retryAfter)}.`;
     }
     if (code === "SUBSCRIPTION_UNVERIFIED") {
       // The Pro gate just passed, so the API's "Pro is required" would
@@ -1013,6 +1015,14 @@ const NOT_SENT = new Set([
   "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN",
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_TLS_CERT_ALTNAME_INVALID",
 ]);
+
+/** A wait in words: seconds, minutes or hours, rounded up. */
+function inWords(seconds: number): string {
+  const n = (v: number, unit: string) => `${v} ${unit}${v === 1 ? "" : "s"}`;
+  if (seconds < 120) return n(seconds, "second");
+  if (seconds < 7200) return n(Math.ceil(seconds / 60), "minute");
+  return n(Math.ceil(seconds / 3600), "hour");
+}
 
 /** A Retry-After header in seconds, when it is one. */
 function retryAfterHeader(headers: Headers): number | undefined {
