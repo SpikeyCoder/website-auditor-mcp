@@ -110,12 +110,17 @@ describe("tool registry", () => {
     for (const t of P1_TOOLS) expect(p0Names.has(t.name)).toBe(false);
   });
 
-  it("serves all 14 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools + check_upgrade_status", () => {
-    expect(SERVED_TOOLS).toHaveLength(15);
+  it("serves all 20 tools: Phase-0 + scheduled-monitoring + the four Phase-1 read tools + the five fix tools + check_upgrade_status", () => {
+    expect(SERVED_TOOLS).toHaveLength(20);
     expect(SERVED_TOOLS.map((t) => t.name).sort()).toEqual(
       [
+        "check_fix",
         "check_upgrade_status",
-      "get_sample_audit",
+        "confirm_facts",
+        "get_fix",
+        "get_fix_facts",
+        "get_sample_audit",
+        "list_fixes",
         "compare_competitors",
         "generate_schema",
         "get_ai_visibility",
@@ -145,6 +150,43 @@ describe("tool registry", () => {
       expect(SERVED_TOOLS.some((t) => t.name === name)).toBe(true);
       expect(gate[name]).toBe("pro");
     }
+  });
+
+  it("the five \"Get this fix\" tools are served and Pro-gated", () => {
+    const gate = Object.fromEntries(SERVED_TOOLS.map((t) => [t.name, t.tier]));
+    for (const name of ["list_fixes", "get_fix_facts", "get_fix", "confirm_facts", "check_fix"]) {
+      expect(gate[name], name).toBe("pro");
+    }
+  });
+
+  it("get_fix is \"Get this fix\" (owner decision 2)", () => {
+    const spec = SERVED_TOOLS.find((t) => t.name === "get_fix")!;
+    expect(spec.title).toBe("Get this fix");
+    expect(spec.description).toContain('"Get this fix"');
+    expect(Object.keys(spec.inputSchema).sort()).toEqual(["domain", "kind", "platform"]);
+    const schema = z.object(spec.inputSchema);
+    expect(schema.safeParse({ domain: "acme.com", kind: "llms_txt" }).success).toBe(true);
+    expect(schema.safeParse({ domain: "acme.com", kind: "sitemap" }).success).toBe(false);
+  });
+
+  it("confirm_facts tells the agent to show the owner and never confirm for them (owner decision 1)", () => {
+    const spec = SERVED_TOOLS.find((t) => t.name === "confirm_facts")!;
+    expect(spec.description).toMatch(/show(ing)? the owner/i);
+    expect(spec.description).toMatch(/never confirm facts on the owner's behalf/i);
+    expect(spec.description).toMatch(/`seen`[^.]*exactly as it was handed out/);
+    // seen is required, and sent on exactly: an extra key is kept, not stripped.
+    const schema = z.object(spec.inputSchema);
+    const seen = { kind: "premises", facts: { city: "Hilo, HI", phone: null }, extra: 1 };
+    expect(schema.safeParse({ domain: "acme.com", facts: { name: "Acme" } }).success).toBe(false);
+    const parsed = schema.parse({ domain: "acme.com", facts: { name: "Acme", city: null }, seen });
+    expect(parsed.seen).toEqual(seen);
+  });
+
+  it("generate_schema keeps its triggers and points at get_fix for a finished fix (owner decision 3)", () => {
+    const spec = SERVED_TOOLS.find((t) => t.name === "generate_schema")!;
+    for (const trigger of ['"schema,"', '"structured data,"', '"JSON-LD,"']) expect(spec.description).toContain(trigger);
+    expect(spec.description).toContain("get_fix");
+    expect(spec.description).toMatch(/confirmed facts/);
   });
 
   it("get_recommendations answers any key: free-tier, and says what Pro adds", () => {

@@ -15,14 +15,19 @@ async function connect(deps = makeDeps({ tier: "pro" })) {
 }
 
 describe("MCP server (end-to-end over in-memory transport)", () => {
-  it("lists all 14 served tools (Phase-0 + scheduled-monitoring + Phase-1 reads + check_upgrade_status + get_sample_audit) with verbatim names", async () => {
+  it("lists all 20 served tools (Phase-0 + scheduled-monitoring + Phase-1 reads + the fix tools + check_upgrade_status + get_sample_audit) with verbatim names", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
+        "check_fix",
         "check_upgrade_status",
         "compare_competitors",
+        "confirm_facts",
         "generate_schema",
+        "get_fix",
+        "get_fix_facts",
+        "list_fixes",
         "get_ai_visibility",
         "get_benchmark",
         "get_changes",
@@ -61,6 +66,13 @@ describe("MCP server (end-to-end over in-memory transport)", () => {
     //     enabled:false it makes untrack_site's hard delete → destructive.
     //   untrack_site — that delete, on the caller's own account → destructive,
     //     closed-world.
+    //   list_fixes, get_fix_facts — read what the service holds → read-only.
+    //   get_fix — records the press ("Get this fix"): not read-only, nothing
+    //     deleted, written from stored facts → closed-world.
+    //   confirm_facts — stores the owner's confirmation as a new row; a later
+    //     one supersedes it → not destructive, closed-world.
+    //   check_fix — fetches the member's live site and records what it found
+    //     → not read-only, open-world.
     const { client } = await connect();
     const { tools } = await client.listTools();
     const read = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
@@ -82,6 +94,11 @@ describe("MCP server (end-to-end over in-memory transport)", () => {
       get_gtm_plan: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
       track_site: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       untrack_site: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+      list_fixes: read,
+      get_fix_facts: read,
+      get_fix: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      confirm_facts: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      check_fix: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     };
     expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(expected).sort());
     for (const tool of tools) {
@@ -133,7 +150,7 @@ describe("keyless discovery — what a developer with no API key can actually do
   it("registers every tool with no key configured, so the surface is discoverable", async () => {
     const { client } = await connect(keyless());
     const { tools } = await client.listTools();
-    expect(tools.length).toBe(15);
+    expect(tools.length).toBe(20);
   });
 
   it("instructions point a keyless model at the free demo instead of refusing", async () => {

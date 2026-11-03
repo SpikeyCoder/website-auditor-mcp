@@ -22,7 +22,7 @@ lends no identity, exactly as designed.
 
 The portal's auth selector offers **No Auth / Mixed Auth / OAuth** and no api-key
 mode. Mixed Auth is this product's shape: `get_sample_audit` and
-`check_upgrade_status` open to everyone, the other thirteen tools behind a login.
+`check_upgrade_status` open to everyone, the other eighteen tools behind a login.
 
 ## How Mixed Auth works
 

@@ -223,7 +223,7 @@ Then, and only then, rescan in the portal:
 
 | # | Check | Pass condition | ✅ |
 |---|---|---|---|
-| 0.7 | Scan Tools | 15 tools listed | ☐ |
+| 0.7 | Scan Tools | 20 tools listed | ☐ |
 | 0.7b | Does ChatGPT render MCP prompts at all? | open the connector in ChatGPT and **record what you see** — 5 prompts, or none: `__________`. Either answer passes; this row settles a question rather than gating on it | ☐ |
 | 0.7c | Skills | 5 skills listed, including `build-growth-plan`, each Passed | ☐ |
 | 0.7d | A ChatGPT user can reach the growth plan | one of the portal's starter prompts leads to `get_gtm_plan` | ☐ |
@@ -270,7 +270,7 @@ against the live server, so 0.3 proves the server serves them and 0.7b proves
 the client received them. Five skills is
 `ls cursor-plugin/skills | wc -l`, and `tests/manifests.test.ts` and
 `tests/cursorPlugin.test.ts` pin both to `PROMPT_SPECS` — so adding a prompt
-moves all three together and turns the suite red until it does. Fifteen tools is
+moves all three together and turns the suite red until it does. Twenty tools is
 checked live by the command above for the same reason 0.3 is: the requirement is
 about what the server serves, not what the source contains.
 

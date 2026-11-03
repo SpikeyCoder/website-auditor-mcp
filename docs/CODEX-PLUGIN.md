@@ -131,7 +131,7 @@ the declaration, built by `pack:codex`.
 
 ## Phase 2 — the hosted server
 
-**The code exists**: `src/http.ts` serves the same 15 tools over stateless
+**The code exists**: `src/http.ts` serves the same tools (20 today) over stateless
 Streamable HTTP (`npm run start:http`, port from `WA_HTTP_PORT`/`PORT`).
 Multi-tenant by construction — the key arrives per request
 (`Authorization: Bearer wa_…`, or `X-API-Key`), deps are per-key bundles with
@@ -199,6 +199,15 @@ What remains is deployment, not code:
      plan is written from the stored audit; the plan engine searches
      nothing). If the portal already holds justifications for it, update its
      readOnly and openWorld ones (both were true); otherwise write all three.
+
+   **Added with "Get this fix" (five tools, each needing all three
+   justifications):** list_fixes and get_fix_facts read what the service
+   holds (read-only, closed-world); get_fix records a request for the fix
+   (not read-only, not destructive, closed-world: written from stored
+   facts); confirm_facts stores the owner's confirmed facts as a new
+   confirmation that a later one supersedes (not read-only, not destructive,
+   closed-world); check_fix fetches the member's live site and records what
+   it found (not read-only, not destructive, open-world).
 
 Still required, currently missing: a **terms-of-service URL** (the portal
 wants website, support, privacy AND terms URLs; we have no public terms page —

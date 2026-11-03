@@ -806,3 +806,148 @@ export interface GtmPlanResult {
   evidence_note?: string;
   summary: string;
 }
+
+// ── "Get this fix" (website-auditor-api routes/fix.js: served fixes) ─────────
+//
+// Relayed as the API sends them: the API already picks the fields each route
+// documents, and the engine (chaos_tester served_fixes.py) owns their shape.
+// Only the fields the MCP reads are typed; real rows carry more.
+
+/** A fix request as the owner sees it (served_fixes.public_request). */
+export interface FixRequest {
+  id?: string | null;
+  kind?: string | null;
+  /** How it was asked for: "served" (the dashboard), "mcp" or "api". */
+  path?: string | null;
+  platform?: string | null;
+  /** "live", "missing", or null before any check reached the site. */
+  status?: string | null;
+  presses?: number | null;
+  requested_at?: string | null;
+  last_pressed_at?: string | null;
+  applied_at?: string | null;
+  checked_at?: string | null;
+  verified_at?: string | null;
+  check?: FixCheck | null;
+  [key: string]: unknown;
+}
+
+/** One of the site's fixes in the overview. */
+export interface FixSummary {
+  kind?: string;
+  title?: string;
+  needed?: boolean;
+  why?: string;
+  can_apply?: boolean;
+  request?: FixRequest | null;
+  [key: string]: unknown;
+}
+
+/** GET /api/fix — the site's fixes, top first. */
+export interface FixOverview {
+  site?: { domain?: string; [key: string]: unknown };
+  /** The site's detected platform ("unknown" when none was). */
+  platform?: string;
+  /** The platforms an owner may pick: [{key, label}]. */
+  platforms?: Array<{ key?: string; label?: string; [key: string]: unknown }>;
+  /** The kind of the top fix, or null when none is needed that the platform can take. */
+  top?: string | null;
+  fixes: FixSummary[];
+}
+
+/**
+ * The confirm block (chaos_tester ai_description.confirm_view): each fact with
+ * what the site says and what the owner confirmed, `confirmed_at`, the facts
+ * gone stale, and whether the facts can be confirmed now.
+ */
+export interface ConfirmBlock {
+  kind?: string | null;
+  facts?: Array<{ fact?: string; label?: string; site?: unknown; confirmed?: string | null; [key: string]: unknown }>;
+  confirmed_at?: string | null;
+  stale?: string[];
+  can_confirm?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Exactly what a confirm block shows ({kind, facts: {fact: the site's value}}).
+ * A confirmation sends it back unchanged: it is the engine's proof that the
+ * owner was shown these facts, so it is never rebuilt or edited here.
+ */
+export interface FactsSeen {
+  kind?: string | null;
+  facts: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** GET /api/fix/facts. `seen` is absent when the block's facts can't be confirmed yet. */
+export interface FixFacts {
+  confirm: ConfirmBlock;
+  seen?: FactsSeen;
+  /** The business name the audits found, to fill the name fact where the site states none. */
+  name: string;
+}
+
+/** POST /api/fix/confirm. `seen` is null when the facts can't be confirmed again now. */
+export interface ConfirmFactsResult {
+  confirm: ConfirmBlock;
+  seen: FactsSeen | null;
+}
+
+export interface FixBlock {
+  id?: string;
+  label?: string;
+  format?: string;
+  content?: string;
+  filename?: string;
+  [key: string]: unknown;
+}
+
+/** The steps for one platform (chaos_tester fix_steps.steps). */
+export interface FixSteps {
+  platform?: string;
+  label?: string;
+  steps?: string[];
+  note?: string | null;
+  agent_prompt?: string | null;
+  picker?: Array<{ key?: string; label?: string }> | null;
+  can_apply?: boolean;
+  [key: string]: unknown;
+}
+
+/** A fix, finished: each block ready to copy, and the steps for the site's platform. */
+export interface ServedFix {
+  kind?: string;
+  title?: string;
+  facts?: Record<string, string>;
+  blocks?: FixBlock[];
+  advice?: string | null;
+  checks?: string[];
+  steps?: FixSteps;
+  copy_all?: string | null;
+  [key: string]: unknown;
+}
+
+/** POST /api/fix — "Get this fix". */
+export interface FixPress {
+  request: FixRequest;
+  fix: ServedFix;
+}
+
+/** What "I've added it" found on the live site. */
+export interface FixCheck {
+  live?: boolean;
+  /** False when the site did not answer: that says nothing about the fix. */
+  reached?: boolean;
+  missing?: Array<{ fact?: string; what?: string; detail?: string }>;
+  checked_at?: string;
+  [key: string]: unknown;
+}
+
+/** POST /api/fix/check — "I've added it". */
+export interface FixCheckResult {
+  request: FixRequest;
+  check: FixCheck;
+}
+
+export type FixKind = "business_facts" | "llms_txt";

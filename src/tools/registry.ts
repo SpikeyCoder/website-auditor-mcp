@@ -49,7 +49,10 @@ export type ToolEffect =
   | "runs-audits" // one audit per uncached site compared (compare_competitors)
   | "uses-plan"   // generates a growth plan: one of the daily plan allowance
   | "enrolls"     // enrolls a domain in weekly audits; enabled:false deletes the tracking row
-  | "untracks";   // deletes the tracking row
+  | "untracks"    // deletes the tracking row
+  | "serves-fix"  // "Get this fix": records the press (a fix_requests row, presses counted)
+  | "confirms"    // stores the owner's confirmed facts (a new confirmation; a later one supersedes it)
+  | "checks-fix"; // "I've added it": fetches the live site and records what it found
 
 export interface EffectTraits {
   readOnlyHint: boolean;
@@ -79,6 +82,15 @@ export const EFFECTS: Record<ToolEffect, EffectTraits> = {
   // enrolling also schedules weekly audits of a public domain.
   enrolls: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, label: "[destructive: writes tracking state]" },
   untracks: { readOnlyHint: false, destructiveHint: true, openWorldHint: false, label: "[destructive: writes tracking state]" },
+  // "Get this fix" (served fixes). A press is recorded (and counted) on the
+  // caller's own account, from stored facts: nothing deleted, closed-world.
+  "serves-fix": { readOnlyHint: false, destructiveHint: false, openWorldHint: false, label: "[records a request]" },
+  // A confirmation is a new row; the one it supersedes is kept, and a new
+  // confirmation corrects it — not irreversible, so not destructive.
+  confirms: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, label: "[writes confirmed facts]" },
+  // Fetches the member's own live site (the public internet) and records the
+  // result on the request.
+  "checks-fix": { readOnlyHint: false, destructiveHint: false, openWorldHint: true, label: "[reads the live site]" },
 };
 
 export const labelFor = (spec: { effect: ToolEffect }): string => EFFECTS[spec.effect].label;
@@ -275,7 +287,7 @@ export const P1_TOOLS: ToolSpec[] = [
     effect: "computes",
     title: "Generate JSON-LD schema",
     description:
-      'Generate structured data (JSON-LD schema) tailored to a website, to improve how AI assistants and search engines understand it. Use this when someone asks for "schema," "structured data," "JSON-LD," or wants the actual markup to implement a recommendation. Returns a DRAFT, not finished markup: every name field arrives as a placeholder — "Your Business Name" on the business types, and on a Product the product\'s own name and brand as "Your Product Name" and "Brand Name" — that the owner must replace with real names confirmed with them, never guessed from the domain or copied from an audit. `placement_notes` says what to replace first, then where to embed the finished snippet, so relay the whole ask and do not tell the user to paste the draft as returned.',
+      'Generate structured data (JSON-LD schema) tailored to a website, to improve how AI assistants and search engines understand it. Use this when someone asks for "schema," "structured data," "JSON-LD," or wants the actual markup to implement a recommendation. Returns a DRAFT, not finished markup: every name field arrives as a placeholder — "Your Business Name" on the business types, and on a Product the product\'s own name and brand as "Your Product Name" and "Brand Name" — that the owner must replace with real names confirmed with them, never guessed from the domain or copied from an audit. `placement_notes` says what to replace first, then where to embed the finished snippet, so relay the whole ask and do not tell the user to paste the draft as returned. For a finished fix written from the owner\'s confirmed facts, with paste steps for their site\'s platform, use get_fix ("Get this fix") instead: its requests are recorded.',
     inputSchema: {
       domain: domainArg,
       type: z
@@ -398,6 +410,86 @@ const GET_GTM_PLAN_TOOL: ToolSpec = {
   },
 };
 
+
+// ─── "Get this fix" (served fixes, part 1) ───────────────────────────────────
+// website-auditor-api routes/fix.js. A member's site fix served finished,
+// written from the facts its owner confirmed, with paste steps for the site's
+// platform; then a live check. Five tools, not four: the overview (list_fixes)
+// reads only, and folding it into get_fix would put a recorded press — and a
+// not-read-only annotation — behind every "which fixes / what id" question.
+
+const fixKindArg = z.enum(["business_facts", "llms_txt"]).optional().describe(
+  'Which fix: "business_facts" (structured data plus About and FAQ text, from the owner\'s confirmed facts) '
+  + 'or "llms_txt" (an llms.txt titled with the confirmed name). Left out, the site\'s top fix.');
+
+export const FIX_TOOLS: ToolSpec[] = [
+  {
+    name: "list_fixes",
+    tier: "pro",
+    effect: "stored",
+    title: "List ready-made fixes",
+    description:
+      'List the ready-made fixes Website Auditor can serve finished for a tracked site, top first: whether each is needed and why, whether the platform the site runs on can take it, and its newest request with that request\'s status (live, missing, or not checked yet). Use this when someone asks which fixes their site needs, which to do first, or whether a fix they added has gone live. Also returns the site\'s detected `platform`, the `platforms` a fix\'s steps can be written for, and each newest request\'s `id`, which check_fix takes, without recording a new request. Reads only: nothing is recorded and the site is not fetched. It answers only for a site the account tracks.',
+    inputSchema: { domain: domainArg },
+  },
+  {
+    name: "get_fix_facts",
+    tier: "pro",
+    effect: "stored",
+    title: "Facts to confirm",
+    description:
+      'Read the business facts a site\'s fixes are written from, as they stand to be confirmed. Use this before confirming facts, to correct facts already confirmed, or after a confirmation answered facts_changed. Returns `confirm` (each fact with what the site says and what the owner confirmed, `confirmed_at`, and any facts gone stale), `name` (the business name the audits found, for the name fact where the site states none), and `seen`, exactly what the block shows, which confirm_facts sends back unchanged. `seen` is absent when the facts cannot be confirmed yet (`can_confirm` false: the site has not been read). The facts are the owner\'s to confirm: show them to the owner. Reads only.',
+    inputSchema: { domain: domainArg },
+  },
+  {
+    name: "get_fix",
+    tier: "pro",
+    effect: "serves-fix",
+    title: "Get this fix",
+    description:
+      '"Get this fix": a site fix served finished, written from the business facts its owner confirmed, with paste steps for the platform the site runs on. Use this when someone asks to "get this fix," "do it for me," "give me the structured data / llms.txt to paste," or wants a fix done rather than described. Returns status "served" with the request (its `id` is what check_fix checks) and the fix: each block ready to copy, the steps for the site\'s platform (or the `platform` given), and `copy_all`, the prompt and every block in one paste, where the steps carry a prompt for the agent that edits the site. Each call is recorded as a request for the fix. Nothing is served before the owner has confirmed the facts it states: then it returns status "confirm_first" with the `reason`, the confirm block and `seen` — show the owner those facts, and once they confirm or correct them, call confirm_facts with `seen` unchanged and ask again. With reason "facts_not_read" the site has not been read yet, so there is nothing to confirm until its next weekly check. It answers only for a site the account tracks.',
+    inputSchema: {
+      domain: domainArg,
+      kind: fixKindArg,
+      platform: z.string().optional().describe(
+        'The platform to write the steps for, one of the `platforms` keys in the site\'s fix list (e.g. "wordpress", '
+        + '"shopify", "developer_host"). Left out, the platform detected for the site.'),
+    },
+  },
+  {
+    name: "confirm_facts",
+    tier: "pro",
+    effect: "confirms",
+    title: "Confirm business facts",
+    description:
+      'Confirm the business facts a site\'s fixes are written from, as the site\'s owner confirms them. Use this only after showing the owner the facts get_fix_facts or get_fix returned (the confirm block, with the business `name`) and getting their own confirmation or corrections: never confirm facts on the owner\'s behalf, and never without asking them. `facts` is the owner\'s answers, keyed by each fact\'s `fact` in the confirm block (the business name under "name"); `seen` is sent back exactly as it was handed out, unchanged, and the confirmation is refused without it. Returns status "confirmed" with the confirmed block and its new `seen`. When the site\'s facts changed since they were shown, nothing is confirmed (status "facts_changed", with the facts as they are now): read them again with get_fix_facts and show the owner before confirming. With status "facts_not_read" the site has not been read yet and there is nothing to confirm. Confirmations are capped over any 24 hours (TOO_MANY_CONFIRMATIONS, with retry_after).',
+    inputSchema: {
+      domain: domainArg,
+      facts: z.record(z.string().nullable()).describe(
+        'The owner\'s answers, keyed by each fact\'s `fact` in the confirm block (the business name under "name"). '
+        + "A fact left out or empty is not confirmed."),
+      seen: z.object({
+        kind: z.string().nullable().optional(),
+        facts: z.record(z.unknown()),
+      }).passthrough().describe(
+        "Exactly the `seen` that came with the facts shown to the owner, unchanged. Without it, or with it changed, "
+        + "nothing is confirmed."),
+    },
+  },
+  {
+    name: "check_fix",
+    tier: "pro",
+    effect: "checks-fix",
+    title: "Check a fix is live",
+    description:
+      '"I\'ve added it": check whether a fix is live on the site. Use this when the owner says they have added, pasted or published a fix, or asks "is it live" or "did it work." Reads the live site for the fix request `id` (from get_fix, or a fix\'s newest request in list_fixes) and records what it found: `live`, or what is missing, each named. For the business-facts fix the home page\'s structured data has to state every fact the fix stated; for llms.txt, /llms.txt has to answer with a valid file. A site that did not answer is not called missing the fix (`reached` false). One check a minute per request: asked again sooner it answers CHECKED_RECENTLY with retry_after. It does not predict any change in AI visibility; the weekly check observes that.',
+    inputSchema: {
+      domain: domainArg,
+      id: z.string().describe("The fix request's id: `request.id` from the fix as served, or a fix's newest `request.id` in the site's fix list."),
+    },
+  },
+];
+
 /**
  * Attaches the declared output shape, by name.
  *
@@ -416,6 +508,7 @@ export const ALL_TOOL_SPECS: ToolSpec[] = [
   ...P1_TOOLS,
   ...MONITORING_TOOLS,
   GET_GTM_PLAN_TOOL,
+  ...FIX_TOOLS,
   CHECK_UPGRADE_STATUS_TOOL,
   GET_SAMPLE_AUDIT_TOOL,
 ].map(withOutput);
@@ -552,9 +645,36 @@ export const NEUTRAL_EDITS: Partial<Record<string, Array<[string, string]>>> = {
     [" Adds weekly re-audits to the history that get_changes reads from — a history every audit already accrues, tracked or not — so use this to be watched on a schedule, not to make get_changes work. Passing enabled: false stops monitoring by deleting the enrollment, as untrack_site does.",
       " Adds weekly re-audits to the domain's AI-visibility history, which every audit already adds to, tracked or not. Passing enabled: false stops monitoring by deleting the enrollment."],
   ],
+  // Owner decision 3's pointer, as the fact it rests on.
   generate_schema: [
     [" that the owner must replace with real names confirmed with them, never guessed from the domain or copied from an audit. `placement_notes` says what to replace first, then where to embed the finished snippet, so relay the whole ask and do not tell the user to paste the draft as returned.",
       " meant to be replaced with the business's real names, which the tool does not know; a name an audit detected is not confirmed by the owner. `placement_notes` says what to replace first, then where to embed the finished snippet; the draft is not meant to be used as returned."],
+    [" For a finished fix written from the owner's confirmed facts, with paste steps for their site's platform, use get_fix (\"Get this fix\") instead: its requests are recorded.",
+      " It is not the finished fix written from the owner's confirmed facts."],
+  ],
+  list_fixes: [
+    [", and each newest request's `id`, which check_fix takes, without recording a new request.",
+      ", and each newest request's `id`, without recording a new request."],
+  ],
+  get_fix_facts: [
+    [", which confirm_facts sends back unchanged.", ", which a confirmation sends back unchanged."],
+    [" The facts are the owner's to confirm: show them to the owner.", " The facts are the owner's to confirm."],
+  ],
+  get_fix: [
+    [" (its `id` is what check_fix checks)", " (its `id` identifies it for a live check)"],
+    [" — show the owner those facts, and once they confirm or correct them, call confirm_facts with `seen` unchanged and ask again.",
+      ": the facts for the owner to confirm or correct, and what a confirmation sends back unchanged."],
+  ],
+  // Owner decision 1 on the Claude box, where a description may say what a
+  // tool is for but not instruct the model: the tool records the OWNER's own
+  // confirmation of facts they were shown, and nothing else.
+  confirm_facts: [
+    [" Use this only after showing the owner the facts get_fix_facts or get_fix returned (the confirm block, with the business `name`) and getting their own confirmation or corrections: never confirm facts on the owner's behalf, and never without asking them.",
+      " It records the owner's own confirmation of facts they were shown (the confirm block, with the business `name`): a confirmation the owner gave, with their corrections, not facts confirmed for them."],
+    [": read them again with get_fix_facts and show the owner before confirming.", ", which the owner sees before a new confirmation."],
+  ],
+  check_fix: [
+    [" (from get_fix, or a fix's newest request in list_fixes)", " (the request a fix was served under)"],
   ],
   get_gtm_plan: [
     [" Pass `focus` or `constraints` to steer it, and `prior_plan` (the markdown from an earlier call) to refine rather than start over.",
@@ -606,8 +726,9 @@ function withProSuffix(spec: ToolSpec): ToolSpec {
  * the scheduled-monitoring surface — track_site (start), untrack_site (stop),
  * list_tracked_sites (list), get_monitoring_status (per-user view) — the four
  * read tools (get_benchmark, generate_schema and get_report, Pro-gated, and
- * get_recommendations, any key), get_gtm_plan, check_upgrade_status (1.0.4)
- * and get_sample_audit (no key at all).
+ * get_recommendations, any key), get_gtm_plan, the five "Get this fix" tools
+ * (list_fixes, get_fix_facts, get_fix, confirm_facts, check_fix),
+ * check_upgrade_status (1.0.4) and get_sample_audit (no key at all).
  */
 export const SERVED_TOOLS: ToolSpec[] = [
   ...P0_TOOLS,
@@ -615,6 +736,7 @@ export const SERVED_TOOLS: ToolSpec[] = [
   ...PHASE1_READ_TOOLS,
   ...MONITORING_TOOLS,
   GET_GTM_PLAN_TOOL,
+  ...FIX_TOOLS,
   CHECK_UPGRADE_STATUS_TOOL,
   GET_SAMPLE_AUDIT_TOOL,
 ].map(withProSuffix).map(withOutput);

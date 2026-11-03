@@ -69,11 +69,11 @@ async function connectClient(url: string, headers?: Record<string, string>): Pro
 }
 
 describe("MCP over Streamable HTTP", () => {
-  it("serves initialize + tools/list to the SDK client — all 15 tools, correct identity", async () => {
+  it("serves initialize + tools/list to the SDK client — all 20 tools, correct identity", async () => {
     const { url } = await listen({ depsFactory: recordingFactory().factory });
     const client = await connectClient(url);
     const { tools } = await client.listTools();
-    expect(tools.length).toBe(15);
+    expect(tools.length).toBe(20);
     expect(client.getServerVersion()?.name).toBe("website-auditor");
     await client.close();
   });
@@ -901,7 +901,7 @@ describe("Mixed Auth over Streamable HTTP", () => {
     await client.close();
   });
 
-  it("marks the two free tools noauth and the other thirteen oauth2", async () => {
+  it("marks the two free tools noauth and the other eighteen oauth2", async () => {
     const { url } = await listen({
       config: testConfig({ apiKey: undefined, ...MIXED_AUTH }),
       depsFactory: recordingFactory().factory,
@@ -910,7 +910,7 @@ describe("Mixed Auth over Streamable HTTP", () => {
     const { tools } = await client.listTools();
     const open = tools.filter((t) => JSON.stringify(t._meta?.securitySchemes).includes("noauth"));
     expect(open.map((t) => t.name).sort()).toEqual(["check_upgrade_status", "get_sample_audit"]);
-    expect(tools.length - open.length).toBe(13);
+    expect(tools.length - open.length).toBe(18);
     // The scope a protected tool asks for is the configured one, not a guess.
     const pro = tools.find((t) => t.name === "run_audit")!;
     expect(pro._meta?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["audit"] }]);
@@ -937,7 +937,7 @@ describe("Mixed Auth over Streamable HTTP", () => {
     const { tools } = await client.listTools();
 
     const pro = tools.filter((t) => JSON.stringify(t._meta?.securitySchemes).includes("oauth2"));
-    expect(pro.length).toBe(13);
+    expect(pro.length).toBe(18);
     for (const tool of pro) {
       expect(tool._meta?.securitySchemes, tool.name)
         .toEqual([{ type: "oauth2", scopes: ["audit", "openid", "email"] }]);

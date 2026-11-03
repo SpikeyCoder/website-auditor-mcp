@@ -56,7 +56,12 @@
         "get_benchmark",
         "generate_schema",
         "get_report",
-        "get_gtm_plan"
+        "get_gtm_plan",
+        "list_fixes",
+        "get_fix_facts",
+        "get_fix",
+        "confirm_facts",
+        "check_fix"
       ]
     }
   }

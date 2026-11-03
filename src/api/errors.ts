@@ -17,7 +17,17 @@ export type ErrorCode =
   | "INVALID_INPUT" // bad domain / missing required argument (400)
   | "UPSTREAM_ERROR" // the API or audit service errored (5xx / network)
   | "TIMEOUT" // the audit did not complete in time (504)
-  | "NOT_YET_AVAILABLE"; // endpoint not yet implemented in website-auditor-api
+  | "NOT_YET_AVAILABLE" // endpoint not yet implemented in website-auditor-api
+  // ── "Get this fix" (website-auditor-api routes/fix.js) ──
+  // Read from the API's own `code`, never from the status: on these routes a
+  // 409 is not the tracked-domain cap and a 429 is not the daily audit cap.
+  | "CONFIRM_FIRST" // the fix's facts aren't confirmed by the owner yet (409 confirm_first; get_fix answers it as a result)
+  | "FACTS_CHANGED" // the site's facts changed since they were shown (409; confirm_facts answers it as a result)
+  | "FACTS_NOT_READ" // the site wasn't read yet: nothing to confirm until the weekly check (409; a result too)
+  | "CHECKED_RECENTLY" // "I've added it" asked again within the minute (429, retry_after)
+  | "TOO_MANY_CONFIRMATIONS" // the confirmation cap (429, retry_after)
+  | "RATE_LIMITED" // a limit with no code of its own (429, retry_after)
+  | "NOT_FOUND"; // an untracked site, or an unknown fix request id (404)
 
 /**
  * The codes that all mean "your key did not get you in".

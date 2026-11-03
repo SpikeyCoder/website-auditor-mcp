@@ -120,7 +120,7 @@
     },
     {
       "name": "generate_schema",
-      "description": "Generate JSON-LD schema [read-only]. Generate structured data (JSON-LD) tailored to a website, to improve how AI assistants and search engines understand it. Returns a draft whose name placeholders (\"Your Business Name\"; on a Product \"Your Product Name\" and \"Brand Name\") the owner must replace with real names confirmed with them — never guessed from the domain or copied from an audit — plus placement notes saying what to replace first, then where to embed. A missing or \"auto\" type returns an Organization draft, not a detected one. Requires Pro."
+      "description": "Generate JSON-LD schema [read-only]. Generate structured data (JSON-LD) tailored to a website, to improve how AI assistants and search engines understand it. Returns a draft whose name placeholders (\"Your Business Name\"; on a Product \"Your Product Name\" and \"Brand Name\") the owner must replace with real names confirmed with them — never guessed from the domain or copied from an audit — plus placement notes saying what to replace first, then where to embed. A missing or \"auto\" type returns an Organization draft, not a detected one. For a finished fix written from the owner's confirmed facts, with paste steps for their platform, see get_fix (\"Get this fix\"). Requires Pro."
     },
     {
       "name": "get_report",
@@ -129,6 +129,26 @@
     {
       "name": "get_gtm_plan",
       "description": "Build a GTM plan from the audit [uses a daily plan]. Produce a written go-to-market plan grounded in the audit's cited sources — the documents the AI assistants actually read, each marked yours, competitor or third_party (competitor sources are context, never placement targets). When no citation evidence was recorded the plan grounds itself in the report's issues and stats. Supports focus, constraints, and refining a prior plan. Requires Pro."
+    },
+    {
+      "name": "list_fixes",
+      "description": "List ready-made fixes [read-only]. List the fixes Website Auditor can serve finished for a tracked site, top first: whether each is needed and why, whether the site's platform can take it, and its newest request with that request's status (live, missing, or not checked yet). Also returns the detected platform and the platforms a fix's steps can be written for. Records nothing and does not fetch the site. Requires Pro."
+    },
+    {
+      "name": "get_fix_facts",
+      "description": "Facts to confirm [read-only]. Read the business facts a site's fixes are written from: what the site says for each and what the owner confirmed, the business name the audits found, and exactly what the confirm block shows (seen), which a confirmation sends back unchanged. The facts are the owner's to confirm. Requires Pro."
+    },
+    {
+      "name": "get_fix",
+      "description": "Get this fix [records a request]. \"Get this fix\": a site fix served finished — structured data plus About and FAQ text, or an llms.txt — written only from the business facts its owner confirmed, each block ready to copy, with paste steps for the platform the site runs on (and, where the platform has one, a prompt for the agent that edits the site). Each call is recorded as a request for the fix. Until the owner has confirmed the facts it states, it answers with those facts to put to the owner instead. Requires Pro."
+    },
+    {
+      "name": "confirm_facts",
+      "description": "Confirm business facts [writes confirmed facts]. Confirm the business facts a site's fixes are written from, as the owner confirms them: only facts the owner was shown and confirmed or corrected themselves — never on the owner's behalf — sending back exactly the seen that came with them. If the site's facts changed since they were shown, nothing is confirmed and the current facts come back to show the owner again. Requires Pro."
+    },
+    {
+      "name": "check_fix",
+      "description": "Check a fix is live [reads the live site]. \"I've added it\": reads the live site for a fix request and records what it found — live, or each thing still missing. A site that did not answer is not called missing the fix. Once a minute per request. Does not predict any change in AI visibility. Requires Pro."
     },
     {
       "name": "check_upgrade_status",
