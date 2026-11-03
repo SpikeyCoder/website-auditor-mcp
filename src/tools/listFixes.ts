@@ -52,7 +52,7 @@ function summaryOf(domain: string, top: string | null, fixes: FixOverview["fixes
   const first = fixes.find((f) => f.kind === top);
   const lead = first
     ? `Top fix for ${domain}: ${first.title ?? first.kind}.${first.why ? ` ${first.why}` : ""}`
-    : `No fix is needed for ${domain} right now that its platform can take.`;
+    : `No fix is waiting to be applied for ${domain} right now.`;
   const rest = fixes
     .filter((f) => f !== first)
     .map((f) => {

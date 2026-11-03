@@ -367,3 +367,40 @@ describe("the fix routes: refusals read the API's own code", () => {
     expect(e.code).toBe("REVOKED_KEY");
   });
 });
+
+describe("review round 1", () => {
+  it("the API's own uncoded 503 on a write is its sentence, not a maybe-recorded gateway answer", async () => {
+    const c = clientWith(makeFetch(503, { success: false, error: "Failed to verify subscription." }));
+    const e = await rejection(c.getFix({ domain: "acme.com" }));
+    expect(e.message).toContain("Failed to verify subscription.");
+    expect((e.details as Record<string, unknown> | undefined)?.maybe_recorded).not.toBe(true);
+  });
+
+  it("a coded 503 keeps its wait", async () => {
+    const c = clientWith(makeFetch(503, { success: false, error: "The audit service is busy.", code: "busy" }, { "Retry-After": "30" }));
+    const e = await rejection(c.getFixFacts({ domain: "acme.com" }));
+    expect((e.details as Record<string, unknown>).retry_after).toBe(30);
+  });
+
+  it("check_fix's not_found points at list_fixes for the request id, not at a new press", async () => {
+    const c = clientWith(makeFetch(404, { success: false, code: "not_found",
+      error: "acme.com isn't one of your tracked sites, or it has no fix request x. Ask for the fix again to get its request id." }));
+    const e = await rejection(c.checkFix({ domain: "acme.com", id: "0b6c1f5e-8a4d-4c39-9f1e-2a7d3c5b9e10" }));
+    expect(e.message).toContain("list_fixes");
+    expect(e.message).not.toContain("Ask for the fix again");
+  });
+
+  it("a body that stalls past the deadline is a timeout, not a hang", async () => {
+    const stalling = vi.fn(async (_url: unknown, init: { signal: AbortSignal }) => {
+      const stream = new ReadableStream({
+        start(ctrl) {
+          init.signal.addEventListener("abort", () => ctrl.error(Object.assign(new Error("aborted"), { name: "AbortError" })));
+        },
+      });
+      return new Response(stream, { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const c = new WaApiClient({ ...baseCfg, requestTimeoutMs: 50 } as never, { fetch: stalling as unknown as typeof fetch });
+    const e = await rejection(c.listFixes({ domain: "acme.com" }));
+    expect(e.code).toBe("TIMEOUT");
+  });
+});

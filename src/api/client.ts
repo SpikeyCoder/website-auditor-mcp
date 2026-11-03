@@ -718,15 +718,24 @@ export class WaApiClient implements WaApiClientLike {
         signal: controller.signal,
       });
     } catch (err) {
+      clearTimeout(timer);
       if (err instanceof Error && err.name === "AbortError") {
         throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.", { details: String(err) });
       }
       throw new WaApiError("UPSTREAM_ERROR", "Could not reach the Website Auditor API.", { details: String(err) });
+    }
+
+    // The deadline holds over the body too: headers that arrive and a body
+    // that stalls are a timeout, not a hang.
+    let body: unknown;
+    try {
+      body = await this.parseJson(resp);
     } finally {
       clearTimeout(timer);
     }
-
-    const body = await this.parseJson(resp);
+    if (controller.signal.aborted) {
+      throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.", { details: "the body did not arrive in time" });
+    }
     if (!resp.ok) {
       if (opts.fix) throw this.mapFixError(resp, body, Date.now() - startedAt, opts.lookFirst);
       throw this.mapErrorResponse(resp.status, body, Date.now() - startedAt, opts.gatewayTimeoutFloor !== false);
@@ -776,7 +785,11 @@ export class WaApiClient implements WaApiClientLike {
     // a proxy that gave up after forwarding it): not the API's own answer, so
     // nothing says whether the press or confirmation went through. Marked as
     // the API marks its own such failures.
-    if (lookFirst && !apiCode && (status >= 500 || status === 408 || status === 499)) {
+    // The API's own uncoded 5xx (its middleware, before the route ran: a
+    // subscription it couldn't verify) carries its sentence in `error`, and
+    // the request never reached the engine; it is answered as on any route.
+    const apiSentence = typeof b.error === "string" && b.error.trim() !== "";
+    if (lookFirst && !apiCode && !apiSentence && (status >= 500 || status === 408 || status === 499)) {
       return new WaApiError(status === 504 ? "TIMEOUT" : "UPSTREAM_ERROR",
         `The Website Auditor API could not answer (HTTP ${status}). ${lookFirst}`,
         { status, details: { maybe_recorded: true, upstream_status: status } });
@@ -792,7 +805,8 @@ export class WaApiClient implements WaApiClientLike {
       if (b[key] !== undefined) details[key] = b[key];
     }
     let retryAfter: number | undefined;
-    if (status === 429) {
+    // A limit's wait, and a busy service's (a 503 the API stamps).
+    if (status === 429 || status === 503) {
       retryAfter = typeof b.retry_after === "number" && Number.isFinite(b.retry_after) ? b.retry_after : retryAfterHeader(resp.headers);
       if (retryAfter !== undefined) details.retry_after = retryAfter;
     }
@@ -1013,6 +1027,8 @@ const ROUTE_TO_TOOL: ReadonlyArray<[string, string]> = [
   ["POST /api/fix", "get_fix"],
   // not_found's sentence for an untracked site.
   ["Track it first.", "Track it first (track_site)."],
+  // check_fix's not_found: the newest request id is a read, not a new press.
+  ["Ask for the fix again to get its request id.", "list_fixes shows each fix's newest request id."],
 ];
 
 function toolWords(message: string): string {

@@ -321,3 +321,29 @@ describe("list_fixes", () => {
     expect(res.data.summary).toMatch(/no fix/i);
   });
 });
+
+describe("review round 1", () => {
+  it("a fix the platform most likely can't take says so, rather than to paste it", async () => {
+    const fix = { ...FIX, kind: "llms_txt", steps: { ...FIX.steps, label: "Wix", can_apply: false, note: "Most website builders can't serve a file at your domain's root." } };
+    const res = await getFix({ domain: "acme.com", kind: "llms_txt" }, makeDeps({ tier: "pro", client: { getFix: async () => ({ request: REQUEST, fix }) } }));
+    if (!res.ok) throw new Error("expected a fix");
+    expect(res.data.message).toContain("most likely can't take it");
+    expect(res.data.message).not.toContain("ready to apply");
+  });
+
+  it("an unknown platform asks the owner which one it is", async () => {
+    const fix = { ...FIX, steps: { ...FIX.steps, label: "Not sure", picker: [{ key: "wordpress", label: "WordPress" }] } };
+    const res = await getFix({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getFix: async () => ({ request: REQUEST, fix }) } }));
+    if (!res.ok) throw new Error("expected a fix");
+    expect(res.data.message).toContain("`platform`");
+  });
+
+  it("a confirm_first without a reason reports none, never a guessed one", async () => {
+    const fn = () => {
+      throw new WaApiError("CONFIRM_FIRST", "Confirm your business facts first.", { status: 409, details: { code: "confirm_first", confirm: CONFIRM, seen: SEEN } });
+    };
+    const res = await getFix({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getFix: fn } }));
+    if (!res.ok || res.data.status !== "confirm_first") throw new Error("expected confirm_first");
+    expect(res.data.reason).toBe("unknown");
+  });
+});

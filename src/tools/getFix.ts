@@ -55,12 +55,22 @@ function servedMessage(request: FixRequest, fix: ServedFix): string {
   const check = request.id
     ? ` Once the owner has added it, check_fix with id ${request.id} reads the live site and says whether it is live.`
     : "";
+  // What the steps say first: a platform the site's isn't known for asks
+  // the owner which it is; one that most likely can't take the fix says so.
+  if (fix.steps?.picker && fix.steps.picker.length) {
+    return `${title}, ready. The site's platform isn't known: ask the owner which one it runs on (\`steps.picker\`), then call get_fix again with \`platform\` for its own steps. Until then the steps are general.${all}${check}`;
+  }
+  if (fix.steps?.can_apply === false) {
+    const note = fix.steps.note ? ` ${fix.steps.note}` : "";
+    return `${title}, ready, but ${fix.steps.label ?? "the site's platform"} most likely can't take it.${note} Tell the owner so rather than ask them to paste it.${check}`;
+  }
   return `${title}, ready to apply${where}. Give the owner each block and its steps.${all}${check}`;
 }
 
 function confirmFirst(domain: string, e: WaApiError): Extract<GetFixResult, { status: "confirm_first" }> {
-  const d = (e.details && typeof e.details === "object" ? e.details : {}) as Record<string, unknown>;
-  const reason = typeof d.reason === "string" ? d.reason : "unconfirmed";
+  const d = (isRecord(e.details) ? e.details : {}) as Record<string, unknown>;
+  // The engine's reason, never a guess at one.
+  const reason = typeof d.reason === "string" ? d.reason : "unknown";
   const confirm = isRecord(d.confirm) ? (d.confirm as ConfirmBlock) : undefined;
   const seen = isRecord(d.seen) && isRecord((d.seen as Record<string, unknown>).facts) ? (d.seen as FactsSeen) : undefined;
   // facts_not_read: the engine's sentence says the site wasn't read, and only
