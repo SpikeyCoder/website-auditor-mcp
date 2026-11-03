@@ -589,6 +589,140 @@ export const checkUpgradeStatusOutput: ZodRawShape = {
   message: z.string(),
 };
 
+// ─── "Get this fix" (website-auditor-api routes/fix.js) ────────────────────
+// Relayed from the engine (chaos_tester served_fixes.py) through the API, so
+// every nested object is open and every field the engine fills only sometimes
+// is optional and nullable. The root keys are this package's own.
+
+const fixRequest = open({
+  id: z.string().nullable().optional().describe("The request's id: what a live check of this fix takes."),
+  kind: z.string().nullable().optional(),
+  path: z.string().nullable().optional().describe('How it was asked for: "served" (the dashboard), "mcp" or "api".'),
+  platform: z.string().nullable().optional(),
+  status: z.string().nullable().optional().describe('"live", "missing", or null before a check reached the site.'),
+  presses: z.number().nullable().optional(),
+  requested_at: z.string().nullable().optional(),
+  last_pressed_at: z.string().nullable().optional(),
+  applied_at: z.string().nullable().optional(),
+  checked_at: z.string().nullable().optional(),
+  verified_at: z.string().nullable().optional(),
+  check: z.unknown().optional(),
+});
+
+const confirmBlock = open({
+  kind: z.string().nullable().optional(),
+  facts: z.array(open({
+    fact: z.string().optional(),
+    label: z.string().optional(),
+    site: z.unknown().optional().describe("What the site says for this fact."),
+    confirmed: z.string().nullable().optional().describe("What the owner confirmed, or null."),
+    stale: z.boolean().optional().describe("True when the site changed this fact since the owner confirmed it."),
+  })).optional(),
+  confirmed_at: z.string().nullable().optional(),
+  stale: z.array(z.string()).optional(),
+  can_confirm: z.boolean().optional().describe("False when the site has not been read, so nothing can be confirmed yet."),
+}).describe("The confirm block: each fact with what the site says and what the owner confirmed.");
+
+const factsSeen = open({
+  kind: z.string().nullable().optional(),
+  facts: z.record(z.unknown()),
+}).describe("Exactly what the confirm block shows. A confirmation sends it back unchanged.");
+
+const fixCheck = open({
+  live: z.boolean().optional(),
+  reached: z.boolean().optional().describe("False when the site did not answer, which says nothing about the fix."),
+  missing: z.array(open({
+    fact: z.string().optional(),
+    what: z.string().optional(),
+    detail: z.string().optional(),
+  })).optional(),
+  checked_at: z.string().optional(),
+});
+
+const servedFix = open({
+  kind: z.string().optional(),
+  title: z.string().optional(),
+  facts: z.record(z.unknown()).optional().describe("The confirmed facts the fix states."),
+  blocks: z.array(open({
+    id: z.string().optional(),
+    label: z.string().optional(),
+    format: z.string().optional(),
+    filename: z.string().optional(),
+    content: z.string().optional().describe("Ready to copy as it is."),
+  })).optional(),
+  advice: z.string().nullable().optional(),
+  checks: z.array(z.string()).optional().describe("What a live check reads to say the fix is live."),
+  steps: open({
+    platform: z.string().optional(),
+    label: z.string().optional(),
+    steps: z.array(z.string()).optional(),
+    note: z.string().nullable().optional(),
+    agent_prompt: z.string().nullable().optional().describe("A prompt for the agent that edits the site, where the platform has one."),
+    picker: z.array(open({ key: z.string().optional(), label: z.string().optional() })).nullable().optional(),
+    can_apply: z.boolean().optional(),
+  }).optional(),
+  copy_all: z.string().nullable().optional().describe("The agent prompt and every block in one paste; null where the steps carry no prompt."),
+});
+
+export const listFixesOutput: ZodRawShape = {
+  domain: z.string(),
+  platform: z.string().optional().describe('The platform detected for the site ("unknown" when none was).'),
+  platforms: z.array(open({ key: z.string().optional(), label: z.string().optional() })).optional()
+    .describe("The platforms a fix's steps can be written for."),
+  top: z.string().nullable().describe("The top fix's kind, or null when none is needed that the site's platform can take."),
+  fixes: z.array(open({
+    kind: z.string().optional(),
+    title: z.string().optional(),
+    needed: z.boolean().optional(),
+    why: z.string().optional(),
+    can_apply: z.boolean().optional(),
+    request: fixRequest.nullable().optional().describe("The fix's newest request, or null when it was never asked for."),
+  })),
+  summary: z.string(),
+};
+
+export const getFixFactsOutput: ZodRawShape = {
+  domain: z.string(),
+  confirm: confirmBlock,
+  seen: factsSeen.optional().describe("Absent when the facts cannot be confirmed yet."),
+  name: z.string().describe("The business name the audits found, for the name fact where the site states none; empty when none."),
+  can_confirm: z.boolean(),
+  message: z.string(),
+};
+
+export const getFixOutput: ZodRawShape = {
+  status: z.enum(["served", "confirm_first"]).describe(
+    '"served": the fix, finished. "confirm_first": nothing served; the facts it states are not confirmed by the owner yet.'),
+  domain: z.string(),
+  request: fixRequest.optional().describe("Present when served: the request this call was recorded as."),
+  fix: servedFix.optional().describe("Present when served."),
+  reason: z.string().optional().describe(
+    'Present on confirm_first: "unconfirmed", "stale" (the site changed a confirmed fact), "no_name", or '
+    + '"facts_not_read" (the site has not been read, so nothing can be confirmed yet).'),
+  confirm: confirmBlock.optional(),
+  seen: factsSeen.optional().describe("Present on confirm_first when the owner can answer it."),
+  message: z.string(),
+};
+
+export const confirmFactsOutput: ZodRawShape = {
+  status: z.enum(["confirmed", "facts_changed", "facts_not_read"]).describe(
+    '"confirmed"; "facts_changed": nothing confirmed, the site\'s facts changed since they were shown (`confirm` is '
+    + 'the block as it is now); "facts_not_read": nothing confirmed, the site has not been read yet.'),
+  domain: z.string(),
+  confirm: confirmBlock.optional(),
+  seen: factsSeen.nullable().optional().describe(
+    "Present when confirmed: what the block shows now, for a later correction; null when the facts cannot be confirmed again now."),
+  message: z.string(),
+};
+
+export const checkFixOutput: ZodRawShape = {
+  domain: z.string(),
+  live: z.boolean(),
+  request: fixRequest,
+  check: fixCheck,
+  message: z.string(),
+};
+
 /**
  * Tool name → declared output shape.
  *
@@ -613,4 +747,9 @@ export const OUTPUT_SCHEMAS: Record<string, ZodRawShape> = {
   get_gtm_plan: getGtmPlanOutput,
   get_sample_audit: getSampleAuditOutput,
   check_upgrade_status: checkUpgradeStatusOutput,
+  list_fixes: listFixesOutput,
+  get_fix_facts: getFixFactsOutput,
+  get_fix: getFixOutput,
+  confirm_facts: confirmFactsOutput,
+  check_fix: checkFixOutput,
 };

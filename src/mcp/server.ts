@@ -25,6 +25,12 @@ import { generateSchema } from "../tools/generateSchema.js";
 import { getReport } from "../tools/getReport.js";
 import { checkUpgradeStatus } from "../tools/checkUpgradeStatus.js";
 import { getSampleAudit } from "../tools/sampleAudit.js";
+import { listFixes } from "../tools/listFixes.js";
+import { getFixFacts } from "../tools/getFixFacts.js";
+import { getFix } from "../tools/getFix.js";
+import { confirmFacts } from "../tools/confirmFacts.js";
+import { checkFix } from "../tools/checkFix.js";
+import type { FactsSeen } from "../api/types.js";
 import { upgradeLink } from "../tools/upgrade.js";
 import { oauthEnabled, securitySchemesFor } from "../auth/oauth.js";
 import { buildInstructions } from "./instructions.js";
@@ -58,6 +64,12 @@ const HANDLERS: Record<string, (args: Record<string, unknown>, deps: ToolDeps) =
   get_report: (a, d) => getReport(a as { domain: string }, d),
   check_upgrade_status: (_a, d) => checkUpgradeStatus({}, d),
   get_sample_audit: (_a, d) => getSampleAudit({}, d),
+  list_fixes: (a, d) => listFixes(a as { domain: string }, d),
+  get_fix_facts: (a, d) => getFixFacts(a as { domain: string }, d),
+  get_fix: (a, d) => getFix(a as { domain: string; kind?: string; platform?: string }, d),
+  confirm_facts: (a, d) =>
+    confirmFacts(a as { domain: string; facts: Record<string, string | null>; seen: FactsSeen }, d),
+  check_fix: (a, d) => checkFix(a as { domain: string; id: string }, d),
 };
 
 /**
@@ -108,7 +120,7 @@ export function toCallResult(result: ToolResult<unknown>): CallToolResult {
   // where the comment describes an isError check the code never makes. So every
   // client built on this SDK that had called tools/list — which arms the
   // validator, and which every real client does — got a thrown McpError instead
-  // of our error result, for all 15 tools that declare a schema.
+  // of our error result, for all 20 tools that declare a schema.
   //
   // What that threw away was the AUTH_REQUIRED / PRO_REQUIRED body: the price,
   // the trial terms, the signup link, the get_sample_audit pointer. A keyless

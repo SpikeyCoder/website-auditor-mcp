@@ -307,6 +307,12 @@ describe("neutral tool copy (WA_TOOL_COPY=neutral)", () => {
     expect(d("get_changes")).toContain("scheduled monitoring adds weekly re-audits to the series but is not required");
     expect(d("generate_schema")).toContain("the draft is not meant to be used as returned");
     expect(d("track_site")).toContain("Passing enabled: false stops monitoring by deleting the enrollment.");
+    // Owner decision 1 as a fact about the tool: it records the owner's own
+    // confirmation of facts they were shown, sent back exactly.
+    expect(d("confirm_facts")).toContain("records the owner's own confirmation of facts they were shown");
+    expect(d("confirm_facts")).toContain("exactly as it was handed out");
+    expect(d("get_fix")).toContain('"Get this fix"');
+    expect(d("generate_schema")).toContain("not the finished fix written from the owner's confirmed facts");
   });
 
   it("the full copy keeps its guidance — only the Claude box drops it", () => {
@@ -314,6 +320,8 @@ describe("neutral tool copy (WA_TOOL_COPY=neutral)", () => {
     expect(d("generate_schema")).toContain("do not tell the user to paste the draft as returned");
     expect(d("run_audit")).toContain("is returned by get_ai_visibility, not by this tool");
     expect(d("get_changes")).toContain("so do not track a site just to answer a change question");
+    expect(d("confirm_facts")).toContain("never confirm facts on the owner's behalf");
+    expect(d("generate_schema")).toContain("use get_fix");
   });
 
   const PITCH = [

@@ -199,8 +199,13 @@ export function topCompetitor(av: AiVisibilityBlock): string | null {
  */
 /** The defensive-read policy in one place: a payload value counts as an object
  *  only when it is a plain record — never null, never an array. */
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A `seen` confirm_facts can send back: a record carrying its facts. */
+export function isSeen(value: unknown): boolean {
+  return isRecord(value) && isRecord(value.facts);
 }
 
 function isStringArray(value: unknown): value is string[] {

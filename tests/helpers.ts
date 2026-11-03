@@ -81,6 +81,17 @@ export function makeClient(over: Partial<WaApiClientLike> = {}): WaApiClientLike
     generateSchema: vi.fn(async () => ({ jsonld: {}, placement_notes: "" })),
     getReport: vi.fn(async () => ({ report_url: "", badge_html: "" })),
     getGtmPlan: vi.fn(async () => ({ plan_markdown: "", plan_sections: [], sources_used: [], model: "" })),
+    listFixes: vi.fn(async ({ domain }) => ({ site: { domain }, platform: "unknown", platforms: [], top: null, fixes: [] })),
+    getFixFacts: vi.fn(async () => ({ confirm: { facts: [], confirmed_at: null, stale: [], can_confirm: false }, name: "" })),
+    getFix: vi.fn(async () => ({
+      request: { id: "00000000-0000-4000-8000-000000000000", kind: "business_facts", status: null },
+      fix: { kind: "business_facts", title: "Your business facts, ready to paste", blocks: [], copy_all: null },
+    })),
+    confirmFacts: vi.fn(async () => ({ confirm: { facts: [], confirmed_at: "2026-11-03T00:00:00Z" }, seen: null })),
+    checkFix: vi.fn(async () => ({
+      request: { id: "00000000-0000-4000-8000-000000000000", status: "missing" },
+      check: { live: false, reached: true, missing: [], checked_at: "2026-11-03T00:00:00Z" },
+    })),
   };
   return { ...base, ...over };
 }

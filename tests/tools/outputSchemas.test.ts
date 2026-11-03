@@ -25,9 +25,49 @@ import { OUTPUT_SCHEMAS } from "../../src/tools/outputSchemas.js";
 import { makeDeps, errorPayload } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
 import { PRICE } from "../../src/tools/upgrade.js";
+import { WaApiError } from "../../src/api/errors.js";
 
 /** The run richClient's runAudit returns, so the snapshot get_ai_visibility's trend ends at. */
 const AUDITED_RUN = "abc123def456";
+
+const FIX_REQUEST = {
+  id: "0b6c1f5e-8a4d-4c39-9f1e-2a7d3c5b9e10", kind: "business_facts", path: "mcp", platform: "wordpress",
+  status: null, presses: 1, requested_at: "2026-11-03T10:00:00Z", last_pressed_at: "2026-11-03T10:00:00Z",
+  applied_at: null, checked_at: null, verified_at: null, check: null,
+};
+const FIX_REQUEST_CHECKED = {
+  ...FIX_REQUEST, kind: "llms_txt", status: "live", applied_at: "2026-11-03T10:05:00Z", checked_at: "2026-11-03T10:05:00Z",
+  verified_at: "2026-11-03T10:05:00Z", check: { live: true, reached: true, missing: [], checked_at: "2026-11-03T10:05:00Z" },
+};
+const CONFIRM_BLOCK = {
+  kind: "premises",
+  facts: [
+    { fact: "name", label: "Business name", noun: "business name", site: null, source: "audit", confirmed: null },
+    { fact: "city", label: "City", noun: "city", site: "Hilo, HI", source: "site_markup", confirmed: "Hilo, HI", stale: true, was: "Hilo" },
+  ],
+  confirmed_at: null,
+  stale: ["city"],
+  draftable: ["name", "city"],
+  drafts: null,
+  can_confirm: true,
+};
+const SEEN = { kind: "premises", facts: { city: "Hilo, HI", phone: null } };
+const SERVED_FIX = {
+  kind: "business_facts",
+  title: "Your business facts, ready to paste",
+  facts: { name: "Example Bakery", city: "Hilo, HI" },
+  blocks: [
+    { id: "structured_data", label: "Structured data", format: "html", content: "<script type=\"application/ld+json\">{}</script>" },
+    { id: "llms_txt", label: "llms.txt", format: "text", filename: "llms.txt", content: "# Example" },
+  ],
+  advice: "Keep one copy of this markup.",
+  checks: ["Your home page's structured data names your business and states your city, as you confirmed them."],
+  steps: {
+    platform: "developer_host", label: "Deployed from code", steps: ["Hand the prompt to your coding agent."], note: null,
+    agent_prompt: "Add this structured data to the home page.", picker: [{ key: "wordpress", label: "WordPress" }], can_apply: true,
+  },
+  copy_all: "Add this structured data to the home page.\n\nStructured data:\n<script></script>",
+};
 
 /**
  * Overrides for the endpoints whose defaults are empty or throw.
@@ -204,6 +244,25 @@ const richClient = {
   }),
   getSubscription: async () => ({ tier: "pro" as const, status: "active" }),
   runAudit: async () => ({ runId: AUDITED_RUN, report: reachableReport(), raw: {} }),
+  // "Get this fix": every list populated, every nullable field sent both ways
+  // across the requests below.
+  listFixes: async () => ({
+    site: { domain: "example.com" },
+    platform: "wordpress",
+    platforms: [{ key: "wordpress", label: "WordPress" }, { key: "developer_host", label: "Deployed from code" }],
+    top: "business_facts",
+    fixes: [
+      { kind: "business_facts", title: "Your business facts, ready to paste", needed: true, why: "AI assistants get your city wrong.", can_apply: true, request: null },
+      { kind: "llms_txt", title: "An llms.txt for your site", needed: false, why: "Your site's llms.txt is in place.", can_apply: true, request: FIX_REQUEST_CHECKED },
+    ],
+  }),
+  getFixFacts: async () => ({ confirm: CONFIRM_BLOCK, seen: SEEN, name: "Example Bakery" }),
+  getFix: async () => ({ request: FIX_REQUEST, fix: SERVED_FIX }),
+  confirmFacts: async () => ({ confirm: { ...CONFIRM_BLOCK, confirmed_at: "2026-11-03T10:01:00Z" }, seen: SEEN }),
+  checkFix: async () => ({
+    request: FIX_REQUEST_CHECKED,
+    check: { live: false, reached: true, missing: [{ fact: "city", what: "City", detail: "Your structured data doesn't state your city yet." }], checked_at: "2026-11-03T10:05:00Z" },
+  }),
 };
 
 /** The arguments each tool needs to reach a SUCCESS result. */
@@ -223,6 +282,11 @@ const ARGS: Record<string, Record<string, unknown>> = {
   get_gtm_plan: { domain: "example.com" },
   get_sample_audit: {},
   check_upgrade_status: {},
+  list_fixes: { domain: "example.com" },
+  get_fix_facts: { domain: "example.com" },
+  get_fix: { domain: "example.com" },
+  confirm_facts: { domain: "example.com", facts: { name: "Example Bakery", city: "Hilo, HI" }, seen: SEEN },
+  check_fix: { domain: "example.com", id: FIX_REQUEST.id },
 };
 
 async function connect(deps = makeDeps({ tier: "pro", client: richClient })) {
@@ -314,7 +378,7 @@ describe("declared output schemas", () => {
     // an entry in OUTPUT_SCHEMAS should fail here rather than in review.
     const missing = SERVED_TOOLS.filter((t) => !t.outputSchema).map((t) => t.name);
     expect(missing).toEqual([]);
-    expect(SERVED_TOOLS).toHaveLength(15);
+    expect(SERVED_TOOLS).toHaveLength(20);
   });
 
   it("is published on the wire, so a client can read it before calling", async () => {
@@ -326,6 +390,25 @@ describe("declared output schemas", () => {
       // non-object root would be unrepresentable.
       expect(tool.outputSchema?.type, tool.name).toBe("object");
     }
+  });
+
+  /**
+   * The fix flow's refusals that are RESULTS, not errors (get_fix's
+   * confirm_first, confirm_facts' facts_changed and facts_not_read): they carry
+   * structuredContent, so the same validator-armed client must accept them.
+   */
+  it.each([
+    ["get_fix confirm_first", "get_fix", { getFix: async () => { throw new WaApiError("CONFIRM_FIRST", "Confirm your business facts first.", { status: 409, details: { code: "confirm_first", reason: "stale", confirm: CONFIRM_BLOCK, seen: SEEN } }); } }],
+    ["get_fix confirm_first facts_not_read", "get_fix", { getFix: async () => { throw new WaApiError("CONFIRM_FIRST", "Not read yet.", { status: 409, details: { code: "confirm_first", reason: "facts_not_read", confirm: { ...CONFIRM_BLOCK, can_confirm: false } } }); } }],
+    ["confirm_facts facts_changed", "confirm_facts", { confirmFacts: async () => { throw new WaApiError("FACTS_CHANGED", "Your site's facts changed.", { status: 409, details: { code: "facts_changed", confirm: CONFIRM_BLOCK } }); } }],
+    ["confirm_facts facts_not_read", "confirm_facts", { confirmFacts: async () => { throw new WaApiError("FACTS_NOT_READ", "Not read yet.", { status: 409, details: { code: "facts_not_read" } }); } }],
+  ] as const)("%s validates as a result", async (_label, name, client) => {
+    const c = await connect(makeDeps({ tier: "pro", client: { ...richClient, ...client } }));
+    const result = await c.callTool({ name, arguments: ARGS[name] ?? {} });
+    const text = JSON.stringify(result);
+    expect(text).not.toContain("Output validation error");
+    expect(result.isError, text.slice(0, 300)).toBeFalsy();
+    expect(z.object(OUTPUT_SCHEMAS[name]!).safeParse(result.structuredContent).success).toBe(true);
   });
 
   for (const spec of SERVED_TOOLS) {
@@ -577,6 +660,14 @@ describe("declared output schemas", () => {
     getGtmPlan: async () => ({
       plan_markdown: "## Week 1", plan_sections: [{ title: "Week 1" }], sources_used: [], model: "gpt-5",
     }),
+    // The fix routes' payloads at their thinnest: what the API's shape checks
+    // let through (fix.js: an array of fixes, a confirm block, a request and a
+    // fix, a request and a check), nothing more.
+    listFixes: async () => ({ fixes: [{}] }),
+    getFixFacts: async () => ({ confirm: {}, name: "" }),
+    getFix: async () => ({ request: {}, fix: {} }),
+    confirmFacts: async () => ({ confirm: {}, seen: null }),
+    checkFix: async () => ({ request: {}, check: {} }),
   };
 
   for (const spec of SERVED_TOOLS) {

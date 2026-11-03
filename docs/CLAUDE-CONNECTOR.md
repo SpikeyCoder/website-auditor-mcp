@@ -117,7 +117,7 @@ Checked against the live servers on 2026-10-15:
   `token_endpoint_auth_methods_supported: ["none"]`, refresh rotation, and a
   form-urlencoded `/oauth/token`.
 - **This server:** RFC 9728 metadata on both paths, stateless Streamable HTTP.
-- **Tools:** 15 of 15 have a `title` and all three hints.
+- **Tools:** 20 of 20 have a `title` and all three hints.
 - **Listing:** the privacy policy at https://website-auditor.io/privacy.
 
 ## Deploy runbook (NOT run — needs the owner's go)
@@ -226,7 +226,7 @@ the docs. It needs an account on a paid Claude plan.
 | | Slug (**permanent**) | `website-auditor` |
 | Use cases | Primary | (1) Check whether AI assistants name a business for the questions its customers ask. (2) Audit a site's security, performance, links and crawlability. (3) Compare AI visibility against competitors. (4) Track a site weekly and see what changed. (5) Turn findings into prioritised fixes, JSON-LD schema and a go-to-market plan. |
 | | Needed before connecting | A Website Auditor account, which signing in creates. Audits need a Pro subscription ($49/month, 7-day trial for eligible new customers). `get_sample_audit` works with no account. |
-| | Reads / writes | Both. `track_site` and `untrack_site` write tracking state; audits spend daily quota. |
+| | Reads / writes | Both. `track_site` and `untrack_site` write tracking state; audits spend daily quota; `get_fix`, `confirm_facts` and `check_fix` record fix requests, the owner's confirmed facts and live checks. |
 | Company | Name / website / contact | Owner to fill. Website: https://website-auditor.io |
 | Authentication | Type | OAuth with dynamic client registration. **Flag that the server starts without authentication and individual tools prompt for it on demand** (lazy authentication). The portal offers this; its exact label is not in the docs. |
 | Data handling | API ownership | Our own first-party API (`api.website-auditor.io`) |
@@ -291,11 +291,16 @@ the docs. It needs an account on a paid Claude plan.
   - `get_report`
   - `list_tracked_sites`
   - `get_monitoring_status`
+  - `list_fixes`
+  - `get_fix_facts`
 - Sign-in required, write (spends quota):
   - `get_ai_visibility`
   - `run_audit`
   - `compare_competitors`
   - `get_gtm_plan`
+- Sign-in required, write (records state, not destructive): `get_fix` (records
+  a request for the fix), `confirm_facts` (stores the owner's confirmed facts),
+  `check_fix` (reads the live site and records what it found; open-world)
 - Sign-in required, destructive: `track_site`, `untrack_site`
 - Open: `check_upgrade_status`, `get_sample_audit`
 

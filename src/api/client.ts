@@ -13,6 +13,11 @@
  *   - getRecommendations → GET  /api/recommendations?domain=
  *   - generateSchema     → GET  /api/schema?domain=&type=
  *   - getReport          → GET  /api/report?domain=
+ *   - listFixes          → GET  /api/fix?domain=          ("Get this fix": served fixes)
+ *   - getFixFacts        → GET  /api/fix/facts?domain=
+ *   - getFix             → POST /api/fix                   (records a press)
+ *   - confirmFacts       → POST /api/fix/confirm
+ *   - checkFix           → POST /api/fix/check
  *
  * Declared but NOT yet available upstream (PRD open questions). These methods
  * exist so the tools can be wired against the interface and light up the moment
@@ -38,10 +43,19 @@ import type {
   GtmPlanPhase,
   GtmPlanResponse,
   GtmPlanSection,
+  FixOverview,
+  FixFacts,
+  FixPress,
+  FactsSeen,
+  ConfirmFactsResult,
+  FixCheckResult,
 } from "./types.js";
+import type { ErrorCode } from "./errors.js";
 import { WaApiError, keyRejectionFromReason } from "./errors.js";
 import { versionHeader } from "../version.js";
 import {
+  isRecord,
+  isSeen,
   WEEKLY_CHECK_SENTENCE, changesSummary,
   computeChanges, day, laterNote, measuredTheBusiness, movement, newestComparablePair, newestRecorded, unmeasuredNote,
   newestSameQuestion, notCompared, notComparedPhrase, oldestSameQuestion, questionDifference, seriesOf, toQuestion,
@@ -140,6 +154,20 @@ export interface WaApiClientLike {
    * caller's latest run for the domain server-side.
    */
   getGtmPlan(params: { domain: string; messages: GtmChatMessage[] }): Promise<GtmPlanResponse>;
+  /** The site's fixes, top first (Pro). Reads only. */
+  listFixes(params: { domain: string }): Promise<FixOverview>;
+  /** The facts to confirm: the confirm block, exactly what it shows (`seen`), and the business name (Pro). */
+  getFixFacts(params: { domain: string }): Promise<FixFacts>;
+  /**
+   * "Get this fix" (Pro): the fix, finished, and the request this press is.
+   * Throws CONFIRM_FIRST (details: reason, confirm, seen) before the owner has
+   * confirmed the facts it states.
+   */
+  getFix(params: { domain: string; kind?: string; platform?: string }): Promise<FixPress>;
+  /** Confirm the owner's facts, sending `seen` back exactly as handed out (Pro). */
+  confirmFacts(params: { domain: string; facts: Record<string, string | null>; seen: FactsSeen }): Promise<ConfirmFactsResult>;
+  /** "I've added it" (Pro): read the live site for request `id`'s fix. */
+  checkFix(params: { domain: string; id: string }): Promise<FixCheckResult>;
 }
 
 interface ClientDeps {
@@ -595,6 +623,65 @@ export class WaApiClient implements WaApiClientLike {
     return plan;
   }
 
+  // ── "Get this fix" (website-auditor-api routes/fix.js) ─────────────────
+  //
+  // The domain is sent as given: the API settles it the way the tracked-site
+  // lookups match it (aiVisits.siteHost), which is the one form a tracked site
+  // is found by. Every request carries X-WA-MCP-Version (requestJson), which
+  // is how the API records a press as "mcp". Errors are read by the API's own
+  // `code` (mapFixError): the shared mapping's 409 and 429 mean other things.
+
+  async listFixes(params: { domain: string }): Promise<FixOverview> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/fix`);
+    url.searchParams.set("domain", params.domain);
+    const body = (await this.requestJson("GET", url, undefined, { fix: true })) as Record<string, unknown>;
+    if (!Array.isArray(body.fixes)) throw missingPayload("the site's fixes");
+    // Only the entries that are fixes (objects): a null or a stray value is
+    // no fix to describe.
+    const out = pickKeys(body, ["site", "platform", "platforms", "top", "fixes"]) as Record<string, unknown>;
+    out.fixes = (body.fixes as unknown[]).filter(isRecord);
+    return out as unknown as FixOverview;
+  }
+
+  async getFixFacts(params: { domain: string }): Promise<FixFacts> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/fix/facts`);
+    url.searchParams.set("domain", params.domain);
+    const body = (await this.requestJson("GET", url, undefined, { fix: true })) as Record<string, unknown>;
+    if (!isRecord(body.confirm)) throw missingPayload("the facts to confirm");
+    const out: FixFacts = { confirm: body.confirm, name: typeof body.name === "string" ? body.name : "" };
+    // A seen the confirm route takes (with its facts), or none: never one
+    // confirm_facts would refuse when sent back unchanged.
+    if (isSeen(body.seen)) out.seen = body.seen as FactsSeen;
+    return out;
+  }
+
+  async getFix(params: { domain: string; kind?: string; platform?: string }): Promise<FixPress> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/fix`);
+    const payload: Record<string, string> = { domain: params.domain };
+    if (params.kind) payload.kind = params.kind;
+    if (params.platform?.trim()) payload.platform = params.platform.trim();
+    const body = (await this.requestWrite(url, payload, LOOK_AT_FIX)) as Record<string, unknown>;
+    // A 2xx is a press the API recorded, whatever its body lacks.
+    if (!isRecord(body.request) || !isRecord(body.fix)) throw missingPayload("the fix", LOOK_AT_FIX);
+    return { request: body.request, fix: body.fix } as FixPress;
+  }
+
+  async confirmFacts(params: { domain: string; facts: Record<string, string | null>; seen: FactsSeen }): Promise<ConfirmFactsResult> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/fix/confirm`);
+    // `seen` goes back exactly as it was handed out: it is the engine's check
+    // that the owner was shown these facts, so nothing here rebuilds it.
+    const body = (await this.requestWrite(url, { domain: params.domain, facts: params.facts, seen: params.seen }, LOOK_AT_FACTS)) as Record<string, unknown>;
+    if (!isRecord(body.confirm)) throw missingPayload("the confirmed facts", LOOK_AT_FACTS);
+    return { confirm: body.confirm, seen: isSeen(body.seen) ? (body.seen as FactsSeen) : null };
+  }
+
+  async checkFix(params: { domain: string; id: string }): Promise<FixCheckResult> {
+    const url = new URL(`${this.cfg.apiBaseUrl}/api/fix/check`);
+    const body = (await this.requestJson("POST", url, { domain: params.domain, id: params.id }, { fix: true })) as Record<string, unknown>;
+    if (!isRecord(body.request) || !isRecord(body.check)) throw missingPayload("the check");
+    return { request: body.request, check: body.check } as FixCheckResult;
+  }
+
   async compareCompetitors(_params: { domain: string; competitors: string[] }): Promise<never> {
     throw new WaApiError(
       "NOT_YET_AVAILABLE",
@@ -603,6 +690,12 @@ export class WaApiClient implements WaApiClientLike {
   }
 
   // ── internals ─────────────────────────────────────────────────────────
+
+  /** A fix-route write (a press, a confirmation): its failures say where to
+   * look first when it may have gone through, whichever side failed. */
+  private requestWrite(url: URL, jsonBody: unknown, lookFirst: string): Promise<unknown> {
+    return mayHaveLanded(this.requestJson("POST", url, jsonBody, { fix: true, lookFirst }), lookFirst);
+  }
 
   /**
    * Authenticated JSON request with the same timeout/abort + error-mapping
@@ -614,7 +707,7 @@ export class WaApiClient implements WaApiClientLike {
     method: string,
     url: URL,
     jsonBody?: unknown,
-    opts: { timeoutMs?: number; gatewayTimeoutFloor?: boolean } = {},
+    opts: { timeoutMs?: number; gatewayTimeoutFloor?: boolean; fix?: boolean; lookFirst?: string } = {},
   ): Promise<unknown> {
     const timeoutMs = opts.timeoutMs ?? this.cfg.requestTimeoutMs;
     const headers: Record<string, string> = { Accept: "application/json", ...versionHeader() };
@@ -634,16 +727,37 @@ export class WaApiClient implements WaApiClientLike {
         signal: controller.signal,
       });
     } catch (err) {
+      clearTimeout(timer);
       if (err instanceof Error && err.name === "AbortError") {
         throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.", { details: String(err) });
       }
-      throw new WaApiError("UPSTREAM_ERROR", "Could not reach the Website Auditor API.", { details: String(err) });
+      // A connection never made (refused, no such host) sent nothing, so a
+      // write can't have landed; any other failure may have come after it was sent.
+      const cause = isRecord(err) && isRecord(err.cause) && typeof err.cause.code === "string" ? err.cause.code : undefined;
+      const notSent = cause !== undefined && NOT_SENT.has(cause);
+      throw new WaApiError("UPSTREAM_ERROR", "Could not reach the Website Auditor API.",
+        { details: notSent ? { cause: String(err), not_sent: true } : String(err) });
+    }
+
+    // On the fix routes the deadline holds over the body too: headers that
+    // arrive and a body that stalls are a timeout, not a hang. Elsewhere a
+    // body that never came still reads as {} (track_site's 200 is a success).
+    let body: unknown;
+    if (!opts.fix) clearTimeout(timer);
+    try {
+      body = await this.parseJson(resp);
     } finally {
       clearTimeout(timer);
     }
-
-    const body = await this.parseJson(resp);
+    if (opts.fix && body === undefined && controller.signal.aborted) {
+      // A body read in full is kept even as the timer fires. Its status in details, not on the error (callers branch on a
+      // status, as get_gtm_plan does on a 404): a refusal (4xx) whose body
+      // stalled recorded nothing.
+      throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.",
+        { details: { upstream_status: resp.status, cause: "the body did not arrive in time" } });
+    }
     if (!resp.ok) {
+      if (opts.fix) throw this.mapFixError(resp, body, Date.now() - startedAt, opts.lookFirst);
       throw this.mapErrorResponse(resp.status, body, Date.now() - startedAt, opts.gatewayTimeoutFloor !== false);
     }
     return body ?? {};
@@ -674,6 +788,64 @@ export class WaApiClient implements WaApiClientLike {
    * well short of the 60s boundary actually observed.
    */
   private static readonly GATEWAY_TIMEOUT_FLOOR_MS = 30_000;
+
+  /**
+   * An error from a "Get this fix" route, by the API's own `code` (README "Get
+   * this fix (served fixes)"). The refusals an agent acts on keep what it acts
+   * with in `details`: confirm_first's reason, confirm block and seen;
+   * facts_changed's block; every limit's retry_after; a write's
+   * maybe_recorded and upstream_status. A key rejection (401), or a 403 or 5xx
+   * that carries no code, is answered as on every other route.
+   */
+  private mapFixError(resp: Response, body: unknown, elapsedMs: number, lookFirst?: string): WaApiError {
+    const status = resp.status;
+    const b = (isRecord(body) ? body : {}) as Record<string, unknown>;
+    const apiCode = typeof b.code === "string" ? b.code : undefined;
+    // A write answered by something in front of the API (a gateway's 5xx, or
+    // a proxy that gave up after forwarding it): not the API's own answer, so
+    // nothing says whether the press or confirmation went through. Marked as
+    // the API marks its own such failures.
+    // The API's own uncoded 5xx (its middleware, before the route ran: a
+    // subscription it couldn't verify) carries its sentence in `error`, and
+    // the request never reached the engine; it is answered as on any route.
+    const apiSentence = typeof b.error === "string" && b.error.trim() !== "";
+    if (lookFirst && !apiCode && !apiSentence && (status >= 500 || status === 408 || status === 499)) {
+      return new WaApiError(status === 504 ? "TIMEOUT" : "UPSTREAM_ERROR",
+        `The Website Auditor API could not answer (HTTP ${status}). ${lookFirst}`,
+        { status, details: { maybe_recorded: true, upstream_status: status } });
+    }
+    // Never the shared 409 (the tracked-domain cap) or 429 (the daily audit
+    // cap): on these routes neither means that, coded or not.
+    if (status === 401 || (!apiCode && status !== 429 && status !== 409)) {
+      return this.mapErrorResponse(status, body, elapsedMs, false);
+    }
+    const details: Record<string, unknown> = {};
+    if (apiCode) details.code = apiCode;
+    for (const key of ["reason", "confirm", "seen", "maybe_recorded", "upstream_status"]) {
+      if (b[key] !== undefined) details[key] = b[key];
+    }
+    let retryAfter: number | undefined;
+    // A limit's wait, and a busy service's (a 503 the API stamps).
+    if (status === 429 || status === 503) {
+      retryAfter = typeof b.retry_after === "number" && Number.isFinite(b.retry_after) ? b.retry_after : retryAfterHeader(resp.headers);
+      if (retryAfter !== undefined) details.retry_after = retryAfter;
+    }
+    let message = toolWords(typeof b.error === "string" && b.error.trim() ? b.error.trim() : `Website Auditor API returned HTTP ${status}.`);
+    const code: ErrorCode = (apiCode !== undefined && Object.hasOwn(FIX_CODES, apiCode) ? FIX_CODES[apiCode] : undefined)
+      ?? byStatus(status);
+    // The wait is in details either way; said in words only where the API's
+    // own sentence does not already say when ("Try again in a minute.").
+    if (retryAfter !== undefined && !/\b(?:try|check) again (?:in|tomorrow)\b/i.test(message)) {
+      message += ` Try again in ${inWords(retryAfter)}.`;
+    }
+    if (code === "SUBSCRIPTION_UNVERIFIED") {
+      // The Pro gate just passed, so the API's "Pro is required" would
+      // contradict the code. Its upgrade link isn't passed on: it would skip
+      // fromApiError's tagging and the info-style servers' rewrite.
+      message = "Website Auditor couldn't confirm the subscription for this just now. Try again in a moment; if it keeps happening, check the account's plan.";
+    }
+    return new WaApiError(code, message, { status, details });
+  }
 
   private mapErrorResponse(
     status: number,
@@ -773,6 +945,150 @@ export class WaApiClient implements WaApiClientLike {
         return new WaApiError("UPSTREAM_ERROR", message, { status, details: b.details });
     }
   }
+}
+
+/** *body*'s *keys*, those it has. */
+function pickKeys(body: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
+}
+
+/**
+ * A 2xx from a fix route without the payload the route documents: never an
+ * empty success. On a write the API answered, so it went through: say where
+ * to look rather than to try again.
+ */
+function missingPayload(what: string, lookFirst?: string): WaApiError {
+  return lookFirst
+    ? new WaApiError("UPSTREAM_ERROR", `The Website Auditor API answered without ${what}. ${lookFirst}`, { details: { maybe_recorded: true } })
+    : new WaApiError("UPSTREAM_ERROR", `The Website Auditor API answered without ${what}. Try again shortly.`);
+}
+
+/** A code this client does not know yet, by its status: a new refusal is still a refusal. */
+function byStatus(status: number): ErrorCode {
+  if (status === 429) return "RATE_LIMITED";
+  if (status === 504) return "TIMEOUT";
+  // Not PRO_REQUIRED for a 403 (only the API's subscription_required means
+  // that: a member who passed the Pro check is never sent to buy it), and not
+  // INVALID_INPUT for a 409 (an agent would start editing its seen).
+  if (status === 404) return "NOT_FOUND";
+  if (status === 403 || status === 409) return "UPSTREAM_ERROR";
+  if (status >= 400 && status < 500) return "INVALID_INPUT";
+  return "UPSTREAM_ERROR";
+}
+
+/** Where to look before asking again, after a write that may have gone through. */
+const LOOK_AT_FIX = "Check the fix with list_fixes before asking again: it may have been recorded.";
+const LOOK_AT_FACTS = "Check the facts with get_fix_facts (confirmed_at) before confirming again: they may have been stored.";
+
+/**
+ * A press or a confirmation whose request failed on THIS side of the wire (our
+ * own deadline, a dropped connection): it may have reached the API and gone
+ * through, as the API's own failures say with maybe_recorded. Marked the same
+ * way, so a caller looks before asking again. An answer the API gave (it has
+ * a status) already says so itself.
+ */
+async function mayHaveLanded<T>(request: Promise<T>, lookFirst: string): Promise<T> {
+  try {
+    return await request;
+  } catch (e) {
+    // Our side's failure (no status), or a timeout reading the body of an
+    // answer that wasn't a refusal (a 2xx or 5xx whose body stalled): the
+    // write may have landed. A 4xx recorded nothing.
+    const stalled = e instanceof WaApiError && isRecord(e.details) && typeof e.details.upstream_status === "number"
+      ? e.details.upstream_status : undefined;
+    const refused = stalled !== undefined && stalled >= 400 && stalled < 500;
+    const notSent = e instanceof WaApiError && isRecord(e.details) && e.details.not_sent === true;
+    const ours = e instanceof WaApiError && e.status === undefined && !refused && !notSent;
+    if (e instanceof WaApiError && ours && (e.code === "TIMEOUT" || e.code === "UPSTREAM_ERROR")
+      && !(isRecord(e.details) && e.details.maybe_recorded === true)) {
+      // The cause (an abort, a reset) kept beside the mark.
+      throw new WaApiError(e.code, `${e.message} ${lookFirst}`, { details: { maybe_recorded: true, cause: e.details } });
+    }
+    throw e;
+  }
+}
+
+/** Connection failures from before anything was sent. */
+const NOT_SENT = new Set([
+  "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT",
+  // A TLS handshake that failed sent no request.
+  "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
+/** A wait in words: seconds, minutes or hours, rounded up. */
+function inWords(seconds: number): string {
+  const n = (v: number, unit: string) => `${v} ${unit}${v === 1 ? "" : "s"}`;
+  if (seconds < 120) return n(seconds, "second");
+  if (seconds < 7200) return n(Math.ceil(seconds / 60), "minute");
+  return n(Math.ceil(seconds / 3600), "hour");
+}
+
+/** A Retry-After header in seconds, when it is one. */
+function retryAfterHeader(headers: Headers): number | undefined {
+  const raw = headers.get("retry-after");
+  if (raw === null || !/^\d+$/.test(raw.trim())) return undefined;
+  return Number.parseInt(raw.trim(), 10);
+}
+
+/**
+ * The API's codes on the fix routes → this package's. Each refusal keeps its
+ * own code (an agent acts on each differently); the request-shape refusals are
+ * INVALID_INPUT with the API's code in details; the failures are TIMEOUT or
+ * UPSTREAM_ERROR, with maybe_recorded where a write may have gone through.
+ */
+const FIX_CODES: Readonly<Record<string, ErrorCode>> = {
+  confirm_first: "CONFIRM_FIRST",
+  facts_changed: "FACTS_CHANGED",
+  facts_not_read: "FACTS_NOT_READ",
+  checked_recently: "CHECKED_RECENTLY",
+  too_many_confirmations: "TOO_MANY_CONFIRMATIONS",
+  rate_limited: "RATE_LIMITED",
+  not_found: "NOT_FOUND",
+  // The Pro gate passed just before: the engine disagreeing is a lapse in
+  // between or a token it couldn't verify, never a reason to sell the plan.
+  subscription_required: "SUBSCRIPTION_UNVERIFIED",
+  invalid_domain: "INVALID_INPUT",
+  invalid_id: "INVALID_INPUT",
+  invalid_kind: "INVALID_INPUT",
+  invalid_platform: "INVALID_INPUT",
+  invalid_facts: "INVALID_INPUT",
+  seen_required: "INVALID_INPUT",
+  invalid_json: "INVALID_INPUT",
+  invalid_body: "INVALID_INPUT",
+  too_large: "INVALID_INPUT",
+  unsupported_body: "INVALID_INPUT",
+  timeout: "TIMEOUT",
+  upstream_broke: "UPSTREAM_ERROR",
+  upstream_unreadable: "UPSTREAM_ERROR",
+  upstream_failed: "UPSTREAM_ERROR",
+  upstream_refused: "UPSTREAM_ERROR",
+  busy: "UPSTREAM_ERROR",
+  unreachable: "UPSTREAM_ERROR",
+  internal: "UPSTREAM_ERROR",
+};
+
+/**
+ * The API's sentences name its routes ("Check the fix with GET /api/fix before
+ * asking again"); an agent calls tools. Longest first, so a route is never
+ * rewritten by a shorter one it starts with.
+ */
+const ROUTE_TO_TOOL: ReadonlyArray<[string, string]> = [
+  ["GET /api/fix/facts", "get_fix_facts"],
+  ["POST /api/fix/confirm", "confirm_facts"],
+  ["POST /api/fix/check", "check_fix"],
+  ["GET /api/fix", "list_fixes"],
+  ["POST /api/fix", "get_fix"],
+  // not_found's sentence for an untracked site.
+  ["Track it first.", "Track it first (track_site)."],
+  // check_fix's not_found: the newest request id is a read, not a new press.
+  ["Ask for the fix again to get its request id.", "list_fixes shows each fix's newest request id."],
+];
+
+function toolWords(message: string): string {
+  let out = message;
+  for (const [route, tool] of ROUTE_TO_TOOL) out = out.split(route).join(tool);
+  return out;
 }
 
 /**

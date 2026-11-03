@@ -41,6 +41,11 @@ const ARGS: Record<string, Record<string, unknown>> = {
   get_report: { domain: "example.com" },
   check_upgrade_status: {},
   get_sample_audit: {},
+  list_fixes: { domain: "example.com" },
+  get_fix_facts: { domain: "example.com" },
+  get_fix: { domain: "example.com" },
+  confirm_facts: { domain: "example.com", facts: { name: "Example" }, seen: { kind: "premises", facts: {} } },
+  check_fix: { domain: "example.com", id: "0b6c1f5e-8a4d-4c39-9f1e-2a7d3c5b9e10" },
 };
 
 const FORBIDDEN: Array<[label: string, pattern: RegExp]> = [
@@ -68,7 +73,7 @@ describe("no tool response leaks secrets, debug payloads, or internal identifier
     ["pro (success paths)", () => makeDeps({ tier: "pro", config: { apiKey: SECRET_KEY } as never })],
     ["keyless (error paths)", () => makeDeps({ tier: "none", config: { apiKey: undefined } as never })],
   ] as const) {
-    it(`scans all 14 tools under ${scenario}`, async () => {
+    it(`scans every served tool under ${scenario}`, async () => {
       const client = await connect(deps());
       for (const [name, args] of Object.entries(ARGS)) {
         const res = await client.callTool({ name, arguments: args });

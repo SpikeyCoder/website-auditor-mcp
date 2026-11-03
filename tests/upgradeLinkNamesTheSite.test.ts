@@ -36,7 +36,15 @@ import { generateSchema } from "../src/tools/generateSchema.js";
 import { getRecommendations } from "../src/tools/getRecommendations.js";
 import { listTrackedSites } from "../src/tools/listTrackedSites.js";
 import { getMonitoringStatus } from "../src/tools/getMonitoringStatus.js";
+import { listFixes } from "../src/tools/listFixes.js";
+import { getFixFacts } from "../src/tools/getFixFacts.js";
+import { getFix } from "../src/tools/getFix.js";
+import { confirmFacts } from "../src/tools/confirmFacts.js";
+import { checkFix } from "../src/tools/checkFix.js";
 import type { WaConfig } from "../src/config.js";
+
+const SEEN = { kind: "premises", facts: {} };
+const FIX_ID = "0b6c1f5e-8a4d-4c39-9f1e-2a7d3c5b9e10";
 
 const ASKED = "https://www.Acme.com:8443/pricing?ref=secret#plans";
 const HOST = "acme.com";
@@ -62,6 +70,11 @@ const SITE_TOOLS: Array<[string, SiteTool]> = [
   ["get_benchmark", (domain, deps) => getBenchmark({ domain }, deps)],
   ["compare_competitors", (domain, deps) => compareCompetitors({ domain, competitors: ["rival.com"] }, deps)],
   ["generate_schema", (domain, deps) => generateSchema({ domain }, deps)],
+  ["list_fixes", (domain, deps) => listFixes({ domain }, deps)],
+  ["get_fix_facts", (domain, deps) => getFixFacts({ domain }, deps)],
+  ["get_fix", (domain, deps) => getFix({ domain }, deps)],
+  ["confirm_facts", (domain, deps) => confirmFacts({ domain, facts: { name: "Acme" }, seen: SEEN }, deps)],
+  ["check_fix", (domain, deps) => checkFix({ domain, id: FIX_ID }, deps)],
 ];
 
 function errorOf(res: ToolResult<unknown>) {
@@ -273,6 +286,11 @@ const CATCH_PATHS: Array<[string, Partial<WaApiClientLike>, SiteTool]> = [
     (d, deps) => compareCompetitors({ domain: d, competitors: ["rival.com"] }, deps)],
   ["generate_schema", { generateSchema: PRO_REQUIRED }, (d, deps) => generateSchema({ domain: d }, deps)],
   ["get_recommendations", { getRecommendations: PRO_REQUIRED }, (d, deps) => getRecommendations({ domain: d }, deps)],
+  ["list_fixes", { listFixes: PRO_REQUIRED }, (d, deps) => listFixes({ domain: d }, deps)],
+  ["get_fix_facts", { getFixFacts: PRO_REQUIRED }, (d, deps) => getFixFacts({ domain: d }, deps)],
+  ["get_fix", { getFix: PRO_REQUIRED }, (d, deps) => getFix({ domain: d }, deps)],
+  ["confirm_facts", { confirmFacts: PRO_REQUIRED }, (d, deps) => confirmFacts({ domain: d, facts: { name: "Acme" }, seen: SEEN }, deps)],
+  ["check_fix", { checkFix: PRO_REQUIRED }, (d, deps) => checkFix({ domain: d, id: FIX_ID }, deps)],
 ];
 
 describe.each(STYLES)("%s style: each tool's own fromApiError carries its site", (_style, config) => {
