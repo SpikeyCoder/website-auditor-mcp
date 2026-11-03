@@ -33,7 +33,10 @@ export async function getFixFacts(args: GetFixFactsArgs, deps: ToolDeps): Promis
 
   try {
     const res = await deps.client.getFixFacts({ domain: args.domain });
-    const canConfirm = res.seen !== undefined;
+    // The block's own word, where it gives one; a block that can be confirmed
+    // but came without a seen (an older API) can't be confirmed through here.
+    const blockSays = (res.confirm as { can_confirm?: unknown } | null | undefined)?.can_confirm;
+    const canConfirm = blockSays !== false && res.seen !== undefined;
     return ok({
       domain: args.domain,
       confirm: res.confirm,
@@ -42,7 +45,8 @@ export async function getFixFacts(args: GetFixFactsArgs, deps: ToolDeps): Promis
       can_confirm: canConfirm,
       message: canConfirm
         ? `These are the facts ${args.domain}'s fixes are written from.${res.name ? ` The audits found the business name "${res.name}", for the name fact where the site states none.` : ""} ${OWNER_CONFIRMS}`
-        : NOTHING_TO_CONFIRM,
+        : blockSays === false ? NOTHING_TO_CONFIRM
+          : `The facts came without the \`seen\` a confirmation sends back, so they can't be confirmed through here right now. Try again later.`,
     });
   } catch (e) {
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);

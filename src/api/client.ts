@@ -734,7 +734,9 @@ export class WaApiClient implements WaApiClientLike {
       clearTimeout(timer);
     }
     if (controller.signal.aborted) {
-      throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.", { details: "the body did not arrive in time" });
+      // With its status: a refusal (4xx) whose body stalled recorded nothing.
+      throw new WaApiError("TIMEOUT", "The request to the Website Auditor API timed out.",
+        { status: resp.status, details: "the body did not arrive in time" });
     }
     if (!resp.ok) {
       if (opts.fix) throw this.mapFixError(resp, body, Date.now() - startedAt, opts.lookFirst);
@@ -942,8 +944,11 @@ function missingPayload(what: string, lookFirst?: string): WaApiError {
 function byStatus(status: number): ErrorCode {
   if (status === 429) return "RATE_LIMITED";
   if (status === 504) return "TIMEOUT";
-  if (status === 403) return "PRO_REQUIRED";
+  // Not PRO_REQUIRED for a 403 (only the API's subscription_required means
+  // that: a member who passed the Pro check is never sent to buy it), and not
+  // INVALID_INPUT for a 409 (an agent would start editing its seen).
   if (status === 404) return "NOT_FOUND";
+  if (status === 403 || status === 409) return "UPSTREAM_ERROR";
   if (status >= 400 && status < 500) return "INVALID_INPUT";
   return "UPSTREAM_ERROR";
 }

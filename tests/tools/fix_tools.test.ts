@@ -347,3 +347,26 @@ describe("review round 1", () => {
     expect(res.data.reason).toBe("unknown");
   });
 });
+
+describe("review round 2", () => {
+  it("list_fixes says a request's status in words, and what the platform can't take", async () => {
+    const res = await listFixes({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { listFixes: async () => ({
+      top: null,
+      fixes: [
+        { kind: "business_facts", title: "Business facts", needed: true, request: { ...REQUEST, status: "missing" } },
+        { kind: "llms_txt", title: "llms.txt", needed: true, can_apply: false, request: null },
+      ],
+    }) } }));
+    if (!res.ok) throw new Error("expected the overview");
+    expect(res.data.summary).toContain("didn't find it live yet");
+    expect(res.data.summary).not.toContain("request is missing");
+    expect(res.data.summary).toContain("can't take it");
+  });
+
+  it("get_fix_facts reads the block's own can_confirm", async () => {
+    const res = await getFixFacts({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getFixFacts: async () => ({ confirm: CONFIRM, name: "" }) } }));
+    if (!res.ok) throw new Error("expected the facts");
+    expect(res.data.can_confirm).toBe(false);
+    expect(res.data.message).not.toContain("hasn't been read");
+  });
+});

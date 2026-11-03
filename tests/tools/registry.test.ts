@@ -166,7 +166,9 @@ describe("tool registry", () => {
     expect(Object.keys(spec.inputSchema).sort()).toEqual(["domain", "kind", "platform"]);
     const schema = z.object(spec.inputSchema);
     expect(schema.safeParse({ domain: "acme.com", kind: "llms_txt" }).success).toBe(true);
-    expect(schema.safeParse({ domain: "acme.com", kind: "sitemap" }).success).toBe(false);
+    // Any kind the engine lists: the API refuses one it doesn't serve.
+    expect(schema.safeParse({ domain: "acme.com", kind: "sitemap" }).success).toBe(true);
+    expect(schema.safeParse({ domain: "acme.com", kind: 3 }).success).toBe(false);
   });
 
   it("confirm_facts tells the agent to show the owner and never confirm for them (owner decision 1)", () => {

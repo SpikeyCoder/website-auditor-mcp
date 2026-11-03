@@ -326,11 +326,13 @@ describe("the fix routes: refusals read the API's own code", () => {
     const bad = await rejection(clientWith(makeFetch(400, { success: false, code: "invalid_site", error: "No." })).getFix({ domain: "acme.com" }));
     expect(bad.code).toBe("INVALID_INPUT");
     expect(bad.details).toMatchObject({ code: "invalid_site" });
-    const pro = await rejection(clientWith(makeFetch(403, { success: false, code: "pro_required", error: "Pro." })).getFix({ domain: "acme.com" }));
-    expect(pro.code).toBe("PRO_REQUIRED");
+    // An unknown 403 is never an upsell to a member who passed the Pro check,
+    // and an unknown 409 never reads as their input being wrong.
+    const forbidden = await rejection(clientWith(makeFetch(403, { success: false, code: "seat_required", error: "No seat." })).getFix({ domain: "acme.com" }));
+    expect(forbidden.code).toBe("UPSTREAM_ERROR");
     // An inherited name is no code of ours.
     const proto = await rejection(clientWith(makeFetch(409, { success: false, code: "constructor", error: "x" })).getFix({ domain: "acme.com" }));
-    expect(proto.code).toBe("INVALID_INPUT");
+    expect(proto.code).toBe("UPSTREAM_ERROR");
   });
 
   it("does not add a second wait to a sentence that already says when", async () => {
@@ -402,5 +404,22 @@ describe("review round 1", () => {
     const c = new WaApiClient({ ...baseCfg, requestTimeoutMs: 50 } as never, { fetch: stalling as unknown as typeof fetch });
     const e = await rejection(c.listFixes({ domain: "acme.com" }));
     expect(e.code).toBe("TIMEOUT");
+  });
+});
+
+describe("review round 2: a stalled refusal", () => {
+  it("keeps its status, so a 4xx is never read as maybe recorded", async () => {
+    const stalling = vi.fn(async (_url: unknown, init: { signal: AbortSignal }) => {
+      const stream = new ReadableStream({
+        start(ctrl) {
+          init.signal.addEventListener("abort", () => ctrl.error(Object.assign(new Error("aborted"), { name: "AbortError" })));
+        },
+      });
+      return new Response(stream, { status: 409, headers: { "content-type": "application/json" } });
+    });
+    const c = new WaApiClient({ ...baseCfg, requestTimeoutMs: 50 } as never, { fetch: stalling as unknown as typeof fetch });
+    const e = await rejection(c.getFix({ domain: "acme.com" }));
+    expect(e.status).toBe(409);
+    expect((e.details as Record<string, unknown> | undefined)?.maybe_recorded).not.toBe(true);
   });
 });

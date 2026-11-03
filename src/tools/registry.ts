@@ -418,7 +418,9 @@ const GET_GTM_PLAN_TOOL: ToolSpec = {
 // reads only, and folding it into get_fix would put a recorded press — and a
 // not-read-only annotation — behind every "which fixes / what id" question.
 
-const fixKindArg = z.enum(["business_facts", "llms_txt"]).optional().describe(
+// A string, not an enum: the engine's kinds are its own (list_fixes shows
+// them), and the API refuses one it doesn't serve (invalid_kind).
+const fixKindArg = z.string().optional().describe(
   'Which fix: "business_facts" (structured data plus About and FAQ text, from the owner\'s confirmed facts) '
   + 'or "llms_txt" (an llms.txt titled with the confirmed name). Left out, the site\'s top fix.');
 

@@ -53,11 +53,22 @@ function summaryOf(domain: string, top: string | null, fixes: FixOverview["fixes
   const lead = first
     ? `Top fix for ${domain}: ${first.title ?? first.kind}.${first.why ? ` ${first.why}` : ""}`
     : `No fix is waiting to be applied for ${domain} right now.`;
+  const said = (f: FixOverview["fixes"][number]) => {
+    const platform = f.can_apply === false ? " The site's platform most likely can't take it." : "";
+    return `${f.title ?? f.kind ?? "A fix"}: ${f.needed ? "needed" : "not needed"}.${f.why ? ` ${f.why}` : ""}${platform}${requestSaid(f.request?.status)}`;
+  };
   const rest = fixes
     .filter((f) => f !== first)
-    .map((f) => {
-      const status = f.request?.status ? ` Its newest request is ${f.request.status}.` : "";
-      return `${f.title ?? f.kind ?? "A fix"}: ${f.needed ? "needed" : "not needed"}.${f.why ? ` ${f.why}` : ""}${status}`;
-    });
-  return [lead, ...rest].join(" ");
+    .map(said);
+  const topStatus = first ? requestSaid(first.request?.status) : "";
+  return [lead + topStatus, ...rest].join(" ");
+}
+
+/** A request's status in words: the engine's "missing" is the fix not found
+ * live at its last check, not a missing request. */
+function requestSaid(status: string | null | undefined): string {
+  if (!status) return "";
+  if (status === "live") return " Its last check found it live.";
+  if (status === "missing") return " Its last check didn't find it live yet.";
+  return ` Its newest request is ${status}.`;
 }
