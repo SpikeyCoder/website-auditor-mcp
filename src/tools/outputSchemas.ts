@@ -268,9 +268,23 @@ const comparisonRecommendationGap = open({
   })),
 });
 
+// ─── the dashboard link ────────────────────────────────────────────────────
+
+/**
+ * `dashboard`, on seven tools' success replies (tools/dashboardLink.ts). The
+ * roots are closed objects, so the key has to be declared on each of them or a
+ * reply that carries it fails validation on both sides of the wire. Optional:
+ * a caller without Pro gets no key at all.
+ */
+const dashboardLinkField = z.object({
+  url: z.string().describe("The member's own dashboard page."),
+  note: z.string().describe("One line naming what the page shows; the same text is in summary where a reply has one."),
+}).optional();
+
 // ─── per-tool output schemas ───────────────────────────────────────────────
 
 export const getAiVisibilityOutput: ZodRawShape = {
+  dashboard: dashboardLinkField,
   score: z.number().describe("Overall AI-visibility score, 0–100."),
   by_engine: engineScores,
   engine_status: engineStatus,
@@ -303,6 +317,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
 };
 
 export const runAuditOutput: ZodRawShape = {
+  dashboard: dashboardLinkField,
   scores: open({
     ai_visibility: z.number().nullable(),
     seo: z.number().nullable(),
@@ -346,6 +361,7 @@ export const getChangesOutput: ZodRawShape = {
 };
 
 export const compareCompetitorsOutput: ZodRawShape = {
+  dashboard: dashboardLinkField,
   ranking: z.array(open({
     domain: z.string(),
     score: z.number().nullable(),
@@ -377,6 +393,7 @@ export const compareCompetitorsOutput: ZodRawShape = {
 };
 
 export const trackSiteOutput: ZodRawShape = {
+  dashboard: dashboardLinkField,
   domain: z.string(),
   tracking: z.boolean().describe("True after a start/confirm; false after a stop."),
   cadence: z.string().optional(),
@@ -419,6 +436,7 @@ export const listTrackedSitesOutput: ZodRawShape = {
 };
 
 export const getMonitoringStatusOutput: ZodRawShape = {
+  dashboard: dashboardLinkField,
   limit: z.number(),
   used: z.number(),
   remaining: z.number(),
@@ -457,6 +475,7 @@ export const getBenchmarkOutput: ZodRawShape = {
 };
 
 export const getRecommendationsOutput: ZodRawShape = {
+  dashboard: dashboardLinkField,
   run_id: z.string().nullable().optional().describe("The audit the steps come from."),
   tier: z.enum(["free", "pro"]).optional().describe(
     "Which list the API served. \"free\" omits where to get listed, what the assistants get "
@@ -535,6 +554,7 @@ const gtmPlanPhase = open({
 });
 
 export const getGtmPlanOutput: ZodRawShape = {
+  dashboard: dashboardLinkField,
   domain: z.string(),
   plan: open({
     markdown: z.string(),

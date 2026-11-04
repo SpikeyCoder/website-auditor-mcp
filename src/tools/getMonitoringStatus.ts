@@ -9,8 +9,9 @@
  * mappers.ts), or, when there is none, a note or the summary saying why.
  * Read-only; reads the snapshots the scheduler writes. Compact, glanceable.
  */
-import type { Changes, MonitoringSite, MonitoringSnapshot } from "../api/types.js";
+import type { Changes, DashboardLink, MonitoringSite, MonitoringSnapshot } from "../api/types.js";
 import { computeChanges, day, movement, questionDifference, sameQuestion, toQuestion } from "../api/mappers.js";
+import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface MonitoringStatusSite {
@@ -28,6 +29,8 @@ export interface MonitoringStatusSite {
 }
 
 export interface GetMonitoringStatusResult {
+  /** Pro only: the member's dashboard. */
+  dashboard?: DashboardLink;
   limit: number;
   used: number;
   remaining: number;
@@ -216,7 +219,16 @@ export async function getMonitoringStatus(
         ? "No sites are being monitored yet. Use track_site to start weekly monitoring."
         : `Monitoring ${status.used} of ${status.limit} site(s); ${status.remaining} slot(s) free.`;
 
-    return ok({ limit: status.limit, used: status.used, remaining: status.remaining, sites, summary });
+    // The list is already in hand, so the link makes no read of its own.
+    const active = status.sites.filter((s) => s.active !== false).map((s) => s.domain);
+    const link = await dashboardLink(deps, "get_monitoring_status", undefined, { tracked: active });
+    return ok({
+      limit: status.limit, used: status.used, remaining: status.remaining, sites,
+      // With nothing active the summary already says to start tracking; the
+      // note stays in `dashboard.note` rather than repeating it.
+      summary: active.length > 0 ? withDashboardNote(summary, link) : summary,
+      ...dashboardField(link),
+    });
   } catch (e) {
     return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }

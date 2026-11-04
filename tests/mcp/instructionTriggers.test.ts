@@ -319,3 +319,75 @@ describe("instructions: wiring", () => {
     expect(info).not.toContain("admin_portal");
   });
 });
+
+describe("instructions: the dashboard link", () => {
+  // Seven tools' success replies carry `dashboard` (src/tools/dashboardLink.ts)
+  // and the instructions say what it is. The paragraph is descriptive in every
+  // build: it is the member's own page, with nothing about price, trial or
+  // upgrade (OpenAI's info-style rules and Anthropic's review both reject
+  // promotion), and it never tells the model to call a tool.
+  const builds = [
+    ["default", buildInstructions(SIGNUP)],
+    ["info", buildInstructions(SIGNUP, "info")],
+    ["hosted", buildInstructions(SIGNUP, "link", "http")],
+    ["mixed auth info", buildInstructions(SIGNUP, "info", "http", true)],
+    ["neutral (Claude)", buildInstructions(SIGNUP, "link", "http", true, "neutral")],
+    ["neutral + info", buildInstructions(SIGNUP, "info", "http", true, "neutral")],
+  ] as const;
+  const block = (t: string) => t.split("\n\n").find((p) => p.startsWith("YOUR DASHBOARD"));
+
+  it.each(builds)("%s: has the block, between the plan guidance and billing", (_label, t) => {
+    const paras = t.split("\n\n");
+    const at = paras.findIndex((p) => p.startsWith("YOUR DASHBOARD"));
+    expect(at).toBeGreaterThan(-1);
+    expect(paras[at - 1]).toMatch(/^FROM FINDINGS TO A PLAN/);
+    expect(paras[at + 1]).toMatch(/^Auditing real domains needs/);
+  });
+
+  it.each(builds)("%s: says whose page it is and what it shows", (_label, t) => {
+    const para = block(t)!;
+    expect(para).toContain("`dashboard`");
+    expect(para).toMatch(/member's own/);
+    expect(para).toMatch(/tracks/);
+    expect(para).toMatch(/do not\s+track, the note says so/); // the untracked case is named too
+    expect(para).toMatch(/AI crawler check/);
+    expect(para).toMatch(/competitor/);
+    expect(para).toMatch(/visits from AI assistants/);
+  });
+
+  it.each(builds)("%s: no price, trial or upgrade wording", (_label, t) => {
+    expect(block(t)).not.toMatch(/\$|price|pricing|trial|upgrade|subscri|free|plan\b|payment|pro\b|always/i);
+  });
+
+  it.each(builds)("%s: never tells the model to call a tool", (_label, t) => {
+    expect(block(t)).not.toMatch(/\b(call|run|use|invoke)\b/i);
+    expect(block(t)).not.toMatch(/get_|track_site|run_audit/);
+  });
+
+  it("the neutral build describes; it does not tell the model to end its answer with the link", () => {
+    const para = block(buildInstructions(SIGNUP, "link", "http", true, "neutral"))!;
+    expect(para).not.toMatch(/\b(share|tell|offer|end|include|always|must|should)\b.*(?<!can be )link/i);
+    expect(para).toMatch(/can be shared/);
+    expect(para).not.toMatch(/once per conversation/);
+  });
+
+  it("the full and info builds name when to share it: their tracked site, once", () => {
+    for (const t of [buildInstructions(SIGNUP), buildInstructions(SIGNUP, "info")]) {
+      expect(block(t)).toMatch(/share `dashboard\.url`/);
+      expect(block(t)).toMatch(/their tracked site/);
+      expect(block(t)).toMatch(/once per conversation/);
+    }
+  });
+
+  it("is a short block beside the trigger guidance", () => {
+    for (const [label, t] of builds) {
+      expect(block(t)!.length, label).toBeLessThan(500);
+    }
+  });
+
+  it("leaves the lead untouched", () => {
+    for (const [, t] of builds) {
+      expect(t.startsWith("Website Auditor — check whether AI assistants actually recommend a business. ")).toBe(true);
+    }
+  });
+});

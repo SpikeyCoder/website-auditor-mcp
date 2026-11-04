@@ -15,6 +15,7 @@
  * pre-flight (gateKeyedTool) refuses only a missing or rejected key.
  */
 import type { Recommendations } from "../api/types.js";
+import { dashboardLink, dashboardField } from "./dashboardLink.js";
 import { gateKeyedTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetRecommendationsArgs {
@@ -30,7 +31,11 @@ export async function getRecommendations(
 
   try {
     const recommendations = await deps.client.getRecommendations({ domain: args.domain });
-    return ok(recommendations);
+    // Gated by key only: the API serves a key without Pro the free list, and
+    // that caller gets no link. `dashboardLink` checks the tier itself. The
+    // reply has no `summary`, so the note stays in `dashboard.note`.
+    const link = recommendations.tier === "free" ? null : await dashboardLink(deps, "get_recommendations", args.domain);
+    return ok({ ...recommendations, ...dashboardField(link) });
   } catch (e) {
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }

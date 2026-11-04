@@ -411,6 +411,46 @@ describe("declared output schemas", () => {
     expect(z.object(OUTPUT_SCHEMAS[name]!).safeParse(result.structuredContent).success).toBe(true);
   });
 
+  /**
+   * The dashboard link (src/tools/dashboardLink.ts) is a root key on seven
+   * tools' replies, and the roots are closed objects: an undeclared key fails
+   * validation on both sides of the wire, so the field is checked here through
+   * the validator-armed client, and the schemas are checked to publish it.
+   */
+  const DASHBOARD_TOOLS = [
+    "run_audit", "get_ai_visibility", "get_monitoring_status", "compare_competitors",
+    "get_recommendations", "get_gtm_plan", "track_site",
+  ] as const;
+
+  it.each(DASHBOARD_TOOLS)("%s: declares `dashboard`, and a reply carrying it validates", async (name) => {
+    expect(Object.keys(OUTPUT_SCHEMAS[name]!), name).toContain("dashboard");
+    expect(z.object(OUTPUT_SCHEMAS[name]!).safeParse({ dashboard: { url: 1 } }).success).toBe(false);
+
+    const client = await connect(makeDeps({
+      tier: "pro",
+      client: { ...richClient, listTrackedDomains: async () => ({
+        limit: 5, used: 1, remaining: 4,
+        tracked: [{ domain: "example.com", cadence: "weekly", active: true, digest_enabled: true, last_audited_at: null, next_run_at: null }],
+      }) },
+    }));
+    const result = await client.callTool({ name, arguments: ARGS[name] ?? {} });
+    expect(JSON.stringify(result), name).not.toContain("Output validation error");
+    expect(result.isError, name).toBeFalsy();
+    const dashboard = (result.structuredContent as { dashboard?: { url: string; note: string } }).dashboard;
+    expect(dashboard?.url, name).toMatch(
+      name === "get_monitoring_status"
+        ? /^https:\/\/website-auditor\.io\/dashboard\?src=/ // about all sites: the page that lists them
+        : /^https:\/\/website-auditor\.io\/dashboard\?site=/);
+    expect(z.object(OUTPUT_SCHEMAS[name]!).safeParse(result.structuredContent).success, name).toBe(true);
+  });
+
+  it("no other tool publishes `dashboard`", () => {
+    for (const [name, shape] of Object.entries(OUTPUT_SCHEMAS)) {
+      if ((DASHBOARD_TOOLS as readonly string[]).includes(name)) continue;
+      expect(Object.keys(shape), name).not.toContain("dashboard");
+    }
+  });
+
   for (const spec of SERVED_TOOLS) {
     it(`${spec.name} returns something its own schema accepts`, async () => {
       const client = await connect();

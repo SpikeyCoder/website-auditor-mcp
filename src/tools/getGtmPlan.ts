@@ -31,6 +31,7 @@
 import type { GtmChatMessage, GtmPlanResult } from "../api/types.js";
 import { normalizeDomain } from "../api/domain.js";
 import { WaApiError } from "../api/errors.js";
+import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetGtmPlanArgs {
@@ -176,7 +177,8 @@ export async function getGtmPlan(
         "either none was recorded, or the plan discussed the sources without " +
         "naming them. get_ai_visibility shows which.";
     }
-    return ok(result);
+    const link = await dashboardLink(deps, "get_gtm_plan", domain);
+    return ok({ ...result, summary: withDashboardNote(result.summary, link), ...dashboardField(link) });
   } catch (e) {
     // The proxy answers 404 for "no audit on record for this domain" with a
     // REST remedy ("run one first via GET /api/audit") that an MCP caller

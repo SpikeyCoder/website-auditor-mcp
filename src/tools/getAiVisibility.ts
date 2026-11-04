@@ -13,6 +13,7 @@
  */
 import type { AiVisibility } from "../api/types.js";
 import { toAiVisibility, computeTrend, detectUnreachable, measuredRun } from "../api/mappers.js";
+import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetAiVisibilityArgs {
@@ -74,5 +75,6 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
 
   const result = toAiVisibility(response.report);
   await attachTrend(result, args.domain, response.runId, deps);
-  return ok(result);
+  const link = await dashboardLink(deps, "get_ai_visibility", args.domain);
+  return ok({ ...result, summary: withDashboardNote(result.summary, link), ...dashboardField(link) });
 }

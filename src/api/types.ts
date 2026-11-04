@@ -299,7 +299,19 @@ export interface StanceCounts {
   answers: number;
 }
 
+/**
+ * The member's own dashboard page, added to the success replies of the tools
+ * that are about a site (tools/dashboardLink.ts). Present only for Pro.
+ */
+export interface DashboardLink {
+  url: string;
+  /** One line naming what the page shows; the same text is in `summary` where a reply has one. */
+  note: string;
+}
+
 export interface AiVisibility {
+  /** Pro only, and only on a get_ai_visibility reply: the member's dashboard. */
+  dashboard?: DashboardLink;
   score: number;
   /** Per-engine score, or NULL when the engine was not scored. A null is not a
    *  zero: zero means the engine answered and never named the business.
@@ -370,6 +382,8 @@ export interface AuditIssue {
 }
 
 export interface AuditSummary {
+  /** Pro only: the member's dashboard. */
+  dashboard?: DashboardLink;
   scores: { ai_visibility: number | null; seo: number | null; security: number | null; performance: number | null };
   top_issues: AuditIssue[];
   report_url: string;
@@ -627,6 +641,8 @@ export interface ComparisonRecommendationGap {
 }
 
 export interface Comparison {
+  /** Pro only: the member's dashboard. */
+  dashboard?: DashboardLink;
   ranking: CompetitorRank[];
   gaps: CompetitorGap[];
   /** Quota accounting so an agent knows what was spent and what remains. */
@@ -695,6 +711,8 @@ export interface Recommendation {
 
 /** `get_recommendations` — ranked next steps from the domain's latest audit. */
 export interface Recommendations {
+  /** Pro only: the member's dashboard. */
+  dashboard?: DashboardLink;
   /** The audit the steps come from. */
   run_id?: string | null;
   /** Which list the API served: the whole one ("pro") or the free one. */
@@ -798,6 +816,8 @@ export interface GtmPlanResponse {
 /** What the get_gtm_plan tool returns to the host model. */
 export interface GtmPlanResult {
   domain: string;
+  /** Pro only: the member's dashboard. */
+  dashboard?: DashboardLink;
   /** `phases` is absent, never `[]`, when the wire did not carry the key. */
   plan: { markdown: string; sections: GtmPlanSection[]; phases?: GtmPlanPhase[] };
   sources_used: string[];

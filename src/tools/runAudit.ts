@@ -13,6 +13,7 @@
  */
 import type { AuditSummary } from "../api/types.js";
 import { toAuditSummary, detectUnreachable } from "../api/mappers.js";
+import { dashboardLink, dashboardField } from "./dashboardLink.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface RunAuditArgs {
@@ -45,5 +46,7 @@ export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<Tool
     );
   }
 
-  return ok(toAuditSummary(response.report, { siteUrl: deps.config.siteUrl }));
+  // No `summary` on this reply: the link's note rides in `dashboard.note`.
+  const link = await dashboardLink(deps, "run_audit", args.domain);
+  return ok({ ...toAuditSummary(response.report, { siteUrl: deps.config.siteUrl }), ...dashboardField(link) });
 }

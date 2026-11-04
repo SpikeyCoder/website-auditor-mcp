@@ -101,7 +101,10 @@ describe("get_recommendations [any key]", () => {
     expect(fn).toHaveBeenCalledWith({ domain: "example.com" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data).toEqual(PRO_LIST);
+    // The list is the API's, untouched; a Pro caller also gets the dashboard link.
+    const { dashboard, ...list } = res.data;
+    expect(list).toEqual(PRO_LIST);
+    expect(dashboard?.url).toContain("/dashboard?src=mcp-get_recommendations");
     expect(res.data.recommendations[1]).toMatchObject({ fix_id: "snippets/structured-data-template.html" });
   });
 
