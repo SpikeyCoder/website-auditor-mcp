@@ -13,7 +13,7 @@
  */
 import type { AuditSummary } from "../api/types.js";
 import { toAuditSummary, detectUnreachable } from "../api/mappers.js";
-import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
+import { dashboardLink, dashboardField } from "./dashboardLink.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface RunAuditArgs {
