@@ -102,7 +102,7 @@ export interface DashboardLinkOptions {
  */
 export async function dashboardLink(
   deps: ToolDeps,
-  tool: string,
+  tool: DashboardLinkTool,
   domain?: string,
   opts: DashboardLinkOptions = {},
 ): Promise<DashboardLink | null> {
