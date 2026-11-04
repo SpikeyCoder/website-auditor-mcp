@@ -158,9 +158,20 @@ describe("get_fix — \"Get this fix\"", () => {
     expect(res.data).toEqual({
       status: "nothing_to_fix",
       domain: "acme.com",
-      message: "Your latest check found nothing to change here. Nothing was recorded. list_fixes shows which fixes the site needs.",
+      message: "The robots_txt fix isn't needed: acme.com's newest audit found nothing for it to change. Nothing was recorded. list_fixes shows which fixes the site needs.",
     });
     expect(getFixOutputSchema().safeParse(res.data).success).toBe(true);
+  });
+
+  it("end to end from the API's 409 nothing_to_fix: the real client's error becomes the result", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      success: false, code: "nothing_to_fix", error: "Your latest check found nothing to change here.",
+    }), { status: 409, headers: { "content-type": "application/json" } }));
+    const client = new WaApiClient(testConfig(), { fetch: fetchMock as unknown as typeof fetch });
+    const res = await getFix({ domain: "acme.com", kind: "robots_txt" }, { ...makeDeps({ tier: "pro" }), client });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.status).toBe("nothing_to_fix");
   });
 
   it("an invalid platform stays an error, with the API's code", async () => {

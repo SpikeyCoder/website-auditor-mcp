@@ -51,7 +51,7 @@ export async function getFix(args: GetFixArgs, deps: ToolDeps): Promise<ToolResu
       return ok({
         status: "nothing_to_fix",
         domain: args.domain,
-        message: `${e.message} Nothing was recorded. list_fixes shows which fixes the site needs.`,
+        message: `${args.kind ? `The ${args.kind} fix` : "The fix"} isn't needed: ${args.domain}'s newest audit found nothing for it to change. Nothing was recorded. list_fixes shows which fixes the site needs.`,
       });
     }
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
