@@ -418,6 +418,18 @@ describe("the dashboard link in particular tools", () => {
     expect(res.data.summary).not.toContain("Track a site first");
   });
 
+  it("get_monitoring_status: sites that are all inactive count as nothing tracked", async () => {
+    const d = makeDeps({
+      tier: "pro",
+      client: { getMonitoringStatus: vi.fn(async () => ({ limit: 5, used: 1, remaining: 4, sites: [{ ...SITE, active: false }] })) },
+    });
+    const res = await getMonitoringStatus({}, d);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.dashboard?.note).toMatch(/^Track a site first/);
+    expect(res.data.summary).not.toContain("Track a site first");
+  });
+
   it("get_ai_visibility: the cached audit object is not mutated", async () => {
     const d = makeDeps({ tier: "pro", client: { listTrackedDomains: listing("example.com") } });
     const first = await getAiVisibility({ domain: "example.com" }, d);

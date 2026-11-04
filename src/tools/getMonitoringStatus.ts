@@ -220,14 +220,13 @@ export async function getMonitoringStatus(
         : `Monitoring ${status.used} of ${status.limit} site(s); ${status.remaining} slot(s) free.`;
 
     // The list is already in hand, so the link makes no read of its own.
-    const link = await dashboardLink(deps, "get_monitoring_status", undefined, {
-      tracked: status.sites.filter((s) => s.active !== false).map((s) => s.domain),
-    });
+    const active = status.sites.filter((s) => s.active !== false).map((s) => s.domain);
+    const link = await dashboardLink(deps, "get_monitoring_status", undefined, { tracked: active });
     return ok({
       limit: status.limit, used: status.used, remaining: status.remaining, sites,
-      // With nothing tracked the summary already says to start tracking; the
+      // With nothing active the summary already says to start tracking; the
       // note stays in `dashboard.note` rather than repeating it.
-      summary: status.sites.length > 0 ? withDashboardNote(summary, link) : summary,
+      summary: active.length > 0 ? withDashboardNote(summary, link) : summary,
       ...dashboardField(link),
     });
   } catch (e) {

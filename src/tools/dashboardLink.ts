@@ -83,7 +83,7 @@ export function withDashboardNote(summary: string, link: DashboardLink | null): 
 }
 
 /** The result's optional field: present only when there is a link. */
-export function dashboardField(link: DashboardLink | null): { dashboard: DashboardLink } | Record<string, never> {
+export function dashboardField(link: DashboardLink | null): { dashboard?: DashboardLink } {
   return link ? { dashboard: link } : {};
 }
 
