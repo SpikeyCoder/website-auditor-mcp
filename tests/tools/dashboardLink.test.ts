@@ -121,10 +121,10 @@ describe("dashboardLink: the link itself", () => {
     expect(link?.url).not.toContain("site=");
   });
 
-  it("an unusable domain argument never becomes ?site=", async () => {
+  it("an unusable domain argument gets no link", async () => {
     const deps = makeDeps({ tier: "pro", client: { listTrackedDomains: listing("example.com") } });
-    const link = await dashboardLink(deps, "run_audit", "not a domain");
-    expect(link?.url).toBe("https://website-auditor.io/dashboard?src=mcp-run_audit");
+    expect(await dashboardLink(deps, "run_audit", "not a domain")).toBeNull();
+    expect(await dashboardLink(deps, "run_audit", "")).toBeNull();
   });
 
   it("never carries refresh=1, a token or the domain in src", async () => {

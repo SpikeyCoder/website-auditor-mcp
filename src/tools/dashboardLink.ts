@@ -116,6 +116,8 @@ export async function dashboardLink(
     const base = `${deps.config.siteUrl}/dashboard`;
     const src = `src=${encodeURIComponent(linkLabel(deps.config.linkChannel, tool))}`;
     const asked = host(domain);
+    // A domain that cannot be read as one is not a site to talk about.
+    if (domain !== undefined && !asked) return null;
 
     if (asked && trackedHosts.includes(asked)) {
       const url = `${base}?site=${encodeURIComponent(asked)}&${src}`;
