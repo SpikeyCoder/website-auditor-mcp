@@ -437,7 +437,10 @@ describe("declared output schemas", () => {
     expect(JSON.stringify(result), name).not.toContain("Output validation error");
     expect(result.isError, name).toBeFalsy();
     const dashboard = (result.structuredContent as { dashboard?: { url: string; note: string } }).dashboard;
-    expect(dashboard?.url, name).toMatch(/^https:\/\/website-auditor\.io\/dashboard\?site=/);
+    expect(dashboard?.url, name).toMatch(
+      name === "get_monitoring_status"
+        ? /^https:\/\/website-auditor\.io\/dashboard\?src=/ // about all sites: the page that lists them
+        : /^https:\/\/website-auditor\.io\/dashboard\?site=/);
     expect(z.object(OUTPUT_SCHEMAS[name]!).safeParse(result.structuredContent).success, name).toBe(true);
   });
 

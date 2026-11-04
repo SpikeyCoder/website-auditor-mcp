@@ -34,7 +34,7 @@ export async function getRecommendations(
     // Gated by key only: the API serves a key without Pro the free list, and
     // that caller gets no link. `dashboardLink` checks the tier itself. The
     // reply has no `summary`, so the note stays in `dashboard.note`.
-    const link = await dashboardLink(deps, "get_recommendations", args.domain);
+    const link = recommendations.tier === "free" ? null : await dashboardLink(deps, "get_recommendations", args.domain);
     return ok({ ...recommendations, ...dashboardField(link) });
   } catch (e) {
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);

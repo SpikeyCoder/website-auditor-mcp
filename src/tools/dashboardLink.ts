@@ -19,7 +19,8 @@
  *     first one instead, so a link that names an untracked site would open a
  *     different site than the one just discussed. For an untracked site, or a
  *     member who tracks nothing, the link is the plain dashboard and the note
- *     says to track the site first.
+ *     says to track the site first. A reply about all of a member's sites
+ *     links the plain dashboard too, which lists them.
  *   * No `refresh=1`. It makes the dashboard re-ask every model on arrival and
  *     spends the member's weekly claims; a link in a conversation must not.
  *   * One `src` label, `<channel>-<tool>`, from a closed set. It is read by
@@ -115,17 +116,23 @@ export async function dashboardLink(
     const base = `${deps.config.siteUrl}/dashboard`;
     const src = `src=${encodeURIComponent(linkLabel(deps.config.linkChannel, tool))}`;
     const asked = host(domain);
-    // A reply about all of the member's sites points at the first one they
-    // track, which is the site the dashboard opens on its own.
-    const site = asked ?? (domain === undefined ? trackedHosts[0] : undefined);
 
-    if (site && trackedHosts.includes(site)) {
-      const url = `${base}?site=${encodeURIComponent(site)}&${src}`;
-      return { url, note: `Your dashboard for ${site} shows ${WHAT}: ${url}` };
+    if (asked && trackedHosts.includes(asked)) {
+      const url = `${base}?site=${encodeURIComponent(asked)}&${src}`;
+      return { url, note: `Your dashboard for ${asked} shows ${WHAT}: ${url}` };
     }
 
     const url = `${base}?${src}`;
-    const what = asked ? `Track ${asked} (track_site)` : "Track a site (track_site)";
+    // A reply about all of the member's sites (no domain) links the dashboard
+    // itself, which lists them; naming one site would assume which the page
+    // opens on, and that is the dashboard's choice.
+    if (domain === undefined && trackedHosts.length > 0) {
+      return { url, note: `Your dashboard shows ${WHAT} for the sites you track: ${url}` };
+    }
+    // Said as a fact about the page, not as a tool to call: the model decides
+    // whether tracking is wanted. No tool name, so a neutral-copy server's
+    // replies never read as an instruction.
+    const what = asked ? `Track ${asked} first` : "Track a site first";
     return { url, note: `${what} to see it on your dashboard, which shows ${WHAT}: ${url}` };
   } catch {
     return null;

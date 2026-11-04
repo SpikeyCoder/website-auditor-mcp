@@ -225,7 +225,9 @@ export async function getMonitoringStatus(
     });
     return ok({
       limit: status.limit, used: status.used, remaining: status.remaining, sites,
-      summary: withDashboardNote(summary, link),
+      // With nothing tracked the summary already says to start tracking; the
+      // note stays in `dashboard.note` rather than repeating it.
+      summary: status.sites.length > 0 ? withDashboardNote(summary, link) : summary,
       ...dashboardField(link),
     });
   } catch (e) {

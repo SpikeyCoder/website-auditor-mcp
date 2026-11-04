@@ -74,27 +74,41 @@ describe("dashboardLink: the link itself", () => {
     expect(link?.url).toBe("https://website-auditor.io/dashboard?src=mcp-get_ai_visibility");
     expect(link?.url).not.toContain("site=");
     expect(link?.url).not.toContain("other.com");
-    expect(link?.note).toMatch(/^Track other\.com \(track_site\) to see it on your dashboard/);
+    expect(link?.note).toMatch(/^Track other\.com first to see it on your dashboard/);
   });
 
   it("a Pro member with no tracked site: the plain dashboard and a track-it note", async () => {
     const deps = makeDeps({ tier: "pro", client: { listTrackedDomains: listing() } });
     const link = await dashboardLink(deps, "run_audit", "example.com");
     expect(link?.url).toBe("https://website-auditor.io/dashboard?src=mcp-run_audit");
-    expect(link?.note).toContain("Track example.com (track_site)");
+    expect(link?.note).toContain("Track example.com first");
   });
 
   it("no domain, nothing tracked: the plain dashboard, a note that names no site", async () => {
     const deps = makeDeps({ tier: "pro", client: { listTrackedDomains: listing() } });
     const link = await dashboardLink(deps, "get_monitoring_status");
     expect(link?.url).toBe("https://website-auditor.io/dashboard?src=mcp-get_monitoring_status");
-    expect(link?.note).toMatch(/^Track a site \(track_site\)/);
+    expect(link?.note).toMatch(/^Track a site first/);
   });
 
-  it("no domain, sites tracked: the first tracked site", async () => {
+  it("no domain, sites tracked: the plain dashboard, which lists them, naming no one site", async () => {
     const deps = makeDeps({ tier: "pro", client: { listTrackedDomains: listing("a.com", "b.com") } });
     const link = await dashboardLink(deps, "get_monitoring_status");
-    expect(link?.url).toBe("https://website-auditor.io/dashboard?site=a.com&src=mcp-get_monitoring_status");
+    expect(link?.url).toBe("https://website-auditor.io/dashboard?src=mcp-get_monitoring_status");
+    expect(link?.note).toMatch(/^Your dashboard shows the AI crawler check/);
+    expect(link?.note).not.toMatch(/a\.com|b\.com/);
+  });
+
+  it("the notes never name a tool", async () => {
+    const deps = makeDeps({ tier: "pro", client: { listTrackedDomains: listing("a.com") } });
+    // The words before the URL; the URL's own `src` carries the tool name.
+    const words = (l: { note: string; url: string } | null) => l!.note.replace(l!.url, "");
+    for (const d of ["a.com", "z.com", undefined]) {
+      expect(words(await dashboardLink(deps, "run_audit", d))).not.toMatch(/track_site|get_|run_audit/);
+    }
+    const none = makeDeps({ tier: "pro", client: { listTrackedDomains: listing() } });
+    expect(words(await dashboardLink(none, "run_audit", "z.com"))).not.toMatch(/track_site/);
+    expect(words(await dashboardLink(none, "run_audit"))).not.toMatch(/track_site/);
   });
 
   it("an inactive tracked site does not count as tracked", async () => {
@@ -266,9 +280,11 @@ describe.each(CASES)("$tool: the dashboard link", (c) => {
     const { deps: d } = deps(c, { channel: "chatgpt" });
     const res = await c.run(d);
     expect(res.ok).toBe(true);
+    // Monitoring is about all of the member's sites, so it links the page that lists them.
+    const named = c.tool !== "get_monitoring_status";
     expect(res.data.dashboard).toEqual({
-      url: `https://website-auditor.io/dashboard?site=example.com&src=chatgpt-${c.tool}`,
-      note: expect.stringContaining("Your dashboard for example.com shows the AI crawler check"),
+      url: `https://website-auditor.io/dashboard?${named ? "site=example.com&" : ""}src=chatgpt-${c.tool}`,
+      note: expect.stringContaining(named ? "Your dashboard for example.com shows the AI crawler check" : "Your dashboard shows the AI crawler check"),
     });
   });
 
@@ -285,7 +301,7 @@ describe.each(CASES)("$tool: the dashboard link", (c) => {
     const res = await c.run(d);
     expect(res.ok).toBe(true);
     expect(res.data.dashboard.url).toBe(`https://website-auditor.io/dashboard?src=mcp-${c.tool}`);
-    expect(res.data.dashboard.note).toContain("Track example.com (track_site)");
+    expect(res.data.dashboard.note).toContain("Track example.com first");
   });
 
   it("folds the note into summary where the reply has one, and leaves the rest of the reply alone", async () => {
@@ -347,6 +363,16 @@ describe("the dashboard link in particular tools", () => {
     if (res.ok) expect("dashboard" in res.data).toBe(false);
   });
 
+  it("track_site: an enrollment that is not active gets no link", async () => {
+    const d = makeDeps({
+      tier: "pro",
+      client: { trackSite: vi.fn(async ({ domain }: { domain: string }) => ({ domain, cadence: "weekly", active: false, created: true, already_tracked: false })) },
+    });
+    const res = await trackSite({ domain: "example.com" }, d);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect("dashboard" in res.data).toBe(false);
+  });
+
   it("track_site: the newly tracked site is linked by name without a read", async () => {
     const list = listing();
     const d = makeDeps({ tier: "pro", client: { listTrackedDomains: list } });
@@ -358,7 +384,7 @@ describe("the dashboard link in particular tools", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it("get_monitoring_status: links the first tracked site, from the list it already holds", async () => {
+  it("get_monitoring_status: links the dashboard, from the list it already holds", async () => {
     const list = listing();
     const d = makeDeps({
       tier: "pro",
@@ -373,7 +399,8 @@ describe("the dashboard link in particular tools", () => {
     const res = await getMonitoringStatus({}, d);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.data.dashboard?.url).toContain("site=first.com");
+    expect(res.data.dashboard?.url).toBe("https://website-auditor.io/dashboard?src=mcp-get_monitoring_status");
+    expect(res.data.summary).toContain(res.data.dashboard!.note);
     expect(list).not.toHaveBeenCalled();
   });
 
@@ -386,7 +413,9 @@ describe("the dashboard link in particular tools", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.dashboard?.url).toBe("https://website-auditor.io/dashboard?src=mcp-get_monitoring_status");
-    expect(res.data.summary).toContain("Track a site (track_site)");
+    expect(res.data.dashboard?.note).toMatch(/^Track a site first/);
+    // The summary already says to start tracking; it is not repeated.
+    expect(res.data.summary).not.toContain("Track a site first");
   });
 
   it("get_ai_visibility: the cached audit object is not mutated", async () => {
