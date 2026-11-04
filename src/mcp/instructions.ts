@@ -242,15 +242,16 @@ export function buildInstructions(
   // tests/mcp/instructionTriggers.test.ts (position, both variants, no
   // money words).
   const dashboardGuidance = neutral
-    ? "YOUR DASHBOARD. A reply about a site the member tracks can carry `dashboard`: a link to the " +
-      "member's own dashboard page and a one-line note. The page shows the AI crawler check, the " +
-      "competitor comparison and visits from AI assistants for that site. It is the member's own " +
-      "page, so it can be shared with them when the reply is about their tracked site."
-    : "YOUR DASHBOARD. A reply about a site the member tracks can carry `dashboard`: a link to the " +
-      "member's own dashboard page and a one-line note. The page shows the AI crawler check, the " +
-      "competitor comparison and visits from AI assistants for that site. It is the member's own " +
-      "page, so share `dashboard.url` and its note with them when your answer is about their tracked " +
-      "site, once per conversation is enough.";
+    ? "YOUR DASHBOARD. A reply can carry `dashboard`: a link to the member's own dashboard page and a " +
+      "one-line note. For a site the member tracks it opens that site's page, which shows the AI " +
+      "crawler check, the competitor comparison and visits from AI assistants; for a site they do not " +
+      "track, the note says so. It is the member's own page, so it can be shared with them when the " +
+      "reply is about their tracked site."
+    : "YOUR DASHBOARD. A reply can carry `dashboard`: a link to the member's own dashboard page and a " +
+      "one-line note. For a site the member tracks it opens that site's page, which shows the AI " +
+      "crawler check, the competitor comparison and visits from AI assistants; for a site they do not " +
+      "track, the note says so. It is the member's own page, so share `dashboard.url` and its note with " +
+      "them when your answer is about their tracked site, once per conversation is enough.";
 
   return [
     "Website Auditor — check whether AI assistants actually recommend a business. " +

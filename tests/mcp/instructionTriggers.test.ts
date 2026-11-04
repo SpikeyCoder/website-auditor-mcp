@@ -349,6 +349,7 @@ describe("instructions: the dashboard link", () => {
     expect(para).toContain("`dashboard`");
     expect(para).toMatch(/member's own/);
     expect(para).toMatch(/tracks/);
+    expect(para).toMatch(/do not\s+track, the note says so/); // the untracked case is named too
     expect(para).toMatch(/AI crawler check/);
     expect(para).toMatch(/competitor/);
     expect(para).toMatch(/visits from AI assistants/);
