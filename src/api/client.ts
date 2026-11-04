@@ -1041,6 +1041,7 @@ const FIX_CODES: Readonly<Record<string, ErrorCode>> = {
   confirm_first: "CONFIRM_FIRST",
   facts_changed: "FACTS_CHANGED",
   facts_not_read: "FACTS_NOT_READ",
+  nothing_to_fix: "NOTHING_TO_FIX",
   checked_recently: "CHECKED_RECENTLY",
   too_many_confirmations: "TOO_MANY_CONFIRMATIONS",
   rate_limited: "RATE_LIMITED",

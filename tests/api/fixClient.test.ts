@@ -216,6 +216,13 @@ describe("the fix routes: refusals read the API's own code", () => {
     expect(e.code).toBe("FACTS_NOT_READ");
   });
 
+  it("409 nothing_to_fix is NOTHING_TO_FIX, never an upstream error to retry", async () => {
+    const fetchMock = makeFetch(409, { success: false, code: "nothing_to_fix", error: "Your latest check found nothing to change here." });
+    const e = await rejection(clientWith(fetchMock).getFix({ domain: "acme.com", kind: "robots_txt" }));
+    expect(e.code).toBe("NOTHING_TO_FIX");
+    expect(e.message).toBe("Your latest check found nothing to change here.");
+  });
+
   it("429 checked_recently is CHECKED_RECENTLY, never OVER_QUOTA, with retry_after", async () => {
     const fetchMock = makeFetch(429, {
       success: false, code: "checked_recently", retry_after: 42, error: "Checked less than a minute ago.",

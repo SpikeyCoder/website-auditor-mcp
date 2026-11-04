@@ -18,6 +18,10 @@ import { listFixes } from "../../src/tools/listFixes.js";
 import { WaApiError } from "../../src/api/errors.js";
 import { WaApiClient } from "../../src/api/client.js";
 import { makeDeps, testConfig } from "../helpers.js";
+import { z } from "zod";
+import { getFixOutput } from "../../src/tools/outputSchemas.js";
+
+const getFixOutputSchema = () => z.object(getFixOutput);
 
 const ID = "0b6c1f5e-8a4d-4c39-9f1e-2a7d3c5b9e10";
 const CONFIRM = {
@@ -142,6 +146,21 @@ describe("get_fix — \"Get this fix\"", () => {
     expect(res.data).not.toHaveProperty("seen");
     expect(res.data.message).toMatch(/weekly check/);
     expect(res.data.message).not.toContain("confirm_facts");
+  });
+
+  it("nothing_to_fix is a result, not an error to retry: nothing recorded, list_fixes for what is needed", async () => {
+    const fn = vi.fn(async () => {
+      throw new WaApiError("NOTHING_TO_FIX", "Your latest check found nothing to change here.", { status: 409, details: { code: "nothing_to_fix" } });
+    });
+    const res = await getFix({ domain: "acme.com", kind: "robots_txt" }, makeDeps({ tier: "pro", client: { getFix: fn } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data).toEqual({
+      status: "nothing_to_fix",
+      domain: "acme.com",
+      message: "Your latest check found nothing to change here. Nothing was recorded. list_fixes shows which fixes the site needs.",
+    });
+    expect(getFixOutputSchema().safeParse(res.data).success).toBe(true);
   });
 
   it("an invalid platform stays an error, with the API's code", async () => {
