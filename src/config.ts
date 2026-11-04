@@ -62,6 +62,18 @@ export type AuthChallenge = "result" | "http";
  */
 export type ToolCopy = "full" | "neutral";
 
+/**
+ * Which surface a dashboard link in a reply was handed out on. It becomes the
+ * first half of the link's `src` label (`<channel>-<tool>`, see
+ * tools/dashboardLink.ts), so the dashboard can tell a ChatGPT arrival from a
+ * Claude one. A closed set on purpose: the value lands in a URL and in the
+ * dashboard's counters, so anything unrecognised reads as the default.
+ *   mcp     — default; local installs and any service that sets nothing
+ *   chatgpt — the hosted ChatGPT service
+ *   claude  — the hosted Claude service
+ */
+export type LinkChannel = "mcp" | "chatgpt" | "claude";
+
 export interface WaConfig {
   /** Base URL of the website-auditor-api portal (the service we wrap). */
   apiBaseUrl: string;
@@ -83,6 +95,8 @@ export interface WaConfig {
   authChallenge?: AuthChallenge;
   /** See ToolCopy. Absent means "full". */
   toolCopy?: ToolCopy;
+  /** See LinkChannel. Absent means "mcp". */
+  linkChannel?: LinkChannel;
   /** Timeout (ms) for calls to the API portal. */
   requestTimeoutMs: number;
   /**
@@ -182,6 +196,11 @@ function parseAuthChallenge(value: string | undefined): AuthChallenge {
 
 function parseToolCopy(value: string | undefined): ToolCopy {
   return value?.trim().toLowerCase() === "neutral" ? "neutral" : "full";
+}
+
+function parseLinkChannel(value: string | undefined): LinkChannel {
+  const v = value?.trim().toLowerCase();
+  return v === "chatgpt" || v === "claude" ? v : "mcp";
 }
 
 /**
@@ -296,6 +315,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     upsellInfoUrl: stripTrailingSlash(normalizeEnvValue(env.WA_UPSELL_INFO_URL) || "") || siteUrl,
     authChallenge: parseAuthChallenge(normalizeEnvValue(env.WA_AUTH_CHALLENGE)),
     toolCopy: parseToolCopy(normalizeEnvValue(env.WA_TOOL_COPY)),
+    linkChannel: parseLinkChannel(normalizeEnvValue(env.WA_LINK_CHANNEL)),
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),

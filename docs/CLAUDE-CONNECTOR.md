@@ -28,6 +28,20 @@ box can't simply be reused:
 | Sign-in signal (`WA_AUTH_CHALLENGE`) | `result`: a 200 `AUTH_REQUIRED` carrying `_meta["mcp/www_authenticate"]` | `http`: a **401 + `WWW-Authenticate`** before the tool runs |
 | Paywall answers (`WA_UPSELL_STYLE`) | `info`: no price or trial (OpenAI rules) | `link`: the $49/month price, the trial and its terms |
 | Tool descriptions (`WA_TOOL_COPY`) | `full` (under `info`, already free of any price) | `neutral`: "Requires a Website Auditor subscription." |
+| Dashboard link tag (`WA_LINK_CHANNEL`) | `chatgpt` | `claude` |
+
+**`WA_LINK_CHANNEL`.** Pro members' replies from seven tools carry a `dashboard`
+link tagged `src=<channel>-<tool>` (`src/tools/dashboardLink.ts`). The channel
+is this variable, and `mcp` when it is unset. The hosted ChatGPT service
+needs it set once, by hand, because `gcloud run deploy` keeps a service's
+existing env and so never adds it:
+
+```bash
+gcloud run services update website-auditor-mcp --region us-central1 --update-env-vars WA_LINK_CHANNEL=chatgpt
+```
+
+The Claude service is **not live yet** (owner, 2026-11-04). It takes
+`WA_LINK_CHANNEL=claude` in the env of its first deploy, below.
 
 1. **Claude only signs in from a 401.** *"Claude starts sign-in only when the
    HTTP request itself fails with `401 Unauthorized`"*, and it ignores
@@ -131,13 +145,15 @@ Checked against the live servers on 2026-10-15:
    replaces a service's whole env, so later releases use plain `gcloud run
    deploy website-auditor-mcp-claude --source . --region us-central1`, which
    keeps it. The command below is the **complete** env. Compared with the
-   ChatGPT box's eight variables (names checked 2026-10-15):
+   ChatGPT box's eight variables (names checked 2026-10-15, before
+   `WA_LINK_CHANNEL` was added to it):
    - **The same:** `WA_OAUTH_ISSUER`, `WA_OAUTH_SCOPES` and
      `WA_OAUTH_INTROSPECTION_SECRET`.
    - **Different:**
      - `WA_OAUTH_RESOURCE_URL`, which is this URL;
      - `WA_INSTALL_ID`, a fresh UUID, so telemetry separates the boxes.
-   - **Added:** `WA_AUTH_CHALLENGE=http` and `WA_TOOL_COPY=neutral`.
+   - **Added:** `WA_AUTH_CHALLENGE=http`, `WA_TOOL_COPY=neutral` and
+     `WA_LINK_CHANNEL=claude`.
    - **Left out:**
      - `WA_UPSELL_STYLE`, so it defaults to link;
      - `WA_UPSELL_INFO_URL`;
@@ -146,7 +162,7 @@ Checked against the live servers on 2026-10-15:
    ```bash
    gcloud run deploy website-auditor-mcp-claude --source . --region us-central1 \
      --allow-unauthenticated --max-instances 20 --cpu-boost \
-     --set-env-vars "WA_AUTH_CHALLENGE=http,WA_TOOL_COPY=neutral,WA_INSTALL_ID=<new uuid>,WA_OAUTH_ISSUER=https://api.website-auditor.io,WA_OAUTH_RESOURCE_URL=https://claude-mcp.website-auditor.io/mcp,WA_OAUTH_SCOPES=audit openid email" \
+     --set-env-vars "WA_AUTH_CHALLENGE=http,WA_TOOL_COPY=neutral,WA_LINK_CHANNEL=claude,WA_INSTALL_ID=<new uuid>,WA_OAUTH_ISSUER=https://api.website-auditor.io,WA_OAUTH_RESOURCE_URL=https://claude-mcp.website-auditor.io/mcp,WA_OAUTH_SCOPES=audit openid email" \
      --set-secrets "WA_OAUTH_INTROSPECTION_SECRET=<secret>:latest"
    ```
 

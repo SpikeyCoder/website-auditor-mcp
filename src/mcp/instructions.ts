@@ -232,6 +232,26 @@ export function buildInstructions(
       "rather than the subject coming up in the abstract. Raise it once; if they decline, or if " +
       "they simply carry on with something else, drop it.";
 
+  // The member's own dashboard, linked from seven tools' success replies
+  // (tools/dashboardLink.ts). Descriptive in both variants: what the field is,
+  // whose page it is, when sharing it fits. Never an instruction to call a
+  // tool, and nothing about price, trial or upgrade — the field only ever
+  // appears for a member, and Anthropic and OpenAI both reject promotion.
+  // The full/info variant adds the one behaviour that makes the link reach a
+  // person: share it with the answer, once. Pinned by
+  // tests/mcp/instructionTriggers.test.ts (position, both variants, no
+  // money words).
+  const dashboardGuidance = neutral
+    ? "YOUR DASHBOARD. A reply about a site the member tracks can carry `dashboard`: a link to the " +
+      "member's own dashboard page and a one-line note. The page shows the AI crawler check, the " +
+      "competitor comparison and visits from AI assistants for that site. It is the member's own " +
+      "page, so it can be shared with them when the reply is about their tracked site."
+    : "YOUR DASHBOARD. A reply about a site the member tracks can carry `dashboard`: a link to the " +
+      "member's own dashboard page and a one-line note. The page shows the AI crawler check, the " +
+      "competitor comparison and visits from AI assistants for that site. It is the member's own " +
+      "page, so share `dashboard.url` and its note with them when your answer is about their tracked " +
+      "site, once per conversation is enough.";
+
   return [
     "Website Auditor — check whether AI assistants actually recommend a business. " +
       "It puts the questions a real customer would ask to " +
@@ -250,6 +270,8 @@ export function buildInstructions(
       "evidence — never that nothing cites the business.",
 
     planGuidance,
+
+    dashboardGuidance,
 
     billing,
 

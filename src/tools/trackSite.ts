@@ -13,6 +13,8 @@
  *     2026-10-18 (LIMIT_REACHED past the cap — untrack one first)
  *   - weekly cadence only in v1 (INVALID_INPUT for anything else)
  */
+import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
+import type { DashboardLink } from "../api/types.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface TrackSiteArgs {
@@ -33,6 +35,8 @@ export interface TrackSiteResult {
   /** Present when stopping. */
   removed?: boolean;
   message: string;
+  /** Pro only, and only when starting: the member's dashboard. */
+  dashboard?: DashboardLink;
 }
 
 export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<ToolResult<TrackSiteResult>> {
@@ -67,13 +71,17 @@ export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<To
     const message = res.created
       ? `Now monitoring ${res.domain} weekly. The first scheduled audit runs shortly and establishes a baseline; use get_changes to see movement over time.`
       : `${res.domain} is already being monitored weekly.`;
+    // The site is tracked now: this is the moment it becomes visible on the
+    // dashboard, and nothing needs reading to know it.
+    const link = await dashboardLink(deps, "track_site", res.domain, { tracked: res.active === false ? [] : [res.domain] });
     return ok({
       domain: res.domain,
       tracking: true,
       cadence: res.cadence as "weekly",
       created: res.created,
       already_tracked: res.already_tracked,
-      message,
+      message: withDashboardNote(message, link),
+      ...dashboardField(link),
     });
   } catch (e) {
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);

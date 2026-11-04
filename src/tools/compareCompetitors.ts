@@ -42,6 +42,7 @@ import type {
 import { toAiVisibility, detectUnreachable, toComparisonRecommendationGap, comparisonGapNote } from "../api/mappers.js";
 import { normalizeDomain } from "../api/domain.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
+import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface CompareCompetitorsArgs {
@@ -311,9 +312,13 @@ export async function compareCompetitors(
   // different measurements and were indistinguishable to every reader —
   // including whatever later diffs two of them. null rather than '' so "no
   // market" is one state rather than two.
+  // The link is about the site being compared, the primary; nothing is read
+  // for it unless the comparison succeeded, which is the only way to get here.
+  const link = await dashboardLink(deps, "compare_competitors", primaryHost);
   return ok({
-    ranking, gaps, quota: compareQuota, skipped, summary: summaryWithGap, market: market || null,
+    ranking, gaps, quota: compareQuota, skipped, summary: withDashboardNote(summaryWithGap, link), market: market || null,
     ...(recommendationGap ? { recommendation_gap: recommendationGap } : {}),
+    ...dashboardField(link),
   });
 }
 

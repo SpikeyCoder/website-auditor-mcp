@@ -78,6 +78,21 @@ rather than assuming. The manual steps are kept for when something goes wrong.
 > the fix while reporting a version string main had moved past. Publishing to
 > npm leaves every HTTP, OAuth and Codex-plugin client on the old build.
 >
+> **`WA_LINK_CHANNEL` is set once per hosted service, not on every deploy.**
+> The dashboard link in Pro replies is tagged `src=<channel>-<tool>`, and the
+> channel comes from this variable (`mcp` when unset, so an unset service still
+> works but its links read `mcp-*`). Because `gcloud run deploy` keeps a
+> service's existing env, set it once with `update`, then deploy as usual:
+>
+> ```
+> gcloud run services update website-auditor-mcp --region us-central1 --update-env-vars WA_LINK_CHANNEL=chatgpt
+> ```
+>
+> `--update-env-vars` adds or changes only the named variable (`--set-env-vars`
+> would replace the whole env). The Claude service, `website-auditor-mcp-claude`,
+> is not live yet (owner, 2026-11-04); when it is created it takes
+> `WA_LINK_CHANNEL=claude` in its env (docs/CLAUDE-CONNECTOR.md).
+>
 > A version number cannot tell a stale revision from a current one (see
 > docs/SUBMISSION-TESTS.md). Check the endpoint, not the number.
 
