@@ -2,7 +2,9 @@
  * get_fix [Pro] — "Get this fix" (served fixes, part 1)
  *
  * A site fix served finished (the business-facts structured data and About /
- * FAQ text, or an llms.txt), written only from the facts its owner confirmed,
+ * FAQ text, an llms.txt, or the robots.txt lines that let the AI assistants
+ * in), written only from the facts its owner confirmed (the robots.txt lines
+ * state none),
  * with paste steps for the platform the site runs on. Each call is recorded as
  * a press (the API counts it as "mcp": the client stamps X-WA-MCP-Version on
  * every request). Wired to `client.getFix` (POST /api/fix).
@@ -11,7 +13,9 @@
  * confirm_first. That is a step of the flow, not a failure, so it comes back
  * as a RESULT (status "confirm_first") carrying what to show the owner — the
  * confirm block, the reason and, when the owner can answer, `seen` for
- * confirm_facts. Every other refusal stays an error with its own code.
+ * confirm_facts. So does nothing_to_fix (the newest audit found nothing for
+ * the fix to change): an answer, not a failure to retry. Every other refusal
+ * stays an error with its own code.
  */
 import type { ConfirmBlock, FactsSeen, FixRequest, ServedFix } from "../api/types.js";
 import { WaApiError } from "../api/errors.js";
@@ -27,7 +31,8 @@ export interface GetFixArgs {
 
 export type GetFixResult =
   | { status: "served"; domain: string; request: FixRequest; fix: ServedFix; message: string }
-  | { status: "confirm_first"; domain: string; reason: string; confirm?: ConfirmBlock; seen?: FactsSeen; message: string };
+  | { status: "confirm_first"; domain: string; reason: string; confirm?: ConfirmBlock; seen?: FactsSeen; message: string }
+  | { status: "nothing_to_fix"; domain: string; message: string };
 
 export async function getFix(args: GetFixArgs, deps: ToolDeps): Promise<ToolResult<GetFixResult>> {
   const gate = await gateProTool(deps, args.domain);
@@ -42,6 +47,13 @@ export async function getFix(args: GetFixArgs, deps: ToolDeps): Promise<ToolResu
     return ok({ status: "served", domain: args.domain, request, fix, message: servedMessage(request, fix) });
   } catch (e) {
     if (e instanceof WaApiError && e.code === "CONFIRM_FIRST") return ok(confirmFirst(args.domain, e));
+    if (e instanceof WaApiError && e.code === "NOTHING_TO_FIX") {
+      return ok({
+        status: "nothing_to_fix",
+        domain: args.domain,
+        message: `${args.kind ? `The ${args.kind} fix` : "The fix"} isn't needed: ${args.domain}'s newest audit found nothing for it to change. Nothing was recorded. list_fixes shows which fixes the site needs.`,
+      });
+    }
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

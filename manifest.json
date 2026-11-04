@@ -140,7 +140,7 @@
     },
     {
       "name": "get_fix",
-      "description": "Get this fix [records a request]. \"Get this fix\": a site fix served finished — structured data plus About and FAQ text, or an llms.txt — written only from the business facts its owner confirmed, each block ready to copy, with paste steps for the platform the site runs on (and, where the platform has one, a prompt for the agent that edits the site). Each call is recorded as a request for the fix. Until the owner has confirmed the facts it states, it answers with those facts to put to the owner instead. Requires Pro."
+      "description": "Get this fix [records a request]. \"Get this fix\": a site fix served finished — structured data plus About and FAQ text, an llms.txt, or robots.txt lines that let blocked AI assistants in — the first two written only from the business facts its owner confirmed, each block ready to copy, with paste steps for the platform the site runs on (and, where the platform has one, a prompt for the agent that edits the site). Each call is recorded as a request for the fix. Until the owner has confirmed the facts it states, it answers with those facts to put to the owner instead. When the newest audit found nothing for the fix to change, it says so and records nothing. Requires Pro."
     },
     {
       "name": "confirm_facts",

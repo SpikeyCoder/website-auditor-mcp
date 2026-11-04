@@ -24,6 +24,7 @@ export type ErrorCode =
   | "CONFIRM_FIRST" // the fix's facts aren't confirmed by the owner yet (409 confirm_first; get_fix answers it as a result)
   | "FACTS_CHANGED" // the site's facts changed since they were shown (409; confirm_facts answers it as a result)
   | "FACTS_NOT_READ" // the site wasn't read yet: nothing to confirm until the weekly check (409; a result too)
+  | "NOTHING_TO_FIX" // the newest audit found nothing for that fix to change, e.g. no assistant blocked (409; get_fix answers it as a result)
   | "CHECKED_RECENTLY" // "I've added it" asked again within the minute (429, retry_after)
   | "TOO_MANY_CONFIRMATIONS" // the confirmation cap (429, retry_after)
   | "RATE_LIMITED" // a limit with no code of its own (429, retry_after)

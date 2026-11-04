@@ -421,8 +421,10 @@ const GET_GTM_PLAN_TOOL: ToolSpec = {
 // A string, not an enum: the engine's kinds are its own (list_fixes shows
 // them), and the API refuses one it doesn't serve (invalid_kind).
 const fixKindArg = z.string().optional().describe(
-  'Which fix: "business_facts" (structured data plus About and FAQ text, from the owner\'s confirmed facts) '
-  + 'or "llms_txt" (an llms.txt titled with the confirmed name). Left out, the site\'s top fix.');
+  'Which fix: "business_facts" (structured data plus About and FAQ text, from the owner\'s confirmed facts), '
+  + '"llms_txt" (an llms.txt titled with the confirmed name), or "robots_txt" (Allow lines for the AI assistants '
+  + 'the newest audit found blocked by robots.txt; it states no facts, so nothing is confirmed first). '
+  + 'Left out, the site\'s top fix.');
 
 export const FIX_TOOLS: ToolSpec[] = [
   {
@@ -449,7 +451,7 @@ export const FIX_TOOLS: ToolSpec[] = [
     effect: "serves-fix",
     title: "Get this fix",
     description:
-      '"Get this fix": a site fix served finished, written from the business facts its owner confirmed, with paste steps for the platform the site runs on. Use this when someone asks to "get this fix," "do it for me," "give me the structured data / llms.txt to paste," or wants a fix done rather than described. Returns status "served" with the request (its `id` is what check_fix checks) and the fix: each block ready to copy, the steps for the site\'s platform (or the `platform` given), and `copy_all`, the prompt and every block in one paste, where the steps carry a prompt for the agent that edits the site. Each call is recorded as a request for the fix. Nothing is served before the owner has confirmed the facts it states: then it returns status "confirm_first" with the `reason`, the confirm block and `seen` — show the owner those facts, and once they confirm or correct them, call confirm_facts with `seen` unchanged and ask again. With reason "facts_not_read" the site has not been read yet, so there is nothing to confirm until its next weekly check. It answers only for a site the account tracks.',
+      '"Get this fix": a site fix served finished, with paste steps for the platform the site runs on: the business-facts structured data and the llms.txt are written from the facts its owner confirmed; the robots.txt lines from what the newest audit found blocked. Use this when someone asks to "get this fix," "do it for me," "give me the structured data / llms.txt / robots.txt lines to paste," or wants a fix done rather than described. Returns status "served" with the request (its `id` is what check_fix checks) and the fix: each block ready to copy, the steps for the site\'s platform (or the `platform` given), and `copy_all`, the prompt and every block in one paste, where the steps carry a prompt for the agent that edits the site. Each call is recorded as a request for the fix. When the newest audit found nothing for the fix to change (for robots_txt, no AI assistant blocked), it returns status "nothing_to_fix" and records nothing. Nothing that states the owner\'s facts is served before the owner has confirmed them: then it returns status "confirm_first" with the `reason`, the confirm block and `seen` — show the owner those facts, and once they confirm or correct them, call confirm_facts with `seen` unchanged and ask again. With reason "facts_not_read" the site has not been read yet, so there is nothing to confirm until its next weekly check. It answers only for a site the account tracks.',
     inputSchema: {
       domain: domainArg,
       kind: fixKindArg,
@@ -484,7 +486,7 @@ export const FIX_TOOLS: ToolSpec[] = [
     effect: "checks-fix",
     title: "Check a fix is live",
     description:
-      '"I\'ve added it": check whether a fix is live on the site. Use this when the owner says they have added, pasted or published a fix, or asks "is it live" or "did it work." Reads the live site for the fix request `id` (from get_fix, or a fix\'s newest request in list_fixes) and records what it found: `live`, or what is missing, each named. For the business-facts fix the home page\'s structured data has to state every fact the fix stated; for llms.txt, /llms.txt has to answer with a valid file. A site that did not answer is not called missing the fix (`reached` false). One check a minute per request: asked again sooner it answers CHECKED_RECENTLY with retry_after. It does not predict any change in AI visibility; the weekly check observes that.',
+      '"I\'ve added it": check whether a fix is live on the site. Use this when the owner says they have added, pasted or published a fix, or asks "is it live" or "did it work." Reads the live site for the fix request `id` (from get_fix, or a fix\'s newest request in list_fixes) and records what it found: `live`, or what is missing, each named. For the business-facts fix the home page\'s structured data has to state every fact the fix stated; for llms.txt, /llms.txt has to answer with a valid file; for the robots.txt lines, /robots.txt has to let in every assistant the fix named. A site that did not answer is not called missing the fix (`reached` false). One check a minute per request: asked again sooner it answers CHECKED_RECENTLY with retry_after. It does not predict any change in AI visibility; the weekly check observes that.',
     inputSchema: {
       domain: domainArg,
       id: z.string().describe("The fix request's id: `request.id` from the fix as served, or a fix's newest `request.id` in the site's fix list."),

@@ -691,8 +691,9 @@ export const getFixFactsOutput: ZodRawShape = {
 };
 
 export const getFixOutput: ZodRawShape = {
-  status: z.enum(["served", "confirm_first"]).describe(
-    '"served": the fix, finished. "confirm_first": nothing served; the facts it states are not confirmed by the owner yet.'),
+  status: z.enum(["served", "confirm_first", "nothing_to_fix"]).describe(
+    '"served": the fix, finished. "confirm_first": nothing served; the facts it states are not confirmed by the owner yet. '
+    + '"nothing_to_fix": nothing served; the site\'s newest audit found nothing for this fix to change.'),
   domain: z.string(),
   request: fixRequest.optional().describe("Present when served: the request this call was recorded as."),
   fix: servedFix.optional().describe("Present when served."),

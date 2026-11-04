@@ -161,7 +161,8 @@ export interface WaApiClientLike {
   /**
    * "Get this fix" (Pro): the fix, finished, and the request this press is.
    * Throws CONFIRM_FIRST (details: reason, confirm, seen) before the owner has
-   * confirmed the facts it states.
+   * confirmed the facts it states, and NOTHING_TO_FIX when the newest audit
+   * found nothing for the fix to change.
    */
   getFix(params: { domain: string; kind?: string; platform?: string }): Promise<FixPress>;
   /** Confirm the owner's facts, sending `seen` back exactly as handed out (Pro). */
@@ -1041,6 +1042,7 @@ const FIX_CODES: Readonly<Record<string, ErrorCode>> = {
   confirm_first: "CONFIRM_FIRST",
   facts_changed: "FACTS_CHANGED",
   facts_not_read: "FACTS_NOT_READ",
+  nothing_to_fix: "NOTHING_TO_FIX",
   checked_recently: "CHECKED_RECENTLY",
   too_many_confirmations: "TOO_MANY_CONFIRMATIONS",
   rate_limited: "RATE_LIMITED",
