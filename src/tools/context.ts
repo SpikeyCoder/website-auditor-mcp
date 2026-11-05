@@ -521,8 +521,13 @@ export async function gateKeyedTool(
  * URL changes: the words are the same with or without a site, under both
  * upsell styles.
  */
-export async function gateProTool(deps: ToolDeps, site?: string): Promise<ToolResult<never> | null> {
-  const resolved = await deps.subscriptions.resolve(deps.config.apiKey);
+export async function gateProTool(
+  deps: ToolDeps,
+  site?: string,
+  /** A resolution the caller already holds, so a failing lookup is not made twice. */
+  already?: TierResolution,
+): Promise<ToolResult<never> | null> {
+  const resolved = already ?? await deps.subscriptions.resolve(deps.config.apiKey);
   if (isPro(resolved.tier)) return null;
 
   const keyed = await gateKeyedTool(deps, resolved, site);
@@ -570,8 +575,9 @@ export async function gateAuditTool(
   deps: ToolDeps,
   site?: string,
 ): Promise<{ gate: ToolResult<never> | null; free: boolean }> {
+  let resolved: TierResolution | undefined;
   if (deps.config.freeAudits) {
-    const resolved = await deps.subscriptions.resolve(deps.config.apiKey);
+    resolved = await deps.subscriptions.resolve(deps.config.apiKey);
     if (
       resolved.tier === "free" &&
       resolved.verified &&
@@ -582,5 +588,5 @@ export async function gateAuditTool(
       return { gate: null, free: true };
     }
   }
-  return { gate: await gateProTool(deps, site), free: false };
+  return { gate: await gateProTool(deps, site, resolved), free: false };
 }
