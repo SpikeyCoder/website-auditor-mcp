@@ -263,9 +263,10 @@ export function isNoAuditOnRecord(e: unknown): boolean {
 
 /**
  * NOT_FOUND for a site with no audit on record. What the caller can do about
- * it depends on the plan, because run_audit is a Pro tool: a caller whose
- * plan does not include it is not told to run one (that is a dead end that
- * ends in PRO_REQUIRED). The tier is resolved as the gates do (cached). A tier
+ * it depends on the plan, because run_audit is a Pro tool, except for a free
+ * ChatGPT account (isFreeAuditCaller), which is told to run it as a Pro caller
+ * is: a caller whose plan does not include it is not told to run one (that is
+ * a dead end that ends in PRO_REQUIRED). The tier is resolved as the gates do (cached). A tier
  * that cannot be verified (an outage) is not treated as a plan boundary, so
  * that caller is told to run the audit, as gateProTool does not refuse them.
  *
