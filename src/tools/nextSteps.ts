@@ -7,7 +7,7 @@
  * "Explain that a certain feature is not available with the user's current
  * plan") decide the words: each entry says what exists and which tool does it.
  * No price, no trial, no "upgrade", "subscribe" or plan name, no urging. A
- * test fails on those words (tests/tools/nextSteps.test.ts).
+ * test fails on those words (tests/tools/freeAudits.test.ts).
  */
 import type { AuditReport } from "../api/types.js";
 import { siteHostname } from "./upgrade.js";

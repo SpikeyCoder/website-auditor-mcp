@@ -702,7 +702,7 @@ const NEUTRAL_TITLES: Partial<Record<string, string>> = {
  */
 const FREE_AUDIT_TOOLS = new Set(["run_audit", "get_ai_visibility", "get_report"]);
 const FREE_AUDIT_SUFFIX =
-  " Works on a connected Website Auditor account for the user's own site. Part of a result depends on the account's plan; `next_steps`, when present, lists what the result found that another tool can act on.";
+  " Works on a connected Website Auditor account. Part of a result depends on the account's plan; `next_steps`, when present, lists what the result found that another tool can act on.";
 
 /**
  * A tool's description as this server's upsell style and tool copy may publish
