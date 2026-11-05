@@ -73,6 +73,8 @@ export function buildInstructions(
    * model is still told to relay them.
    */
   copy: ToolCopy = "full",
+  /** WA_FREE_AUDITS=chatgpt: see config.freeAudits. Adds one fact; false changes nothing. */
+  freeAudits = false,
 ): string {
   // Same reason keySetupNote exists (src/tools/context.ts): "set WA_API_KEY in
   // this server's config and restart the client" is a procedure a hosted caller
@@ -277,5 +279,15 @@ export function buildInstructions(
     billing,
 
     errorGuidance,
+
+    ...(freeAudits
+      ? [
+          "FREE AUDITS. A connected account can run run_audit and get_ai_visibility on the user's own site, and " +
+            "get_report for the audit it ran, whatever its plan; they check four of the six AI engines. When a result " +
+            "carries `next_steps`, say them back as plain facts with the tool's name, and call one only if the user " +
+            "asks for it. Say nothing about cost or plans unprompted. When a tool returns PRO_REQUIRED, the " +
+            "answer above applies unchanged.",
+        ]
+      : []),
   ].join("\n\n");
 }

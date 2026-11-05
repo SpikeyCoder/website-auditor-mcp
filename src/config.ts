@@ -97,6 +97,16 @@ export interface WaConfig {
   toolCopy?: ToolCopy;
   /** See LinkChannel. Absent means "mcp". */
   linkChannel?: LinkChannel;
+  /**
+   * Free audits in ChatGPT (WA_FREE_AUDITS=chatgpt): an account connected
+   * through ChatGPT without a plan may run run_audit, get_ai_visibility and
+   * get_report on its own site. Off unless the variable is exactly "chatgpt"
+   * AND this server is info-style (the hosted ChatGPT service), so the Claude
+   * connector and npm/stdio installs can never turn it on. The API decides who
+   * is eligible (website-auditor-api FREE_CHATGPT_AUDITS); this only lets the
+   * tools offer it. Absent means off.
+   */
+  freeAudits?: boolean;
   /** Timeout (ms) for calls to the API portal. */
   requestTimeoutMs: number;
   /**
@@ -316,6 +326,8 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     authChallenge: parseAuthChallenge(normalizeEnvValue(env.WA_AUTH_CHALLENGE)),
     toolCopy: parseToolCopy(normalizeEnvValue(env.WA_TOOL_COPY)),
     linkChannel: parseLinkChannel(normalizeEnvValue(env.WA_LINK_CHANNEL)),
+    freeAudits: normalizeEnvValue(env.WA_FREE_AUDITS)?.toLowerCase() === "chatgpt"
+      && parseUpsellStyle(env.WA_UPSELL_STYLE) === "info",
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),

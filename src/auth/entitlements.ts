@@ -69,6 +69,12 @@ export interface TierResolution {
    * than a false "not subscribed".
    */
   verified: boolean;
+  /**
+   * The API said this free key is a ChatGPT connection's and may run free
+   * audits (GET /api/subscription `free_audits`). Information from the server;
+   * the audit route re-checks it. Absent: no.
+   */
+  freeAudit?: boolean;
 }
 
 export interface SubscriptionProvider {
@@ -79,7 +85,7 @@ export interface SubscriptionProvider {
 
 /** The subscription-reading slice of the API client the provider depends on. */
 export interface SubscriptionSource {
-  getSubscription(): Promise<{ tier: "free" | "pro"; status: string }>;
+  getSubscription(): Promise<{ tier: "free" | "pro"; status: string; freeAudits?: boolean }>;
 }
 
 export function isPro(tier: Tier): boolean {
@@ -88,6 +94,7 @@ export function isPro(tier: Tier): boolean {
 
 interface CacheEntry {
   tier: Tier;
+  freeAudit?: boolean;
   expiresAt: number;
 }
 
@@ -152,17 +159,18 @@ export class DefaultSubscriptionProvider implements SubscriptionProvider {
     const now = this.now();
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > now) {
-      return { tier: cached.tier, verified: true };
+      return { tier: cached.tier, verified: true, ...(cached.freeAudit ? { freeAudit: true } : {}) };
     }
 
     try {
       const sub = await this.client.getSubscription();
       const tier: Tier = sub.tier === "pro" ? "pro" : "free";
-      this.cache.set(key, { tier, expiresAt: now + this.cfg.subscriptionCacheTtlMs });
-      return { tier, verified: true };
+      const freeAudit = tier === "free" && sub.freeAudits === true;
+      this.cache.set(key, { tier, freeAudit, expiresAt: now + this.cfg.subscriptionCacheTtlMs });
+      return { tier, verified: true, ...(freeAudit ? { freeAudit: true } : {}) };
     } catch (e) {
       // Warm cache (even if expired): honor the last-known tier during an outage.
-      if (cached) return { tier: cached.tier, verified: true };
+      if (cached) return { tier: cached.tier, verified: true, ...(cached.freeAudit ? { freeAudit: true } : {}) };
 
       // A definitive key rejection is NOT a transient outage, and it is NOT the
       // same as "this account has no subscription". Collapsing it into `free`

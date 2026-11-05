@@ -696,14 +696,25 @@ const NEUTRAL_TITLES: Partial<Record<string, string>> = {
 };
 
 /**
+ * The three tools a free ChatGPT account may use on its own site
+ * (WA_FREE_AUDITS=chatgpt, config.freeAudits). Their description says what is
+ * true then, with no price, trial or plan pitch.
+ */
+const FREE_AUDIT_TOOLS = new Set(["run_audit", "get_ai_visibility", "get_report"]);
+const FREE_AUDIT_SUFFIX =
+  " Works on a connected Website Auditor account for the user's own site. Part of a result depends on the account's plan; `next_steps`, when present, lists what the result found that another tool can act on.";
+
+/**
  * A tool's description as this server's upsell style and tool copy may publish
  * it. The priced suffix is replaced wherever it sits, not only at the end, so a
  * later transform that appends text cannot let it through on an info server.
  */
-export function descriptionFor(spec: ToolSpec, style: UpsellStyle, copy: ToolCopy = "full"): string {
-  const suffix = copy === "neutral"
-    ? PRO_SUFFIX_NEUTRAL[style]
-    : style === "info" ? PRO_SUFFIX_INFO : proSuffix(PRICE);
+export function descriptionFor(spec: ToolSpec, style: UpsellStyle, copy: ToolCopy = "full", freeAudits = false): string {
+  const suffix = freeAudits && FREE_AUDIT_TOOLS.has(spec.name)
+    ? FREE_AUDIT_SUFFIX
+    : copy === "neutral"
+      ? PRO_SUFFIX_NEUTRAL[style]
+      : style === "info" ? PRO_SUFFIX_INFO : proSuffix(PRICE);
   let text = spec.description.split(PRO_SUFFIX).join(suffix);
   const edits = [
     ...(style === "info" ? INFO_EDITS[spec.name] ?? [] : []),

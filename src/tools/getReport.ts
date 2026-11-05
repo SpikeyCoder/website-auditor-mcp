@@ -8,14 +8,16 @@
  * shape.
  */
 import type { ReportLinks } from "../api/types.js";
-import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
+import { gateAuditTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetReportArgs {
   domain: string;
 }
 
 export async function getReport(args: GetReportArgs, deps: ToolDeps): Promise<ToolResult<ReportLinks>> {
-  const gate = await gateProTool(deps, args.domain);
+  // A free ChatGPT account reads the link to its own latest audit (the API
+  // looks it up by the caller's account, so it can only be one of theirs).
+  const { gate } = await gateAuditTool(deps, args.domain);
   if (gate) return gate;
 
   try {
