@@ -1909,7 +1909,9 @@ describe("WaApiClient.getGtmPlan — the growth-plan contract", () => {
 
 describe("a 404 from the recommendations and report routes", () => {
   // The tools branch on the status AND the API's sentence (see noAuditYet), so
-  // the client must keep both. The shared mapper deliberately has no case 404.
+  // the client must keep both. These routes go through mapErrorResponse, which
+  // has no case 404 on purpose: the code stays UPSTREAM_ERROR here and the tool
+  // decides what this particular 404 means.
   it.each([
     ["getRecommendations", "No audit on record for acme.com. Run an audit first, then request recommendations."],
     ["getReport", "No audit on record for acme.com. Run an audit first to get a shareable report."],
@@ -1918,6 +1920,7 @@ describe("a 404 from the recommendations and report routes", () => {
     const caught = await client[method]({ domain: "acme.com" }).catch((e: unknown) => e);
     expect(caught).toBeInstanceOf(WaApiError);
     expect((caught as WaApiError).status).toBe(404);
+    expect((caught as WaApiError).code).toBe("UPSTREAM_ERROR");
     expect((caught as WaApiError).message).toBe(error);
   });
 });
