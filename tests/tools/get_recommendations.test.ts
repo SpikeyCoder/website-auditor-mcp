@@ -108,10 +108,82 @@ describe("get_recommendations [any key]", () => {
     expect(res.data.recommendations[1]).toMatchObject({ fix_id: "snippets/structured-data-template.html" });
   });
 
-  it("propagates an upstream error as a ToolError (e.g. no audit on record)", async () => {
+  describe("the API's 404 \"No audit on record\"", () => {
+    const NO_AUDIT = "No audit on record for acme.com. Run an audit first, then request recommendations.";
+    const throw404 = async (message: string) => {
+      const { WaApiError } = await import("../../src/api/errors.js");
+      return vi.fn(async () => {
+        throw new WaApiError("UPSTREAM_ERROR", message, { status: 404 });
+      });
+    };
+
+    it("Pro: NOT_FOUND, naming the site and run_audit", async () => {
+      const fn = await throw404(NO_AUDIT);
+      const res = await getRecommendations({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getRecommendations: fn } }));
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.error.code).toBe("NOT_FOUND");
+      expect(res.error.message).toBe("No audit of acme.com is on record yet. Run run_audit for acme.com first, then ask again.");
+    });
+
+    it("a full URL is reported as its hostname", async () => {
+      const fn = await throw404(NO_AUDIT);
+      const res = await getRecommendations({ domain: "https://www.acme.com/pricing" }, makeDeps({ tier: "pro", client: { getRecommendations: fn } }));
+      if (res.ok) throw new Error("expected an error");
+      expect(res.error.message).toContain("No audit of acme.com is on record yet.");
+    });
+
+    it("verified non-Pro, info style: NOT_FOUND that does not send them to run_audit, and no price or trial", async () => {
+      const fn = await throw404(NO_AUDIT);
+      const res = await getRecommendations(
+        { domain: "acme.com" },
+        makeDeps({ tier: "free", client: { getRecommendations: fn }, config: { upsellStyle: "info", upsellInfoUrl: "https://website-auditor.io" } }),
+      );
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.error.code).toBe("NOT_FOUND");
+      expect(res.error.message).toContain("No audit of acme.com is on record yet");
+      expect(res.error.message).toContain("Plans are described at");
+      expect(res.error.message).toContain("get_sample_audit");
+      expect(res.error.message).not.toMatch(/run_audit/);
+      expect(res.error.message).not.toMatch(/\$\d/);
+      expect(res.error.message).not.toMatch(/\btrial\b|\bsubscribe\b|\bupgrade\b/i);
+    });
+
+    it("verified non-Pro, link style: says what running one takes, not to run it", async () => {
+      const fn = await throw404(NO_AUDIT);
+      const res = await getRecommendations({ domain: "acme.com" }, makeDeps({ tier: "free", client: { getRecommendations: fn } }));
+      if (res.ok) throw new Error("expected an error");
+      expect(res.error.code).toBe("NOT_FOUND");
+      expect(res.error.message).toContain("requires an active Website Auditor subscription");
+      expect(res.error.message).not.toMatch(/run_audit/);
+      expect(res.error.upgrade_url).toBeDefined();
+    });
+
+    it("subscription unverifiable: told to run the audit, not that their plan lacks it", async () => {
+      const fn = await throw404(NO_AUDIT);
+      const res = await getRecommendations(
+        { domain: "acme.com" },
+        makeDeps({ subscriptions: fixedResolution({ tier: "free", verified: false }), client: { getRecommendations: fn } }),
+      );
+      if (res.ok) throw new Error("expected an error");
+      expect(res.error.code).toBe("NOT_FOUND");
+      expect(res.error.message).toContain("Run run_audit for acme.com first");
+    });
+
+    it("a 404 that is not that refusal (unmounted route) stays UPSTREAM_ERROR and does not send anyone to run_audit", async () => {
+      const fn = await throw404("Not found");
+      const res = await getRecommendations({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getRecommendations: fn } }));
+      if (res.ok) throw new Error("expected an error");
+      expect(res.error.code).toBe("UPSTREAM_ERROR");
+      expect(res.error.message).not.toMatch(/run_audit/);
+    });
+  });
+
+  it("propagates any other upstream error as a ToolError", async () => {
     const { WaApiError } = await import("../../src/api/errors.js");
     const fn = vi.fn(async () => {
-      throw new WaApiError("UPSTREAM_ERROR", "Website Auditor API returned HTTP 404.");
+      throw new WaApiError("UPSTREAM_ERROR", "Website Auditor API returned HTTP 500.", { status: 500 });
     });
     const res = await getRecommendations({ domain: "example.com" }, makeDeps({ tier: "pro", client: { getRecommendations: fn } }));
     expect(res.ok).toBe(false);

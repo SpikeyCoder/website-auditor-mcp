@@ -16,7 +16,7 @@
  */
 import type { Recommendations } from "../api/types.js";
 import { dashboardLink, dashboardField } from "./dashboardLink.js";
-import { gateKeyedTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
+import { gateKeyedTool, fromApiError, isNoAuditOnRecord, noAuditYet, ok, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetRecommendationsArgs {
   domain: string;
@@ -37,6 +37,8 @@ export async function getRecommendations(
     const link = recommendations.tier === "free" ? null : await dashboardLink(deps, "get_recommendations", args.domain);
     return ok({ ...recommendations, ...dashboardField(link) });
   } catch (e) {
+    // The API's 404 "No audit on record": nothing to report yet, not a failure.
+    if (isNoAuditOnRecord(e)) return noAuditYet(deps, args.domain);
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }

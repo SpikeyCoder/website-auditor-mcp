@@ -9,7 +9,7 @@ import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
-import { upgradeLink, tagSource, tagSite, PRICE, plansAreDescribedAt } from "./upgrade.js";
+import { upgradeLink, tagSource, tagSite, siteHostname, PRICE, plansAreDescribedAt } from "./upgrade.js";
 import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
 import type { EventSink } from "../telemetry/events.js";
 
@@ -231,6 +231,50 @@ function planNotIncludedMessage(config: WaConfig, site?: string): string {
   return `This tool is not included in this account's current Website Auditor plan. ` +
     `${plansAreDescribedAt(config, site)}. ` +
     `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
+}
+
+/**
+ * The API's 404 for "no audit of this site on record" (GET /api/recommendations
+ * and GET /api/report), as the caller should read it: NOT_FOUND, not a service
+ * failure. Matched on the API's sentence as well as the status, for the reason
+ * get_gtm_plan does: a 404 can also mean an unmounted route or an edge in
+ * front of the API, and sending that caller to run_audit spends an audit and
+ * changes nothing.
+ */
+export function isNoAuditOnRecord(e: unknown): boolean {
+  return e instanceof WaApiError && e.status === 404 && /no audit on record/i.test(e.message);
+}
+
+/**
+ * NOT_FOUND for a site with no audit on record. What the caller can do about
+ * it depends on the plan, because run_audit is a Pro tool: a caller whose
+ * plan does not include it is not told to run one (that is a dead end that
+ * ends in PRO_REQUIRED). The tier is resolved as the gates do (cached). A tier
+ * that cannot be verified (an outage) is not treated as a plan boundary, so
+ * that caller is told to run the audit, as gateProTool does not refuse them.
+ *
+ * Under info style the non-Pro wording is planNotIncludedMessage's: no price,
+ * no trial, only where plans are described.
+ */
+export async function noAuditYet(deps: ToolDeps, site: string): Promise<ToolResult<never>> {
+  // The hostname only; a value that is not one is not echoed back.
+  const host = siteHostname(site) ?? "that site";
+  const resolved = await deps.subscriptions.resolve(deps.config.apiKey);
+  if (isPro(resolved.tier) || !resolved.verified) {
+    return err("NOT_FOUND", `No audit of ${host} is on record yet. Run run_audit for ${host} first, then ask again.`);
+  }
+  const upgradeUrl = upgradeLink(deps.config, site);
+  const sample = "get_sample_audit works without a plan and shows the exact output format.";
+  const head = `No audit of ${host} is on record yet, and running one is not included in this account's current Website Auditor plan.`;
+  if (deps.config.upsellStyle === "info") {
+    return err("NOT_FOUND", `${head} ${plansAreDescribedAt(deps.config, site)}. ${sample}`, { upgrade_url: upgradeUrl });
+  }
+  return err(
+    "NOT_FOUND",
+    `No audit of ${host} is on record yet, and running one requires an active Website Auditor subscription (${PRICE}; eligible new customers get a 7-day free trial \u2014 payment method required to start, no charge until the trial ends). ` +
+      `Subscribe at ${upgradeUrl}. ${sample}`,
+    { upgrade_url: upgradeUrl },
+  );
 }
 
 /** AUTH_REQUIRED for a connection that existed and has expired: reconnect, no price. */
