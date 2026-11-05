@@ -28,7 +28,7 @@ export type ErrorCode =
   | "CHECKED_RECENTLY" // "I've added it" asked again within the minute (429, retry_after)
   | "TOO_MANY_CONFIRMATIONS" // the confirmation cap (429, retry_after)
   | "RATE_LIMITED" // a limit with no code of its own (429, retry_after)
-  | "NOT_FOUND"; // an untracked site, or an unknown fix request id (404)
+  | "NOT_FOUND"; // an untracked site, an unknown fix request id, or a site with no audit on record (404)
 
 /**
  * The codes that all mean "your key did not get you in".

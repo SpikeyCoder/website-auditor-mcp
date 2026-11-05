@@ -8,7 +8,7 @@
  * shape.
  */
 import type { ReportLinks } from "../api/types.js";
-import { gateAuditTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
+import { gateAuditTool, fromApiError, isNoAuditOnRecord, noAuditYet, ok, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetReportArgs {
   domain: string;
@@ -24,6 +24,8 @@ export async function getReport(args: GetReportArgs, deps: ToolDeps): Promise<To
     const report = await deps.client.getReport({ domain: args.domain });
     return ok(report);
   } catch (e) {
+    // The API's 404 "No audit on record": nothing to report yet, not a failure.
+    if (isNoAuditOnRecord(e)) return noAuditYet(deps, args.domain);
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
 }
