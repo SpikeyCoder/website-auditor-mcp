@@ -32,7 +32,7 @@ import type { GtmChatMessage, GtmPlanResult } from "../api/types.js";
 import { normalizeDomain } from "../api/domain.js";
 import { WaApiError } from "../api/errors.js";
 import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
-import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
+import { gateProTool, fromApiError, isNoAuditOnRecord, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetGtmPlanArgs {
   domain: string;
@@ -206,9 +206,8 @@ export async function getGtmPlan(
     // firing and the caller sees the proxy's own sentence — a REST route
     // they cannot use, which is unhelpful but no longer sends them to spend
     // audits in a loop. That is the safe direction for the check to fail in.
-    const NOT_ON_RECORD = /no audit on record/i;
     if (e instanceof WaApiError && e.status === 404) {
-      if (NOT_ON_RECORD.test(e.message)) {
+      if (isNoAuditOnRecord(e)) {
         return err(
           "INVALID_INPUT",
           `No audit on record for ${domain}. Run run_audit for ${domain} first, then ask for the plan again.`,

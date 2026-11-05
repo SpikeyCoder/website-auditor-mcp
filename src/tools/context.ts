@@ -259,7 +259,9 @@ export function isNoAuditOnRecord(e: unknown): boolean {
 export async function noAuditYet(deps: ToolDeps, site: string): Promise<ToolResult<never>> {
   // The hostname only; a value that is not one is not echoed back.
   const host = siteHostname(site) ?? "that site";
-  const resolved = await deps.subscriptions.resolve(deps.config.apiKey);
+  // A failed lookup must not turn this answer into a thrown error: it reads
+  // as an unverifiable tier, the same as an outage the provider reports itself.
+  const resolved = await deps.subscriptions.resolve(deps.config.apiKey).catch(() => ({ tier: "free" as const, verified: false }));
   if (isPro(resolved.tier) || !resolved.verified) {
     return err("NOT_FOUND", `No audit of ${host} is on record yet. Run run_audit for ${host} first, then ask again.`);
   }

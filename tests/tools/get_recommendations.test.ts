@@ -171,6 +171,20 @@ describe("get_recommendations [any key]", () => {
       expect(res.error.message).toContain("Run run_audit for acme.com first");
     });
 
+    it("a subscription lookup that throws still gives the NOT_FOUND answer, not an exception", async () => {
+      const fn = await throw404(NO_AUDIT);
+      let calls = 0;
+      const subscriptions = {
+        resolve: async () => {
+          if (++calls > 1) throw new Error("lookup failed");
+          return { tier: "free" as const, verified: true };
+        },
+      };
+      const res = await getRecommendations({ domain: "acme.com" }, makeDeps({ subscriptions, client: { getRecommendations: fn } }));
+      if (res.ok) throw new Error("expected an error");
+      expect(res.error.code).toBe("NOT_FOUND");
+    });
+
     it("a 404 that is not that refusal (unmounted route) stays UPSTREAM_ERROR and does not send anyone to run_audit", async () => {
       const fn = await throw404("Not found");
       const res = await getRecommendations({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getRecommendations: fn } }));
