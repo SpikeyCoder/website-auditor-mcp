@@ -162,8 +162,9 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     message =
       `${sub.status === "none" ? "No active plan" : `Plan not active (status: ${sub.status})`}, but this account ` +
       `can run run_audit and get_ai_visibility on a site the user asks about, and get_report for an audit it ran; ` +
-      `those audits may check fewer AI engines than a full audit, and the result says which. The other tools are ` +
-      `not included in this account's current plan. ${plansAreDescribedAt(deps.config)}.`;
+      `those audits may check fewer AI engines than a full audit, and the result says which. get_recommendations ` +
+      `lists the next steps from an audit on record. The other tools are not included in this account's current ` +
+      `plan. ${plansAreDescribedAt(deps.config)}.`;
   } else if (deps.config.upsellStyle === "info") {
     // Never subscribed or lapsed, under info style: the account's own state
     // and where plans are described — no price, no trial, no "subscribe at"

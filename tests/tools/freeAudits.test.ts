@@ -305,6 +305,7 @@ describe("check_upgrade_status for a free ChatGPT account", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.message).toContain("can run run_audit and get_ai_visibility");
+    expect(res.data.message).toContain("get_recommendations");
     expect(res.data.message).not.toMatch(/locked/);
     expect(res.data.message).toContain(CHATGPT_INFO);
     expect(res.data.message).not.toMatch(BANNED);
