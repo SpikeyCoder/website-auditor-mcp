@@ -16,7 +16,7 @@
  */
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
-import { ALREADY_CONNECTED_NOTE, fromApiError, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
+import { ALREADY_CONNECTED_NOTE, fromApiError, isFreeAuditCaller, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
 import { oauthEnabled } from "../auth/oauth.js";
 import { PRICE, upgradeLink, plansAreDescribedAt } from "./upgrade.js";
 
@@ -153,6 +153,18 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     message = canceling
       ? `Pro subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. ${keepPro}`
       : `Pro subscription active${periodEnd ? ` (renews ${periodEnd})` : ""} — all tools are unlocked.`;
+  } else if (isFreeAuditCaller(deps, { tier: sub.tier, verified: true, freeAudit: sub.freeAudits === true })) {
+    // A free ChatGPT account (WA_FREE_AUDITS=chatgpt and the API's
+    // free_audits): it CAN audit, so "audits are locked" would be false, and a
+    // model that reads this before run_audit would not call it. Same rule as
+    // gateAuditTool; info style only (isFreeAuditCaller needs the flag, which
+    // needs info style), so no price, trial or "subscribe".
+    message =
+      `${sub.status === "none" ? "No active plan" : `Plan not active (status: ${sub.status})`}, but this account ` +
+      `can run run_audit and get_ai_visibility on a site the user asks about, and get_report for an audit it ran; ` +
+      `those audits may check fewer AI engines than a full audit, and the result says which. get_recommendations ` +
+      `lists the next steps from an audit on record. The other tools are not included in this account's current ` +
+      `plan. ${plansAreDescribedAt(deps.config)}.`;
   } else if (deps.config.upsellStyle === "info") {
     // Never subscribed or lapsed, under info style: the account's own state
     // and where plans are described — no price, no trial, no "subscribe at"
