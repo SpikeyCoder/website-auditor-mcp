@@ -12,6 +12,7 @@ import { describe, it, expect, vi } from "vitest";
 import { runAudit } from "../../src/tools/runAudit.js";
 import { getAiVisibility } from "../../src/tools/getAiVisibility.js";
 import { getReport } from "../../src/tools/getReport.js";
+import { checkUpgradeStatus } from "../../src/tools/checkUpgradeStatus.js";
 import { trackSite } from "../../src/tools/trackSite.js";
 import { untrackSite } from "../../src/tools/untrackSite.js";
 import { getChanges } from "../../src/tools/getChanges.js";
@@ -292,5 +293,41 @@ describe("the Claude connector and link-style servers are unchanged", () => {
     const deps = chatgptDeps({ flag: false });
     const res = await runAudit({ domain: "acme.com" }, deps);
     expect(!res.ok && res.error.message).toContain("is not included in this account's current Website Auditor plan.");
+  });
+});
+
+
+describe("check_upgrade_status for a free ChatGPT account", () => {
+  const sub = (freeAudits: boolean) => ({ getSubscription: vi.fn(async () => ({ tier: "free" as const, status: "none", freeAudits })) });
+
+  it("says the account can run the free audit tools, instead of \"audits are locked\"", async () => {
+    const res = await checkUpgradeStatus({}, chatgptDeps({ client: sub(true) }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.message).toContain("can run run_audit and get_ai_visibility");
+    expect(res.data.message).not.toMatch(/locked/);
+    expect(res.data.message).toContain(CHATGPT_INFO);
+    expect(res.data.message).not.toMatch(BANNED);
+  });
+
+  it("keeps the locked wording when the API does not mark the account, the flag is off, or the key was pasted", async () => {
+    for (const deps of [
+      chatgptDeps({ client: sub(false) }),
+      chatgptDeps({ flag: false, client: sub(true) }),
+      chatgptDeps({ authVia: "header", client: sub(true) }),
+    ]) {
+      const res = await checkUpgradeStatus({}, deps);
+      expect(res.ok && res.data.message).toMatch(/locked/);
+    }
+  });
+});
+
+
+describe("the server instructions with the flag on", () => {
+  it("tell the model to call run_audit rather than decline from the plan sentence", () => {
+    const args = ["https://x/", "info", "http", true, "full"] as const;
+    const added = buildInstructions(...args, true).slice(buildInstructions(...args).length);
+    expect(added).toContain("call run_audit rather than declining in advance");
+    expect(added).not.toMatch(/\$\s?\d|trial|upgrade|subscri|\bpro\b/i);
   });
 });

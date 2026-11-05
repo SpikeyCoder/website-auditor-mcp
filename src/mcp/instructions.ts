@@ -284,6 +284,8 @@ export function buildInstructions(
       ? [
           "FREE AUDITS. A connected account may be able to run run_audit and get_ai_visibility on a site the user " +
             "asks about, and get_report for an audit it ran, without a plan; those audits may check fewer AI engines than a full audit, and the result says which. " +
+            "So the plan sentence above does not settle it: when a connected user asks for an audit of a site, call " +
+            "run_audit rather than declining in advance, and if the account cannot audit, the tool's answer says so. " +
             "When a result " +
             "carries `next_steps`, say them back as plain facts with the tool's name, and call one only if the user " +
             "asks for it. When a tool returns PRO_REQUIRED, the " +
