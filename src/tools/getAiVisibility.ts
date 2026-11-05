@@ -81,7 +81,7 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
     return ok({
       ...result,
       trend: null,
-      trend_note: "No trend for a single audit; history accrues with weekly monitoring (track_site).",
+      trend_note: "No trend is returned with this result.",
       summary: `${result.summary} ${nextStepsSentence(next_steps)}`,
       next_steps,
     });

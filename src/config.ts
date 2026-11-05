@@ -100,7 +100,7 @@ export interface WaConfig {
   /**
    * Free audits in ChatGPT (WA_FREE_AUDITS=chatgpt): an account connected
    * through ChatGPT without a plan may run run_audit, get_ai_visibility and
-   * get_report on its own site. Off unless the variable is exactly "chatgpt"
+   * get_report on its own site. Off unless the variable is "chatgpt" (any case)
    * AND this server is info-style (the hosted ChatGPT service), so the Claude
    * connector and npm/stdio installs can never turn it on. The API decides who
    * is eligible (website-auditor-api FREE_CHATGPT_AUDITS); this only lets the
