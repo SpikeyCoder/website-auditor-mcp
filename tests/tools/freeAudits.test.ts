@@ -314,7 +314,7 @@ describe("check_upgrade_status for a free ChatGPT account", () => {
     for (const deps of [
       chatgptDeps({ client: sub(false) }),
       chatgptDeps({ flag: false, client: sub(true) }),
-      chatgptDeps({ authVia: "header", client: sub(true) }),
+      chatgptDeps({ authVia: "key", client: sub(true) }),
     ]) {
       const res = await checkUpgradeStatus({}, deps);
       expect(res.ok && res.data.message).toMatch(/locked/);
