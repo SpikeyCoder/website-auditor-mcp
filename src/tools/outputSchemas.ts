@@ -283,7 +283,14 @@ const dashboardLinkField = z.object({
 
 // ─── per-tool output schemas ───────────────────────────────────────────────
 
+const nextStepsField = z.array(z.object({
+  tool: z.string().describe("The tool that does it."),
+  what: z.string().describe("A plain fact about this result."),
+})).optional().describe(
+  "Free audits only: what this result found that another tool can act on, as plain facts with the tool's name.");
+
 export const getAiVisibilityOutput: ZodRawShape = {
+  next_steps: nextStepsField,
   dashboard: dashboardLinkField,
   score: z.number().describe("Overall AI-visibility score, 0–100."),
   by_engine: engineScores,
@@ -317,6 +324,8 @@ export const getAiVisibilityOutput: ZodRawShape = {
 };
 
 export const runAuditOutput: ZodRawShape = {
+  summary: z.string().optional().describe("Free audits only: next_steps in one sentence."),
+  next_steps: nextStepsField,
   dashboard: dashboardLinkField,
   scores: open({
     ai_visibility: z.number().nullable(),

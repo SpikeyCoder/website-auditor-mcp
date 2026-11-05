@@ -7,7 +7,7 @@ import type { WaApiClientLike } from "../api/client.js";
 import type { SubscriptionProvider, TierResolution } from "../auth/entitlements.js";
 import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
-import { WaApiError, isKeyRejection } from "../api/errors.js";
+import { WaApiError, isKeyRejection, FREE_AUDIT_LIMIT_REASON } from "../api/errors.js";
 import { isPro } from "../auth/entitlements.js";
 import { upgradeLink, tagSource, tagSite, siteHostname, PRICE, plansAreDescribedAt } from "./upgrade.js";
 import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
@@ -234,6 +234,22 @@ function planNotIncludedMessage(config: WaConfig, site?: string): string {
 }
 
 /**
+ * A free audit refused for its account's limit: the same neutral plan reply
+ * and the same plans link as any plan boundary (info style, the page OpenAI
+ * already reviewed), worded for what is true of an audit: the audits this
+ * account's current plan includes are used for now.
+ */
+function freeAuditLimitMessage(config: WaConfig, site?: string, cadence = false): string {
+  if (cadence) {
+    return `This account's current Website Auditor plan limits how quickly audits can run; try again in a minute. ` +
+      `${plansAreDescribedAt(config, site)}.`;
+  }
+  return `The audits included in this account's current Website Auditor plan are used for now. ` +
+    `${plansAreDescribedAt(config, site)}. ` +
+    `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
+}
+
+/**
  * The API's 404 for "no audit of this site on record" (GET /api/recommendations
  * and GET /api/report), as the caller should read it: NOT_FOUND, not a service
  * failure. Matched on the API's sentence as well as the status, for the reason
@@ -247,9 +263,10 @@ export function isNoAuditOnRecord(e: unknown): boolean {
 
 /**
  * NOT_FOUND for a site with no audit on record. What the caller can do about
- * it depends on the plan, because run_audit is a Pro tool: a caller whose
- * plan does not include it is not told to run one (that is a dead end that
- * ends in PRO_REQUIRED). The tier is resolved as the gates do (cached). A tier
+ * it depends on the plan, because run_audit is a Pro tool, except for a free
+ * ChatGPT account (isFreeAuditCaller), which is told to run it as a Pro caller
+ * is: a caller whose plan does not include it is not told to run one (that is
+ * a dead end that ends in PRO_REQUIRED). The tier is resolved as the gates do (cached). A tier
  * that cannot be verified (an outage) is not treated as a plan boundary, so
  * that caller is told to run the audit, as gateProTool does not refuse them.
  *
@@ -262,7 +279,9 @@ export async function noAuditYet(deps: ToolDeps, site: string): Promise<ToolResu
   // A failed lookup must not turn this answer into a thrown error: it reads
   // as an unverifiable tier, the same as an outage the provider reports itself.
   const resolved = await deps.subscriptions.resolve(deps.config.apiKey).catch(() => ({ tier: "free" as const, verified: false }));
-  if (isPro(resolved.tier) || !resolved.verified) {
+  // A free ChatGPT account (isFreeAuditCaller) can run the audit, so it is
+  // told to, as a Pro caller is.
+  if (isPro(resolved.tier) || !resolved.verified || isFreeAuditCaller(deps, resolved)) {
     return err("NOT_FOUND", `No audit of ${host} is on record yet. Run run_audit for ${host} first, then ask again.`);
   }
   const upgradeUrl = upgradeLink(deps.config, site);
@@ -369,8 +388,10 @@ export function fromApiError(
     // not be refunded … still counts toward it") is kept: it is what a caller
     // needs before retrying, and it says nothing about plans.
     const allowanceNote = /Your daily allowance[^.]*(?:\.[^.]*?counts toward it)?\./.exec(e.message)?.[0];
+    const freeLimit = (e.details as { reason?: unknown } | undefined)?.reason === FREE_AUDIT_LIMIT_REASON;
     const message = config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
-      ? planNotIncludedMessage(config, site) + (allowanceNote ? ` ${allowanceNote}` : "")
+      ? (freeLimit ? freeAuditLimitMessage(config, site, (e.details as { limit?: unknown }).limit === "cadence") : planNotIncludedMessage(config, site))
+        + (allowanceNote ? ` ${allowanceNote}` : "")
       : e.message;
     return err(e.code, message, {
       upgrade_url: target === undefined ? undefined : tagSite(tagSource(target), site, config),
@@ -549,8 +570,13 @@ export async function gateKeyedTool(
  * URL changes: the words are the same with or without a site, under both
  * upsell styles.
  */
-export async function gateProTool(deps: ToolDeps, site?: string): Promise<ToolResult<never> | null> {
-  const resolved = await deps.subscriptions.resolve(deps.config.apiKey);
+export async function gateProTool(
+  deps: ToolDeps,
+  site?: string,
+  /** A resolution the caller already holds, so a failing lookup is not made twice. */
+  already?: TierResolution,
+): Promise<ToolResult<never> | null> {
+  const resolved = already ?? await deps.subscriptions.resolve(deps.config.apiKey);
   if (isPro(resolved.tier)) return null;
 
   const keyed = await gateKeyedTool(deps, resolved, site);
@@ -579,4 +605,49 @@ export async function gateProTool(deps: ToolDeps, site?: string): Promise<ToolRe
       `In the meantime get_sample_audit works with no subscription and shows the exact output format.`,
     { upgrade_url: upgradeUrl },
   );
+}
+
+/**
+ * Whether this caller may run the free audit: the flag (config.freeAudits),
+ * a verified free tier the API marks eligible (TierResolution.freeAudit), over
+ * HTTP through an OAuth connection. gateAuditTool admits on it; noAuditYet
+ * reads it so it never tells such a caller that running an audit is not
+ * included.
+ */
+export function isFreeAuditCaller(deps: ToolDeps, resolved: TierResolution): boolean {
+  return (
+    deps.config.freeAudits === true &&
+    resolved.tier === "free" &&
+    resolved.verified &&
+    resolved.freeAudit === true &&
+    deps.transport === "http" &&
+    deps.authVia === "oauth"
+  );
+}
+
+/**
+ * The gate for the three tools a free ChatGPT account may use on its own site
+ * (run_audit, get_ai_visibility, get_report). `free: true` means the caller has
+ * no plan but the API says this account is a ChatGPT connection's, and the
+ * audit it asks for is a free one.
+ *
+ * Every condition is required: the flag (config.freeAudits, only the hosted
+ * ChatGPT service sets it), the hosted transport reached by an OAuth
+ * connection (a pasted key is never free), a verified free tier, and the API's
+ * own word on the account (TierResolution.freeAudit). Anything else falls to
+ * gateProTool, unchanged. The API checks again; this decides only what the
+ * tool offers.
+ */
+export async function gateAuditTool(
+  deps: ToolDeps,
+  site?: string,
+): Promise<{ gate: ToolResult<never> | null; free: boolean }> {
+  let resolved: TierResolution | undefined;
+  if (deps.config.freeAudits) {
+    resolved = await deps.subscriptions.resolve(deps.config.apiKey);
+    if (isFreeAuditCaller(deps, resolved)) {
+      return { gate: null, free: true };
+    }
+  }
+  return { gate: await gateProTool(deps, site, resolved), free: false };
 }

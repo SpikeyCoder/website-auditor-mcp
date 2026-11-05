@@ -335,6 +335,8 @@ export interface AiVisibility {
   appears_by_engine: EnginePresence;
   top_competitor: string | null;
   summary: string;
+  /** Free audits only: what this result found that another tool can act on (tools/nextSteps.ts). */
+  next_steps?: Array<{ tool: string; what: string }>;
   /** Present when the engine measured it; also folded into `summary`. */
   recommendation_gap?: RecommendationGap;
   /** Present when the engine recorded stances. */
@@ -384,6 +386,10 @@ export interface AuditIssue {
 export interface AuditSummary {
   /** Pro only: the member's dashboard. */
   dashboard?: DashboardLink;
+  /** Free audits only: one sentence of next_steps, as get_ai_visibility's summary carries it. */
+  summary?: string;
+  /** Free audits only: what this result found that another tool can act on (tools/nextSteps.ts). */
+  next_steps?: Array<{ tool: string; what: string }>;
   scores: { ai_visibility: number | null; seo: number | null; security: number | null; performance: number | null };
   top_issues: AuditIssue[];
   report_url: string;

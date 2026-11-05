@@ -13,8 +13,9 @@
  */
 import type { AiVisibility } from "../api/types.js";
 import { toAiVisibility, computeTrend, detectUnreachable, measuredRun } from "../api/mappers.js";
+import { freeNextSteps, nextStepsSentence } from "./nextSteps.js";
 import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
-import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
+import { gateAuditTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetAiVisibilityArgs {
   domain: string;
@@ -52,7 +53,7 @@ async function attachTrend(result: AiVisibility, domain: string, runId: string, 
 }
 
 export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps): Promise<ToolResult<AiVisibility>> {
-  const gate = await gateProTool(deps, args.domain);
+  const { gate, free } = await gateAuditTool(deps, args.domain);
   if (gate) return gate;
 
   let response;
@@ -74,6 +75,17 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
   }
 
   const result = toAiVisibility(response.report);
+  if (free) {
+    // History and trend are monitoring's; the free result says what is next.
+    const next_steps = freeNextSteps(response.report, args.domain);
+    return ok({
+      ...result,
+      trend: null,
+      trend_note: "No trend is returned with this result.",
+      summary: `${result.summary} ${nextStepsSentence(next_steps)}`,
+      next_steps,
+    });
+  }
   await attachTrend(result, args.domain, response.runId, deps);
   const link = await dashboardLink(deps, "get_ai_visibility", args.domain);
   return ok({ ...result, summary: withDashboardNote(result.summary, link), ...dashboardField(link) });
