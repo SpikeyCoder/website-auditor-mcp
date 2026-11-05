@@ -239,7 +239,11 @@ function planNotIncludedMessage(config: WaConfig, site?: string): string {
  * already reviewed), worded for what is true of an audit: the audits this
  * account's current plan includes are used for now.
  */
-function freeAuditLimitMessage(config: WaConfig, site?: string): string {
+function freeAuditLimitMessage(config: WaConfig, site?: string, cadence = false): string {
+  if (cadence) {
+    return `This account's current Website Auditor plan limits how quickly audits can run; try again in a minute. ` +
+      `${plansAreDescribedAt(config, site)}.`;
+  }
   return `The audits included in this account's current Website Auditor plan are used for now. ` +
     `${plansAreDescribedAt(config, site)}. ` +
     `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
@@ -337,7 +341,7 @@ export function fromApiError(
     const allowanceNote = /Your daily allowance[^.]*(?:\.[^.]*?counts toward it)?\./.exec(e.message)?.[0];
     const freeLimit = (e.details as { reason?: unknown } | undefined)?.reason === FREE_AUDIT_LIMIT_REASON;
     const message = config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
-      ? (freeLimit ? freeAuditLimitMessage(config, site) : planNotIncludedMessage(config, site))
+      ? (freeLimit ? freeAuditLimitMessage(config, site, (e.details as { limit?: unknown }).limit === "cadence") : planNotIncludedMessage(config, site))
         + (allowanceNote ? ` ${allowanceNote}` : "")
       : e.message;
     return err(e.code, message, {
@@ -569,7 +573,6 @@ export async function gateAuditTool(
   if (deps.config.freeAudits) {
     const resolved = await deps.subscriptions.resolve(deps.config.apiKey);
     if (
-      !isPro(resolved.tier) &&
       resolved.tier === "free" &&
       resolved.verified &&
       resolved.freeAudit === true &&

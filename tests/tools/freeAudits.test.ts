@@ -94,13 +94,12 @@ describe("a free ChatGPT account", () => {
     expect(res.data.dashboard).toBeUndefined();
     expect(res.data.next_steps).toEqual([
       { tool: "get_fix", what: "2 fixes available for acme.com" },
-      { tool: "run_audit", what: "2 of 6 AI engines not checked on this plan (Google AI Overviews, Microsoft Copilot)" },
-      { tool: "track_site", what: "Weekly monitoring of acme.com" },
+      { tool: "track_site", what: "2 of 6 AI engines not checked on this plan (Google AI Overviews, Microsoft Copilot); weekly monitoring of acme.com checks all 6" },
       { tool: "get_gtm_plan", what: "A growth plan written from this audit" },
       { tool: "compare_competitors", what: "Side-by-side AI visibility against named competitors of acme.com" },
     ]);
     expect(res.data.summary).toBe(
-      "Available next: 2 fixes available for acme.com (get_fix); 2 of 6 AI engines not checked on this plan (Google AI Overviews, Microsoft Copilot) (run_audit); Weekly monitoring of acme.com (track_site); A growth plan written from this audit (get_gtm_plan); Side-by-side AI visibility against named competitors of acme.com (compare_competitors).",
+      "Next steps: 2 fixes available for acme.com (get_fix); 2 of 6 AI engines not checked on this plan (Google AI Overviews, Microsoft Copilot); weekly monitoring of acme.com checks all 6 (track_site); A growth plan written from this audit (get_gtm_plan); Side-by-side AI visibility against named competitors of acme.com (compare_competitors).",
     );
   });
 
@@ -113,7 +112,7 @@ describe("a free ChatGPT account", () => {
     expect(res.data.trend).toBeNull();
     expect(res.data.dashboard).toBeUndefined();
     expect(res.data.next_steps!.map((s) => s.tool)).toContain("get_fix");
-    expect(res.data.summary).toContain("Available next:");
+    expect(res.data.summary).toContain("Next steps:");
   });
 
   it("get_report works on the audit it ran", async () => {
@@ -132,6 +131,7 @@ describe("a free ChatGPT account", () => {
   it("says only what is true: no fixes row, no locked engines -> neither is listed", () => {
     const steps = freeNextSteps(reachableReport(), "acme.com");
     expect(steps.map((s) => s.tool)).toEqual(["track_site", "get_gtm_plan", "compare_competitors"]);
+    expect(steps[0]!.what).toBe("Weekly monitoring of acme.com");
   });
 });
 
@@ -211,6 +211,13 @@ describe("the account's limit", () => {
     expect(res.error.message).toContain(`Plans are described at ${CHATGPT_INFO}&site=acme.com`);
     expect(res.error.upgrade_url).toBe(`${CHATGPT_INFO}&site=acme.com`);
     expect(res.error.message).not.toMatch(/\$\s?\d|trial|upgrade|subscri/i);
+  });
+  it("a rhythm refusal says to wait a minute, not that the audits are used", async () => {
+    const e = new WaApiError("PRO_REQUIRED", "x", { status: 429, details: { reason: FREE_AUDIT_LIMIT_REASON, limit: "cadence" } });
+    const deps = chatgptDeps({ client: { runAudit: vi.fn(async () => { throw e; }) } });
+    const res = await runAudit({ domain: "acme.com" }, deps);
+    expect(!res.ok && res.error.message).toContain("try again in a minute");
+    expect(!res.ok && res.error.message).not.toMatch(/\$\s?\d|trial|upgrade|subscri/i);
   });
   it("the client maps the API's 429 FREE_AUDIT_LIMIT to it, and a plain 429 stays OVER_QUOTA", async () => {
     const mk = (body: unknown) => new WaApiClient(

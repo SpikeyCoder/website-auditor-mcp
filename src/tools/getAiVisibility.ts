@@ -81,7 +81,7 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
     return ok({
       ...result,
       trend: null,
-      trend_note: "Trend history is not part of this account's current plan; each audit still stores one measurement.",
+      trend_note: "No trend for a single audit; history accrues with weekly monitoring (track_site).",
       summary: `${result.summary} ${nextStepsSentence(next_steps)}`,
       next_steps,
     });

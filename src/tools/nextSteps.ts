@@ -41,14 +41,14 @@ export function freeNextSteps(report: AuditReport, domain: string): NextStep[] {
 
   const lockedRaw = report.ai_visibility?.locked_engines;
   const locked = Array.isArray(lockedRaw) ? lockedRaw.filter((n): n is string => typeof n === "string") : [];
-  if (locked.length > 0) {
-    steps.push({
-      tool: "run_audit",
-      what: `${locked.length} of ${ENGINE_COUNT} AI engines not checked on this plan (${locked.join(", ")})`,
-    });
-  }
-
-  steps.push({ tool: "track_site", what: `Weekly monitoring of ${host}` });
+  // The engines this plan did not check are covered by the weekly check, not by
+  // asking run_audit again (a re-run of the same plan asks the same four).
+  steps.push({
+    tool: "track_site",
+    what: locked.length > 0
+      ? `${locked.length} of ${ENGINE_COUNT} AI engines not checked on this plan (${locked.join(", ")}); weekly monitoring of ${host} checks all ${ENGINE_COUNT}`
+      : `Weekly monitoring of ${host}`,
+  });
   steps.push({ tool: "get_gtm_plan", what: "A growth plan written from this audit" });
   steps.push({ tool: "compare_competitors", what: `Side-by-side AI visibility against named competitors of ${host}` });
   return steps;
@@ -56,5 +56,5 @@ export function freeNextSteps(report: AuditReport, domain: string): NextStep[] {
 
 /** One sentence for `summary`, so a reader who never opens the field still hears it. */
 export function nextStepsSentence(steps: NextStep[]): string {
-  return `Available next: ${steps.map((s) => `${s.what} (${s.tool})`).join("; ")}.`;
+  return `Next steps: ${steps.map((s) => `${s.what} (${s.tool})`).join("; ")}.`;
 }

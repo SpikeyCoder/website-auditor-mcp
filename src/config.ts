@@ -316,18 +316,18 @@ export function parsePort(raw: string | undefined, fallback: number, name = "por
 export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): WaConfig {
   const apiKey = normalizeEnvValue(env.WA_API_KEY);
   const siteUrl = stripTrailingSlash(normalizeEnvValue(env.WA_SITE_URL) || "https://website-auditor.io");
+  const upsellStyle = parseUpsellStyle(env.WA_UPSELL_STYLE);
   return {
     apiBaseUrl: stripTrailingSlash(normalizeEnvValue(env.WA_API_BASE_URL) || "https://api.website-auditor.io"),
     siteUrl,
     apiKey,
     upgradeUrl: normalizeEnvValue(env.WA_UPGRADE_URL) || "https://api.website-auditor.io/admin_portal/",
-    upsellStyle: parseUpsellStyle(env.WA_UPSELL_STYLE),
+    upsellStyle,
     upsellInfoUrl: stripTrailingSlash(normalizeEnvValue(env.WA_UPSELL_INFO_URL) || "") || siteUrl,
     authChallenge: parseAuthChallenge(normalizeEnvValue(env.WA_AUTH_CHALLENGE)),
     toolCopy: parseToolCopy(normalizeEnvValue(env.WA_TOOL_COPY)),
     linkChannel: parseLinkChannel(normalizeEnvValue(env.WA_LINK_CHANNEL)),
-    freeAudits: normalizeEnvValue(env.WA_FREE_AUDITS)?.toLowerCase() === "chatgpt"
-      && parseUpsellStyle(env.WA_UPSELL_STYLE) === "info",
+    freeAudits: normalizeEnvValue(env.WA_FREE_AUDITS)?.toLowerCase() === "chatgpt" && upsellStyle === "info",
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),
