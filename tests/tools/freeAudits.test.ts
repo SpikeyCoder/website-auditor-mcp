@@ -26,6 +26,7 @@ import { confirmFacts } from "../../src/tools/confirmFacts.js";
 import { checkFix } from "../../src/tools/checkFix.js";
 import { getMonitoringStatus } from "../../src/tools/getMonitoringStatus.js";
 import { listTrackedSites } from "../../src/tools/listTrackedSites.js";
+import { getRecommendations } from "../../src/tools/getRecommendations.js";
 import { fromApiError, type ToolDeps, type ToolResult } from "../../src/tools/context.js";
 import { freeNextSteps, nextStepsSentence } from "../../src/tools/nextSteps.js";
 import { SERVED_TOOLS, descriptionFor } from "../../src/tools/registry.js";
@@ -113,6 +114,22 @@ describe("a free ChatGPT account", () => {
     expect(res.data.dashboard).toBeUndefined();
     expect(res.data.next_steps!.map((s) => s.tool)).toContain("get_fix");
     expect(res.data.summary).toContain("Next steps:");
+  });
+
+  it("with no audit on record, get_report and get_recommendations tell a free account to run run_audit, not that it is not included", async () => {
+    const noAudit = () => { throw new WaApiError("NOT_FOUND", "No audit on record for acme.com. Run an audit first.", { status: 404 }); };
+    const deps = chatgptDeps({ client: { getReport: vi.fn(async () => noAudit()), getRecommendations: vi.fn(async () => noAudit()) } });
+    for (const res of [await getReport({ domain: "acme.com" }, deps), await getRecommendations({ domain: "acme.com" }, deps)]) {
+      expect(res.ok).toBe(false);
+      if (res.ok) continue;
+      expect(res.error.code).toBe("NOT_FOUND");
+      expect(res.error.message).toContain("Run run_audit for acme.com first");
+      expect(res.error.message).not.toMatch(/not included/);
+    }
+    // With the flag off, the same account is told running one is not included.
+    const off = chatgptDeps({ flag: false, client: { getReport: vi.fn(async () => noAudit()) } });
+    const res = await getReport({ domain: "acme.com" }, off);
+    expect(!res.ok && res.error.message).toMatch(/not included/);
   });
 
   it("get_report works on the audit it ran", async () => {

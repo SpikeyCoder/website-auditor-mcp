@@ -57,4 +57,16 @@ describe("get_benchmark [Pro]", () => {
     if (res.ok) return;
     expect(res.error.code).toBe("UPSTREAM_ERROR");
   });
+
+  it("a 404 stays UPSTREAM_ERROR even with the API's \"No audit on record\" words: the remap is per tool", async () => {
+    const { WaApiError } = await import("../../src/api/errors.js");
+    const getBenchmarkFn = vi.fn(async () => {
+      throw new WaApiError("UPSTREAM_ERROR", "No audit on record for example.com. Run an audit first.", { status: 404 });
+    });
+    const res = await getBenchmark({ domain: "example.com" }, makeDeps({ tier: "pro", client: { getBenchmark: getBenchmarkFn } }));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("UPSTREAM_ERROR");
+    expect(res.error.message).toContain("No audit on record");
+  });
 });
