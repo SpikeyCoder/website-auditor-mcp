@@ -51,7 +51,7 @@ import type {
   FixCheckResult,
 } from "./types.js";
 import type { ErrorCode } from "./errors.js";
-import { WaApiError, keyRejectionFromReason } from "./errors.js";
+import { WaApiError, keyRejectionFromReason, FREE_AUDIT_LIMIT_REASON } from "./errors.js";
 import { versionHeader } from "../version.js";
 import {
   isRecord,
@@ -112,6 +112,8 @@ export interface SubscriptionInfo {
   cancel_at_period_end?: boolean;
   /** Remaining daily audit quota, once the subscription endpoint reports it. */
   quota?: RateLimit;
+  /** The API says this free key may run free audits (ChatGPT connection, flag on there). */
+  freeAudits?: boolean;
 }
 
 export interface WaApiClientLike {
@@ -278,6 +280,7 @@ export class WaApiClient implements WaApiClientLike {
       status?: string;
       current_period_end?: string | null;
       cancel_at_period_end?: boolean;
+      free_audits?: { eligible?: boolean };
     };
 
     const status = typeof body.status === "string" && body.status ? body.status : "none";
@@ -287,6 +290,7 @@ export class WaApiClient implements WaApiClientLike {
     if (typeof body.cancel_at_period_end === "boolean") {
       info.cancel_at_period_end = body.cancel_at_period_end;
     }
+    if (tier === "free" && body.free_audits?.eligible === true) info.freeAudits = true;
     return info;
   }
 
@@ -864,6 +868,8 @@ export class WaApiClient implements WaApiClientLike {
       gtm_chat_limit?: unknown;
       /** Why a 401 happened, machine-readable (website-auditor-api PR #44). */
       reason?: unknown;
+      /** FREE_AUDIT_LIMIT: a free ChatGPT audit past its per-account limit. */
+      code?: unknown;
     };
     const message = b.error || `Website Auditor API returned HTTP ${status}.`;
     const upgradeUrl = this.cfg.upgradeUrl;
@@ -888,6 +894,17 @@ export class WaApiClient implements WaApiClientLike {
         // prompt — the fix is to untrack a domain, surfaced in the message.
         return new WaApiError("LIMIT_REACHED", message, { status });
       case 429: {
+        // A free ChatGPT account's own limit (per-account caps, the same rules
+        // as the website's anonymous audit). It is a plan boundary, so it is
+        // PRO_REQUIRED, which fromApiError answers with the neutral plan reply
+        // and the plans link; `details.reason` tells it from "no plan".
+        if (b.code === "FREE_AUDIT_LIMIT") {
+          return new WaApiError("PRO_REQUIRED", message, {
+            status,
+            upgradeUrl,
+            details: { reason: FREE_AUDIT_LIMIT_REASON, limit: b.reason === "cadence" ? "cadence" : "daily_cap" },
+          });
+        }
         // Same reasoning as the 409 above, one status code along. This is the
         // server's shared daily audit cap (rateLimitPerDay), not a plan
         // boundary — and since website-auditor-api PR #17 removed the free API

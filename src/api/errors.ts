@@ -76,6 +76,9 @@ export function keyRejectionFromReason(reason: unknown): KeyRejectionCode {
   return (typeof reason === "string" && REASON_TO_CODE[reason]) || "INVALID_KEY";
 }
 
+/** WaApiError.details.reason of a free audit refused for its account limit. */
+export const FREE_AUDIT_LIMIT_REASON = "free_audit_limit";
+
 export interface WaApiErrorOpts {
   status?: number;
   details?: unknown;

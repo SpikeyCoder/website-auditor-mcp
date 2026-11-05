@@ -282,3 +282,25 @@ change landing here.
 Installing the packed `.mcpb` from Settings → Extensions bypasses the review
 queue entirely and is the fastest way to prove a build end to end. That is how
 1.0.10 was confirmed to report `server_version` and `install_id` at all.
+
+## Free audits in ChatGPT (`WA_FREE_AUDITS`)
+
+Off by default and set only on the hosted ChatGPT service. Order matters:
+chaos_tester (per-account guard) first, then website-auditor-api (merged and
+deployed, flag still off), then this server (deployed, flag still off); then
+turn it on in the API, then here.
+
+Turn on:
+
+```sh
+gcloud run services update website-auditor-api --region us-central1 --update-env-vars FREE_CHATGPT_AUDITS=on
+gcloud run services update website-auditor-mcp --region us-central1 --update-env-vars WA_FREE_AUDITS=chatgpt
+```
+
+The API's variable is wiped by its next deploy unless the repository variable
+`FREE_CHATGPT_AUDITS` is set to `on` as well (its `deploy.yml` replaces the
+environment). Do not set `WA_FREE_AUDITS` on `website-auditor-mcp-claude`; it is
+ignored there. Turn off: the same two commands with `FREE_CHATGPT_AUDITS=off`
+and `WA_FREE_AUDITS=off` (either one alone also ends the free audit: the tools
+stop offering it, or the API refuses it). `gcloud run deploy --source .` keeps
+the service's environment, so a plain release does not change the flag.

@@ -201,6 +201,7 @@ export function createServer(deps: ToolDeps): McpServer {
         deps.transport,
         deps.transport === "http" && oauthEnabled(deps.config),
         deps.config.toolCopy,
+        deps.config.freeAudits === true,
       ),
     },
   );
@@ -242,7 +243,7 @@ export function createServer(deps: ToolDeps): McpServer {
       spec.name,
       {
         title: titleFor(spec, deps.config.upsellStyle, deps.config.toolCopy),
-        description: descriptionFor(spec, deps.config.upsellStyle, deps.config.toolCopy),
+        description: descriptionFor(spec, deps.config.upsellStyle, deps.config.toolCopy, deps.config.freeAudits === true),
         // Neutral copy reaches the schemas too: the portal shows their field
         // descriptions beside the tool's (see tools/neutralSchemas.ts).
         inputSchema: neutral ? neutralShape(spec.inputSchema) : spec.inputSchema,

@@ -14,7 +14,8 @@
 import type { AuditSummary } from "../api/types.js";
 import { toAuditSummary, detectUnreachable } from "../api/mappers.js";
 import { dashboardLink, dashboardField } from "./dashboardLink.js";
-import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
+import { freeNextSteps, nextStepsSentence } from "./nextSteps.js";
+import { gateAuditTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface RunAuditArgs {
   domain: string;
@@ -25,7 +26,7 @@ export interface RunAuditArgs {
 }
 
 export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<ToolResult<AuditSummary>> {
-  const gate = await gateProTool(deps, args.domain);
+  const { gate, free } = await gateAuditTool(deps, args.domain);
   if (gate) return gate;
 
   let response;
@@ -44,6 +45,17 @@ export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<Tool
       "UNREACHABLE_DOMAIN",
       `The site at ${args.domain} didn't load during the audit (no page loaded), so no audit scores can be produced. Check the domain is correct, publicly reachable and serving pages.`,
     );
+  }
+
+  // A free audit: no dashboard link (Pro's), and what the result found that
+  // another tool can act on, as a field and as a sentence (tools/nextSteps.ts).
+  if (free) {
+    const next_steps = freeNextSteps(response.report, args.domain);
+    return ok({
+      ...toAuditSummary(response.report, { siteUrl: deps.config.siteUrl }),
+      summary: nextStepsSentence(next_steps),
+      next_steps,
+    });
   }
 
   // No `summary` on this reply: the link's note rides in `dashboard.note`.
