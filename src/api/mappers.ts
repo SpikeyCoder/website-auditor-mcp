@@ -792,7 +792,10 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
 
   // Where it is recommended, area by area, in the sentence the model reads.
   // After the citywide sentences, which it never replaces.
-  const placesFound = localPlaces(av).places;
+  // Not for an estimated run or one that scored nothing: per-area counts
+  // beside a "no score" sentence would contradict it.
+  const local = scoredNames.length > 0 && !av.is_simulated ? localPlaces(av) : {};
+  const placesFound = local.places;
   const placesSuffix = placesFound
     ? ` Asked from each area: ${placesFound.map((p) => p.sentence).join(" ")}`
     : "";
@@ -814,7 +817,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     ...(provenance.verified !== undefined ? { name_verified: provenance.verified } : {}),
     ...(provenance.source ? { name_source: provenance.source } : {}),
     ...citedSources(av),
-    ...localPlaces(av),
+    ...local,
   };
 }
 

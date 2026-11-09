@@ -5,7 +5,7 @@ import { makeDeps, makeClient } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
 import type { AuditReport } from "../../src/api/types.js";
 
-// Neighborhood-level results (chaos_tester Trello 306): the engine adds
+// Neighborhood-level results: the engine adds
 // ai_visibility.places beside the citywide score; get_ai_visibility returns
 // them per place, with a plain sentence for each, so Claude and ChatGPT users
 // see them too.
@@ -58,7 +58,7 @@ describe("get_ai_visibility places", () => {
   it("is absent when the report has no places (a report from before, or the flag off)", () => {
     const out = toAiVisibility(reachableReport());
     expect(out).not.toHaveProperty("places");
-    expect(out.summary).not.toContain("by area");
+    expect(out.summary).not.toContain("Asked from each area");
   });
 
   it("drops malformed places rather than inventing one, and a bad block reads as absent", () => {
@@ -78,6 +78,24 @@ describe("get_ai_visibility places", () => {
     const out = toAiVisibility(withPlaces({ places: [
       { label: "Zero", state: "behind", named: 0, sample: 0, sentence: "Zero: named in 0 of 0" }] }));
     expect(out).not.toHaveProperty("places");
+  });
+
+  it("shows no places for an estimated run or one where no engine answered", () => {
+    const report = withPlaces(BLOCK);
+    const simulated = { ...report, ai_visibility: { ...report.ai_visibility, is_simulated: true } as never };
+    const out = toAiVisibility(simulated);
+    expect(out).not.toHaveProperty("places");
+    expect(out.summary).not.toContain("Asked from each area");
+
+    const none = withPlaces(BLOCK);
+    for (const key of ["ChatGPT", "Perplexity", "Claude", "Gemini"]) {
+      const ps = none.ai_visibility.platform_scores![key] as Record<string, unknown>;
+      ps.total = 0; ps.asked = 8; ps.score = 0; ps.appearances = 0; ps.results = [];
+    }
+    const empty = toAiVisibility(none);
+    expect(empty.summary).toContain("no AI-visibility score");
+    expect(empty).not.toHaveProperty("places");
+    expect(empty.summary).not.toContain("Asked from each area");
   });
 
   it("reaches the tool result for a subscriber", async () => {

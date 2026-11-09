@@ -321,6 +321,18 @@ export const getAiVisibilityOutput: ZodRawShape = {
   // answers cited nothing attributable, and an ABSENT key means no readable
   // citation records exist at all. Absent must never be read as null.
   sources: z.array(aiVisibilitySource).nullable().optional(),
+  places: z.array(z.object({
+    place_key: z.string(),
+    label: z.string(),
+    state: z.enum(["ahead", "behind", "level", "not_measured"]),
+    named: z.number().nullable().describe("Answers that named the business there; null when not measured, never 0."),
+    sample: z.number().describe("Answers asked from this place."),
+    gap: z.number().nullable(),
+    top_rival: z.string().optional(),
+    measured_at: z.string().optional(),
+    sentence: z.string().describe("The plain sentence for this place, also in summary."),
+  })).optional().describe(
+    "Results asked from each place, beside the citywide score. Present only when the report holds them."),
 };
 
 export const runAuditOutput: ZodRawShape = {
