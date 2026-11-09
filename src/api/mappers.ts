@@ -827,9 +827,9 @@ const UNMEASURED_PLACE_STATES = new Set(["not_measured", "not_measured_this_week
 
 /**
  * The per-place results (ai_visibility.places.places), validated one by one.
- * A place is kept only when it has a key not already seen, names itself, has a
- * known state and a sentence,
- * and either is not measured (no counts: never a 0) or carries a real sample
+ * A place is kept only when it has a key not already seen, names itself, has
+ * a known state and a sentence, and either is unmeasured (not_measured, or
+ * not_measured_this_week: no counts, never a 0) or carries a real sample
  * (named <= sample, sample > 0). Anything else is dropped, never repaired, and
  * a block with nothing left reads as absent. The sentences are also appended
  * to the summary by the caller of this function's result.
@@ -847,7 +847,6 @@ function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
     if (typeof p.label !== "string" || !p.label || typeof p.sentence !== "string" || !p.sentence) continue;
     if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) continue;
     const state = p.state as AiVisibilityPlace["state"];
-    const sample = count(p.sample) ?? 0;
     if (UNMEASURED_PLACE_STATES.has(state)) {
       seen.add(p.place_key);
       places.push({ place_key: p.place_key, label: p.label, state, named: null, sample: 0,
@@ -855,7 +854,8 @@ function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
       continue;
     }
     const named = count(p.named);
-    if (named === null || sample <= 0 || named > sample) continue;
+    const sample = count(p.sample);
+    if (named === null || sample === null || sample <= 0 || named > sample) continue;
     seen.add(p.place_key);
     places.push({
       place_key: p.place_key, label: p.label, state, named, sample,
