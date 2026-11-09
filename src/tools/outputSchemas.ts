@@ -324,7 +324,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
   places: z.array(z.object({
     place_key: z.string(),
     label: z.string(),
-    state: z.enum(["ahead", "behind", "level", "not_measured"]),
+    state: z.enum(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]),
     named: z.number().nullable().describe("Answers that named the business there; null when not measured, never 0."),
     sample: z.number().describe("Answers asked from this place."),
     gap: z.number().nullable(),

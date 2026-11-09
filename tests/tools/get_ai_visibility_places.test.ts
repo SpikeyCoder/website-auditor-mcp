@@ -63,7 +63,7 @@ describe("get_ai_visibility places", () => {
 
   it("drops malformed places rather than inventing one, and a bad block reads as absent", () => {
     const out = toAiVisibility(withPlaces({ places: [
-      { label: "Ok", state: "ahead", named: 5, sample: 12, sentence: "Ok: named in 5 of 12 answers; no rival was named." },
+      { place_key: "pl_ok", label: "Ok", state: "ahead", named: 5, sample: 12, sentence: "Ok: named in 5 of 12 answers; no rival was named." },
       { label: 7, state: "ahead" },
       { label: "NoState", state: "wonderful", sentence: "x" },
       { label: "Zero", state: "ahead", named: 0, sample: 0, sentence: "x" },
@@ -72,6 +72,28 @@ describe("get_ai_visibility places", () => {
     expect(out.places?.map((p) => p.label)).toEqual(["Ok"]);
     expect(toAiVisibility(withPlaces("nonsense"))).not.toHaveProperty("places");
     expect(toAiVisibility(withPlaces({ places: [] }))).not.toHaveProperty("places");
+  });
+
+  it("a place with no usable key, or a key already used, is dropped", () => {
+    const ok = (key: unknown, label: string) =>
+      ({ place_key: key, label, state: "ahead", named: 5, sample: 12, gap: 5, sentence: `${label}: named in 5 of 12 answers.` });
+    const out = toAiVisibility(withPlaces({ places: [
+      ok("pl_a", "First"), ok("pl_a", "Same key again"), ok(undefined, "No key"), ok("", "Empty key"),
+      ok({ nested: 1 }, "Object key"), ok(7, "Number key"), ok("pl_b", "Second"),
+    ] }));
+    expect(out.places?.map((p) => p.label)).toEqual(["First", "Second"]);
+    expect(out.summary).not.toContain("Same key again");
+  });
+
+  it("keeps a place where nobody was named, and one not measured this week", () => {
+    const out = toAiVisibility(withPlaces({ places: [
+      { place_key: "pl_n", label: "Quiet", state: "no_rival", named: 0, sample: 12, gap: 0,
+        sentence: "Quiet: named in 0 of 12 answers, and no rival was named." },
+      { place_key: "pl_w", label: "Late", state: "not_measured_this_week", named: null, sample: 0, gap: null,
+        sentence: "Late: not measured this week." },
+    ] }));
+    expect(out.places?.map((p) => [p.label, p.state, p.named])).toEqual([["Quiet", "no_rival", 0], ["Late", "not_measured_this_week", null]]);
+    expect(out.summary).toContain("Late: not measured this week.");
   });
 
   it("a measured place with a sample of 0 is refused: that would be a 0, not a gap in the data", () => {

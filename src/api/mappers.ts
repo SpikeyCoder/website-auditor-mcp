@@ -821,12 +821,15 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   };
 }
 
-const PLACE_STATES = new Set(["ahead", "behind", "level", "not_measured"]);
+const PLACE_STATES = new Set(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]);
+/** States that carry no count at all (never a 0). */
+const UNMEASURED_PLACE_STATES = new Set(["not_measured", "not_measured_this_week"]);
 
 /**
  * The per-place results (ai_visibility.places.places), validated one by one.
- * A place is kept only when it names itself, has a known state and a sentence,
- * and either is not_measured (no counts: never a 0) or carries a real sample
+ * A place is kept only when it has a key not already seen, names itself, has a
+ * known state and a sentence,
+ * and either is not measured (no counts: never a 0) or carries a real sample
  * (named <= sample, sample > 0). Anything else is dropped, never repaired, and
  * a block with nothing left reads as absent. The sentences are also appended
  * to the summary by the caller of this function's result.
@@ -836,22 +839,26 @@ function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
   const list = raw && typeof raw === "object" ? (raw as { places?: unknown }).places : undefined;
   if (!Array.isArray(list)) return {};
   const places: AiVisibilityPlace[] = [];
+  const seen = new Set<string>();
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
     const p = item as Record<string, unknown>;
+    if (typeof p.place_key !== "string" || !p.place_key || seen.has(p.place_key)) continue;
     if (typeof p.label !== "string" || !p.label || typeof p.sentence !== "string" || !p.sentence) continue;
     if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) continue;
     const state = p.state as AiVisibilityPlace["state"];
     const sample = count(p.sample) ?? 0;
-    if (state === "not_measured") {
-      places.push({ place_key: String(p.place_key ?? ""), label: p.label, state, named: null, sample: 0,
+    if (UNMEASURED_PLACE_STATES.has(state)) {
+      seen.add(p.place_key);
+      places.push({ place_key: p.place_key, label: p.label, state, named: null, sample: 0,
         gap: null, sentence: p.sentence });
       continue;
     }
     const named = count(p.named);
     if (named === null || sample <= 0 || named > sample) continue;
+    seen.add(p.place_key);
     places.push({
-      place_key: String(p.place_key ?? ""), label: p.label, state, named, sample,
+      place_key: p.place_key, label: p.label, state, named, sample,
       gap: typeof p.gap === "number" && Number.isInteger(p.gap) ? p.gap : null,
       ...(typeof p.top_rival === "string" && p.top_rival ? { top_rival: p.top_rival } : {}),
       ...(typeof p.measured_at === "string" && p.measured_at ? { measured_at: p.measured_at } : {}),
