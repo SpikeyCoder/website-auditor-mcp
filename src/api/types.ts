@@ -309,6 +309,27 @@ export interface DashboardLink {
   note: string;
 }
 
+/**
+ * One neighborhood / location / service area the business was asked about FROM
+ * (the engine's local-places work). `named` of `sample` answers named it there; a place
+ * with no answers is `not_measured` with `named: null` — never 0. No letter
+ * grade, by the owner's decision: the sample and a plain sentence only.
+ */
+export interface AiVisibilityPlace {
+  place_key: string;
+  label: string;
+  /** ahead / behind / level (a tie or a small difference) / not_measured. */
+  state: "ahead" | "behind" | "level" | "not_measured";
+  named: number | null;
+  sample: number;
+  /** Answers naming the business minus answers naming the top rival there. */
+  gap: number | null;
+  top_rival?: string;
+  measured_at?: string;
+  /** The plain sentence for this place, also folded into the reply's summary. */
+  sentence: string;
+}
+
 export interface AiVisibility {
   /** Pro only, and only on a get_ai_visibility reply: the member's dashboard. */
   dashboard?: DashboardLink;
@@ -372,6 +393,13 @@ export interface AiVisibility {
    * whose rows are all malformed reads as absent, never as an empty list.
    */
   sources?: AiVisibilitySource[] | null;
+  /**
+   * Results asked from each place, beside (never instead of) the citywide score.
+   * Absent when the report holds none (older reports, or the engine's local
+   * places off): "never measured", not "no places". Each place is also one
+   * sentence in `summary`.
+   */
+  places?: AiVisibilityPlace[];
 }
 
 export interface AuditIssue {

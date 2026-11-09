@@ -9,6 +9,7 @@ import type {
   AiVisibilityBlock,
   AiVisibility,
   AiVisibilitySource,
+  AiVisibilityPlace,
   AiVisibilitySnapshot,
   AiVisibilityTrend,
   SnapshotQuestion,
@@ -789,6 +790,13 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   const asked = questionsAsked(av);
   const gapSuffix = gap && gap.sentence ? ` ${gap.sentence}` : "";
 
+  // Where it is recommended, area by area, in the sentence the model reads.
+  // After the citywide sentences, which it never replaces.
+  const placesFound = localPlaces(av).places;
+  const placesSuffix = placesFound
+    ? ` Asked from each area: ${placesFound.map((p) => p.sentence).join(" ")}`
+    : "";
+
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
   return {
@@ -797,7 +805,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     engine_status,
     appears_by_engine,
     top_competitor: competitor,
-    summary: `${summary}${gapSuffix}`,
+    summary: `${summary}${gapSuffix}${placesSuffix}`,
     ...gapAndCounts(reconciled),
     ...(asked.length > 0 && !av.is_simulated && scoredNames.length > 0 ? { questions_asked: asked } : {}),
     ...(coverage_note ? { coverage_note } : {}),
@@ -806,7 +814,48 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     ...(provenance.verified !== undefined ? { name_verified: provenance.verified } : {}),
     ...(provenance.source ? { name_source: provenance.source } : {}),
     ...citedSources(av),
+    ...localPlaces(av),
   };
+}
+
+const PLACE_STATES = new Set(["ahead", "behind", "level", "not_measured"]);
+
+/**
+ * The per-place results (ai_visibility.places.places), validated one by one.
+ * A place is kept only when it names itself, has a known state and a sentence,
+ * and either is not_measured (no counts: never a 0) or carries a real sample
+ * (named <= sample, sample > 0). Anything else is dropped, never repaired, and
+ * a block with nothing left reads as absent. The sentences are also appended
+ * to the summary by the caller of this function's result.
+ */
+function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
+  const raw = (av as { places?: { places?: unknown } }).places;
+  const list = raw && typeof raw === "object" ? (raw as { places?: unknown }).places : undefined;
+  if (!Array.isArray(list)) return {};
+  const places: AiVisibilityPlace[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const p = item as Record<string, unknown>;
+    if (typeof p.label !== "string" || !p.label || typeof p.sentence !== "string" || !p.sentence) continue;
+    if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) continue;
+    const state = p.state as AiVisibilityPlace["state"];
+    const sample = count(p.sample) ?? 0;
+    if (state === "not_measured") {
+      places.push({ place_key: String(p.place_key ?? ""), label: p.label, state, named: null, sample: 0,
+        gap: null, sentence: p.sentence });
+      continue;
+    }
+    const named = count(p.named);
+    if (named === null || sample <= 0 || named > sample) continue;
+    places.push({
+      place_key: String(p.place_key ?? ""), label: p.label, state, named, sample,
+      gap: typeof p.gap === "number" && Number.isInteger(p.gap) ? p.gap : null,
+      ...(typeof p.top_rival === "string" && p.top_rival ? { top_rival: p.top_rival } : {}),
+      ...(typeof p.measured_at === "string" && p.measured_at ? { measured_at: p.measured_at } : {}),
+      sentence: p.sentence,
+    });
+  }
+  return places.length > 0 ? { places } : {};
 }
 
 /** Pass-rate (0–100) of results for a given module, or null if none ran. */
