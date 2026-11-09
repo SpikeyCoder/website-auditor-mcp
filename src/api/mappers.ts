@@ -843,8 +843,8 @@ function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
     const p = item as Record<string, unknown>;
-    if (typeof p.place_key !== "string" || !p.place_key || seen.has(p.place_key)) continue;
-    if (typeof p.label !== "string" || !p.label || typeof p.sentence !== "string" || !p.sentence) continue;
+    if (typeof p.place_key !== "string" || !p.place_key.trim() || seen.has(p.place_key)) continue;
+    if (typeof p.label !== "string" || !p.label.trim() || typeof p.sentence !== "string" || !p.sentence.trim()) continue;
     if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) continue;
     const state = p.state as AiVisibilityPlace["state"];
     if (UNMEASURED_PLACE_STATES.has(state)) {

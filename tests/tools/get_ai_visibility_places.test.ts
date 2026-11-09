@@ -97,6 +97,18 @@ describe("get_ai_visibility places", () => {
     expect(out.summary).not.toContain("Same key again");
   });
 
+  it("a blank key, label or sentence is not a name or a sentence", () => {
+    const base = { state: "ahead", named: 3, sample: 10, gap: 3 };
+    const out = toAiVisibility(withPlaces({ places: [
+      { ...base, place_key: " ", label: "Blank key", sentence: "Blank key: named." },
+      { ...base, place_key: "pl_1", label: "  ", sentence: "Blank label: named." },
+      { ...base, place_key: "pl_2", label: "Blank sentence", sentence: " \n" },
+      { ...base, place_key: "pl_3", label: "Fine", sentence: "Fine: named in 3 of 10 answers." },
+    ] }));
+    expect(out.places?.map((p) => p.label)).toEqual(["Fine"]);
+    expect(out.summary).not.toContain("Blank");
+  });
+
   it("keeps a place where nobody was named, and one not measured this week", () => {
     const out = toAiVisibility(withPlaces({ places: [
       { place_key: "pl_n", label: "Quiet", state: "no_rival", named: 0, sample: 12, gap: 0,
