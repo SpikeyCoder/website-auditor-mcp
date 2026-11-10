@@ -324,7 +324,8 @@ export const getAiVisibilityOutput: ZodRawShape = {
   places: z.array(z.object({
     place_key: z.string(),
     label: z.string(),
-    state: z.enum(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]),
+    state: z.enum(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]).describe(
+      "not_measured and not_measured_this_week mean the area has no count (not yet checked, or not this week): never a zero, and not evidence the business is absent there."),
     named: z.number().nullable().describe("Answers that named the business there; null when the area was not measured (not zero, and not evidence the business is absent there)."),
     sample: z.number().describe("Answers asked from this place."),
     gap: z.number().nullable(),

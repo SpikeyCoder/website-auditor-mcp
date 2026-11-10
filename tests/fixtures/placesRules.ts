@@ -2,11 +2,12 @@
 export const PLACES_RULES: Array<[string, RegExp]> = [
   ["names the field", /(^|[\s`])places`?:/],
   ["separate from the citywide score", /measured separately from the citywide score, not as a breakdown of it/],
-  ["null is not measured, never zero, never absent there", /named: null[\s\S]{0,120}?not measured[\s\S]{0,120}?not zero and not evidence the business is missing there/],
+  ["null is not measured", /named: null[^.]*was not measured/],
+  ["not zero, not absent there", /not zero and not evidence the business is missing there/],
   ["partial", /partial: true`? means only part of the answers were measured/],
   ["places_not_shown", /`?places_not_shown`? means more areas exist than are listed/],
   ["summary already has the sentences", /already in `?summary`?/],
-  ["absent is not a failure", /absent `?places`? means no area results[^.]*not a failure/],
+  ["absent is not a failure", /absent `?places`? means no area results are shown for this run, not a failure/],
 ];
 
 /** The README row is a table cell in its own words: the rules a reader can get wrong, not the exact sentence. */

@@ -330,6 +330,7 @@ describe("published manifests stay in sync with the code", () => {
     expect(withPlaces.map((t: { name: string }) => t.name)).toContain("get_ai_visibility");
     for (const spec of withPlaces) {
       const listed = manifest.tools.find((t: { name: string }) => t.name === spec.name);
+      expect(listed, `${spec.name} is served but not listed`).toBeTruthy();
       for (const [rule, pattern] of PLACES_RULES) {
         expect(listed.description, `${spec.name} manifest: ${rule}`).toMatch(pattern);
       }
