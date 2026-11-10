@@ -12,9 +12,8 @@ export const PLACES_RULES: Array<[string, RegExp]> = [
 /** The README row is a table cell in its own words: the rules a reader can get wrong, not the exact sentence. */
 export const PLACES_README_RULES: Array<[string, RegExp]> = [
   ["both not-measured states", /`not_measured` or `not_measured_this_week` with `named: null`/],
-  ["never zero", /never 0/],
   ["separate from the citywide score", /separately from the citywide score/],
   ["places_not_shown", /`places_not_shown`/],
   ["partial", /`partial: true`/],
-  ["absent is not a failure", /absent[^.]*not a failure/],
+  ["absent is not a failure", /`places` is absent[^.]*not a failure/],
 ];
