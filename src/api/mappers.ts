@@ -796,8 +796,10 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   // beside a "no score" sentence would contradict it.
   const local = scoredNames.length > 0 && !av.is_simulated ? localPlaces(av) : {};
   const placesFound = local.places;
+  // "Asked from each area" only when one was: all-unmeasured sentences say so themselves.
+  const placesLead = placesFound?.some((p) => p.named !== null) ? "Asked from each area:" : "By area:";
   const placesSuffix = placesFound
-    ? ` Asked from each area: ${placesFound.map((p) => p.sentence).join(" ")}`
+    ? ` ${placesLead} ${placesFound.map((p) => p.sentence).join(" ")}`
     : "";
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
@@ -860,9 +862,10 @@ function placeSentence(
   if (state === "not_measured_this_week") return `${label}: not measured this week.`;
   const base = `${label}: named in ${named} of ${sample} ${plural(sample, "answer", "answers")}`;
   const tail = partial ? " Only partly measured: this week's free checks ran out." : "";
-  if (state === "no_rival") return `${base}, and no rival was named.${tail}`;
-  if (rival === undefined || gap === null) return `${base}, and no rival was named.${tail}`;
-  const theirs = (named as number) - gap;
+  if (state === "no_rival" || rival === undefined || gap === null || named === null) {
+    return `${base}, and no rival was named.${tail}`;
+  }
+  const theirs = named - gap;
   if (state === "level") return `${base}; level with ${rival} (${theirs} of ${sample}).${tail}`;
   return `${base}; ${state === "ahead" ? "ahead of" : "behind"} ${rival} (${theirs} of ${sample}).${tail}`;
 }
@@ -936,10 +939,11 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
     // The rival's own count is named - gap: it has to be a count that can be.
     if (gap === null) return null;
     const theirs = named - gap;
-    if (theirs < 0 || theirs > sample) return null;
+    // A top rival was named at least once.
+    if (theirs < 1 || theirs > sample) return null;
     if ((state === "ahead" && gap <= 0) || (state === "behind" && gap >= 0)) return null;
-    // "Level" is a tie or a small difference (the engine's margin is 1 answer): a lead of a quarter of the sample is not one.
-    if (state === "level" && Math.abs(gap) * 4 > sample) return null;
+    // "Level" is a tie or a small difference (the engine's margin is 1 answer): a lead of more than a quarter of the sample (2 at least) is not one.
+    if (state === "level" && Math.abs(gap) > Math.max(2, Math.floor(sample / 4))) return null;
   } else if (state === "ahead") {
     // Ahead with nobody else named: the gap is the business's own count.
     if (named === 0 || (gap !== null && gap !== named)) return null;

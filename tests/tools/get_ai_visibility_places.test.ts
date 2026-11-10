@@ -344,8 +344,8 @@ describe("get_ai_visibility places: review fixes", () => {
 
   it("a sample of one reads \"1 of 1 answer\"", () => {
     const out = toAiVisibility(withPlaces(engineBlock(engineFigure({
-      state: "ahead", named: 1, sample: 1, gap: 1, top_rival: "Rival", rivals: [] }))));
-    expect(out.places![0].sentence).toBe("Capitol Hill: named in 1 of 1 answer; ahead of Rival (0 of 1).");
+      state: "level", named: 1, sample: 1, gap: 0, top_rival: "Rival", rivals: [] }))));
+    expect(out.places![0].sentence).toBe("Capitol Hill: named in 1 of 1 answer; level with Rival (1 of 1).");
   });
 });
 
@@ -380,5 +380,28 @@ describe("get_ai_visibility places: review round 2", () => {
       engineFigure({ place_key: "pl_00000000000b", label: "Near", state: "level", named: 5, sample: 12, gap: 1, top_rival: "X" }),
     )));
     expect(out.places?.map((p) => p.label)).toEqual(["Near"]);
+  });
+});
+
+describe("get_ai_visibility places: review round 3", () => {
+  it("a level place with a small sample is kept", () => {
+    const out = toAiVisibility(withPlaces(engineBlock(engineFigure({
+      state: "level", named: 2, sample: 3, gap: 1, top_rival: "X" }))));
+    expect(out.places?.[0].sentence).toBe("Capitol Hill: named in 2 of 3 answers; level with X (1 of 3).");
+  });
+
+  it("a top rival named in no answer at all is a corrupt figure, and the place is dropped", () => {
+    const out = toAiVisibility(withPlaces(engineBlock(engineFigure({
+      state: "ahead", named: 3, sample: 10, gap: 3, top_rival: "Acme" }))));
+    expect(out).not.toHaveProperty("places");
+  });
+
+  it("does not say the areas were asked when none of them was measured", () => {
+    const out = toAiVisibility(withPlaces(engineBlock(engineFigure({
+      state: "not_measured", named: null, sample: 0, gap: null, top_rival: null }))));
+    expect(out.places).toHaveLength(1);
+    expect(out.summary).toContain("Capitol Hill: not measured yet.");
+    expect(out.summary).not.toContain("Asked from each area");
+    expect(toAiVisibility(withPlaces(engineBlock(engineFigure()))).summary).toContain("Asked from each area:");
   });
 });
