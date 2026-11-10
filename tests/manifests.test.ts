@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SERVED_TOOLS, labelFor } from "../src/tools/registry.js";
-import { PLACES_RULES } from "./fixtures/placesRules.js";
+import { PLACES_RULES, PLACES_README_RULES } from "./fixtures/placesRules.js";
+import { getAiVisibilityOutput } from "../src/tools/outputSchemas.js";
 import { PROMPT_SPECS } from "../src/mcp/prompts.js";
 import { annotationsFor, SERVER_VERSION } from "../src/mcp/server.js";
 import { FALLBACK_PRICE } from "../src/tools/upgrade.js";
@@ -325,7 +326,7 @@ describe("published manifests stay in sync with the code", () => {
   // not leave out the one rule a reader can get wrong (a null count is not
   // measured, never zero).
   it("every tool whose runtime description covers `places` carries the same rules in the manifest", () => {
-    const withPlaces = SERVED_TOOLS.filter((t: { description: string }) => /`places`/.test(t.description));
+    const withPlaces = SERVED_TOOLS.filter((t: { description: string }) => /(^|[\s`])places`?:/.test(t.description));
     expect(withPlaces.map((t: { name: string }) => t.name)).toEqual(["get_ai_visibility"]);
     for (const spec of withPlaces) {
       const listed = manifest.tools.find((t: { name: string }) => t.name === spec.name);
@@ -333,6 +334,16 @@ describe("published manifests stay in sync with the code", () => {
         expect(listed.description, `${spec.name} manifest: ${rule}`).toMatch(pattern);
       }
     }
+  });
+
+  it("the README row and the output schema carry the places rules too", () => {
+    const row = readFileSync(join(root, "README.md"), "utf8").split("\n").find((l) => l.startsWith("| `get_ai_visibility`"))!;
+    for (const [rule, pattern] of PLACES_README_RULES) expect(row, `README: ${rule}`).toMatch(pattern);
+    const shape = getAiVisibilityOutput as Record<string, { description?: string; unwrap?: () => { element?: { shape?: Record<string, { description?: string }> } } }>;
+    expect(shape.places.description).toMatch(/separately from the citywide score \(not a breakdown of it\)/);
+    expect(shape.places.description).toMatch(/absent means no area results, not a failure/);
+    const named = shape.places.unwrap!().element!.shape!.named.description;
+    expect(named).toMatch(/null when the area was not measured \(not zero/);
   });
 
   it("the primary sources surface explains the semantics, not just the key", () => {
