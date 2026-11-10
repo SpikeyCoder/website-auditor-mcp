@@ -834,6 +834,12 @@ const MAX_PLACE_RIVAL_CHARS = 80;
 /** More than any one place is ever asked (engines x questions); a larger count is not from the engine. */
 const MAX_PLACE_SAMPLE = 10_000;
 
+/** A date or timestamp as the engine writes it (2026-11-09 or 2026-11-09T10:00:00+00:00), else null. */
+function isoInstant(v: unknown): string | null {
+  if (typeof v !== "string" || v.length > 40) return null;
+  return /^\d{4}-\d{2}-\d{2}([T ][0-9:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(v) && !Number.isNaN(Date.parse(v)) ? v : null;
+}
+
 /** The one sentence for a place, rebuilt from the checked fields (see gapSentence). */
 function placeSentence(
   label: string, state: AiVisibilityPlace["state"], named: number | null, sample: number,
@@ -841,7 +847,7 @@ function placeSentence(
 ): string {
   if (state === "not_measured") return `${label}: not measured yet.`;
   if (state === "not_measured_this_week") return `${label}: not measured this week.`;
-  const base = `${label}: named in ${named} of ${sample} answers`;
+  const base = `${label}: named in ${named} of ${sample} ${plural(sample, "answer", "answers")}`;
   const tail = partial ? " Only partly measured: this week's free checks ran out." : "";
   if (state === "no_rival") return `${base}, and no rival was named.${tail}`;
   if (rival === undefined || gap === null) return `${base}, and no rival was named.${tail}`;
@@ -907,7 +913,9 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
   const sample = count(p.sample);
   if (named === null || sample === null || sample <= 0 || sample > MAX_PLACE_SAMPLE || named > sample) return null;
   const partial = p.partial === true;
-  const gap = wholeNumber(p.gap);
+  // A gap that is sent but is not a whole number is a corrupt figure, not an absent one.
+  const gap = p.gap === null || p.gap === undefined ? null : wholeNumber(p.gap);
+  if (gap === null && p.gap !== null && p.gap !== undefined) return null;
   const rawRival = state === "no_rival" || p.top_rival === null || p.top_rival === undefined ? null : p.top_rival;
   const rival = rawRival === null ? undefined : cleanName(rawRival, MAX_PLACE_RIVAL_CHARS);
   // A rival that was sent but cannot be read is not "no rival": the place is dropped.
@@ -922,16 +930,17 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
     // Ahead with nobody else named: the gap is the business's own count.
     if (named === 0 || (gap !== null && gap !== named)) return null;
   } else if (state === "no_rival") {
-    if (named !== 0 || (gap !== null && gap !== 0)) return null;
+    // Nobody else was named; the business itself may or may not have been.
+    if (gap !== null && gap !== named) return null;
   } else {
     return null;   // behind / level need a rival to be behind or level with
   }
   seen.add(key);
-  const measured = text(p.measured_at);
+  const measured = isoInstant(p.measured_at);
   return {
     place_key: key, label, state, named, sample, gap,
     ...(rival !== undefined ? { top_rival: rival } : {}),
-    ...(measured !== null ? { measured_at: cleanName(measured, 40) ?? undefined } : {}),
+    ...(measured !== null ? { measured_at: measured } : {}),
     ...(partial ? { partial: true } : {}),
     sentence: placeSentence(label, state, named, sample, rival, gap, partial),
   };

@@ -320,8 +320,8 @@ export interface AiVisibilityPlace {
   place_key: string;
   label: string;
   /**
-   * ahead / behind / level (a tie or a small difference) / no_rival (nobody
-   * else was named there) / not_measured, or not_measured_this_week (a free
+   * ahead / behind / level (a tie or a small difference) / no_rival (no business
+   * other than this one was named there) / not_measured, or not_measured_this_week (a free
    * report whose weekly checks ran out).
    */
   state: "ahead" | "behind" | "level" | "no_rival" | "not_measured" | "not_measured_this_week";
