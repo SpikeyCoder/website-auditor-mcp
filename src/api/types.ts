@@ -408,7 +408,7 @@ export interface AiVisibility {
    * sentence in `summary`.
    */
   places?: AiVisibilityPlace[];
-  /** How many entries of the engine's block were left out (unreadable, or past the cap of 10), at most 99. Absent when none. */
+  /** How many entries of the engine's block were left out (unreadable or inconsistent, or past the caps), at most 99. Absent when none. */
   places_not_shown?: number;
 }
 
