@@ -331,7 +331,9 @@ export interface AiVisibilityPlace {
   gap: number | null;
   top_rival?: string;
   measured_at?: string;
-  /** The plain sentence for this place, also folded into the reply's summary. */
+  /** True when this week's free checks ran out part-way: the counts are of a part of the answers. */
+  partial?: true;
+  /** The plain sentence for this place, rebuilt from the checked fields and also folded into the reply's summary. */
   sentence: string;
 }
 

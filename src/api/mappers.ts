@@ -824,48 +824,115 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
 const PLACE_STATES = new Set(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]);
 /** States that carry no count at all (never a 0). */
 const UNMEASURED_PLACE_STATES = new Set(["not_measured", "not_measured_this_week"]);
+/** The engine pins at most 5 places and reads 25 at once; 10 is room to spare. */
+const MAX_PLACES = 10;
+/** Raw entries looked at, so a huge array is never walked to its end. */
+const MAX_PLACES_SCANNED = 50;
+const MAX_PLACE_LABEL_CHARS = 120;
+const MAX_PLACE_RIVAL_CHARS = 80;
+/** More than any one place is ever asked (engines x questions); a larger count is not from the engine. */
+const MAX_PLACE_SAMPLE = 10_000;
+
+/** The one sentence for a place, rebuilt from the checked fields (see gapSentence). */
+function placeSentence(
+  label: string, state: AiVisibilityPlace["state"], named: number | null, sample: number,
+  rival: string | undefined, gap: number | null, partial: boolean,
+): string {
+  if (state === "not_measured") return `${label}: not measured yet.`;
+  if (state === "not_measured_this_week") return `${label}: not measured this week.`;
+  const base = `${label}: named in ${named} of ${sample} answers`;
+  const tail = partial ? " Only partly measured: this week's free checks ran out." : "";
+  if (state === "no_rival") return `${base}, and no rival was named.${tail}`;
+  if (rival === undefined || gap === null) return `${base}, and no rival was named.${tail}`;
+  const theirs = (named as number) - gap;
+  if (state === "level") return `${base}; level with ${rival} (${theirs} of ${sample}).${tail}`;
+  return `${base}; ${state === "ahead" ? "ahead of" : "behind"} ${rival} (${theirs} of ${sample}).${tail}`;
+}
 
 /**
  * The per-place results (ai_visibility.places.places), validated one by one.
- * A place is kept only when it has a key not already seen, names itself, has
- * a known state and a sentence, and either is unmeasured (not_measured, or
- * not_measured_this_week: no counts, never a 0) or carries a real sample
- * (named <= sample, sample > 0). Anything else is dropped, never repaired, and
- * a block with nothing left reads as absent. The sentences are also appended
- * to the summary by the caller of this function's result.
+ * Nothing the engine wrote as prose is relayed: the label and the rival's name
+ * (read out of third-party answers) are cleaned and capped, the counts are
+ * checked, and the sentence is rebuilt from them, so the words and the numbers
+ * agree and no engine text can add an instruction. A place is kept only when it
+ * has a key not already seen, a label, a known state, and either is unmeasured
+ * (no counts, never a 0) or carries a real sample (named <= sample,
+ * 0 < sample) whose rival and gap agree with its state. Anything else is
+ * dropped, never repaired; a block with nothing left reads as absent; and a
+ * block that cannot be read at all (a getter that throws) reads as absent too.
  */
 function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
+  try {
+    return readPlaces(av);
+  } catch {
+    return {};
+  }
+}
+
+function readPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
   const raw = (av as { places?: { places?: unknown } }).places;
   const list = raw && typeof raw === "object" ? (raw as { places?: unknown }).places : undefined;
   if (!Array.isArray(list)) return {};
   const places: AiVisibilityPlace[] = [];
   const seen = new Set<string>();
-  for (const item of list) {
-    if (!item || typeof item !== "object") continue;
-    const p = item as Record<string, unknown>;
-    if (typeof p.place_key !== "string" || !p.place_key.trim() || seen.has(p.place_key)) continue;
-    if (typeof p.label !== "string" || !p.label.trim() || typeof p.sentence !== "string" || !p.sentence.trim()) continue;
-    if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) continue;
-    const state = p.state as AiVisibilityPlace["state"];
-    if (UNMEASURED_PLACE_STATES.has(state)) {
-      seen.add(p.place_key);
-      places.push({ place_key: p.place_key, label: p.label, state, named: null, sample: 0,
-        gap: null, sentence: p.sentence });
-      continue;
+  const scan = Math.min(list.length, MAX_PLACES_SCANNED);
+  for (let i = 0; i < scan && places.length < MAX_PLACES; i++) {
+    try {
+      const place = readPlace(list[i], seen);
+      if (place) places.push(place);
+    } catch {
+      // One unreadable place costs only itself.
     }
-    const named = count(p.named);
-    const sample = count(p.sample);
-    if (named === null || sample === null || sample <= 0 || named > sample) continue;
-    seen.add(p.place_key);
-    places.push({
-      place_key: p.place_key, label: p.label, state, named, sample,
-      gap: typeof p.gap === "number" && Number.isInteger(p.gap) ? p.gap : null,
-      ...(typeof p.top_rival === "string" && p.top_rival ? { top_rival: p.top_rival } : {}),
-      ...(typeof p.measured_at === "string" && p.measured_at ? { measured_at: p.measured_at } : {}),
-      sentence: p.sentence,
-    });
   }
   return places.length > 0 ? { places } : {};
+}
+
+function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
+  if (!item || typeof item !== "object") return null;
+  const p = item as Record<string, unknown>;
+  const key = p.place_key;
+  if (typeof key !== "string" || !key.trim() || seen.has(key)) return null;
+  const label = cleanName(p.label, MAX_PLACE_LABEL_CHARS);
+  if (label === null) return null;
+  if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) return null;
+  const state = p.state as AiVisibilityPlace["state"];
+  if (UNMEASURED_PLACE_STATES.has(state)) {
+    seen.add(key);
+    return { place_key: key, label, state, named: null, sample: 0, gap: null,
+      sentence: placeSentence(label, state, null, 0, undefined, null, false) };
+  }
+  const named = count(p.named);
+  const sample = count(p.sample);
+  if (named === null || sample === null || sample <= 0 || sample > MAX_PLACE_SAMPLE || named > sample) return null;
+  const partial = p.partial === true;
+  const gap = wholeNumber(p.gap);
+  const rawRival = state === "no_rival" || p.top_rival === null || p.top_rival === undefined ? null : p.top_rival;
+  const rival = rawRival === null ? undefined : cleanName(rawRival, MAX_PLACE_RIVAL_CHARS);
+  // A rival that was sent but cannot be read is not "no rival": the place is dropped.
+  if (rival === null) return null;
+  if (rival !== undefined) {
+    // The rival's own count is named - gap: it has to be a count that can be.
+    if (gap === null) return null;
+    const theirs = named - gap;
+    if (theirs < 0 || theirs > sample) return null;
+    if ((state === "ahead" && gap <= 0) || (state === "behind" && gap >= 0)) return null;
+  } else if (state === "ahead") {
+    // Ahead with nobody else named: the gap is the business's own count.
+    if (named === 0 || (gap !== null && gap !== named)) return null;
+  } else if (state === "no_rival") {
+    if (named !== 0 || (gap !== null && gap !== 0)) return null;
+  } else {
+    return null;   // behind / level need a rival to be behind or level with
+  }
+  seen.add(key);
+  const measured = text(p.measured_at);
+  return {
+    place_key: key, label, state, named, sample, gap,
+    ...(rival !== undefined ? { top_rival: rival } : {}),
+    ...(measured !== null ? { measured_at: cleanName(measured, 40) ?? undefined } : {}),
+    ...(partial ? { partial: true } : {}),
+    sentence: placeSentence(label, state, named, sample, rival, gap, partial),
+  };
 }
 
 /** Pass-rate (0–100) of results for a given module, or null if none ran. */
