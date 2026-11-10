@@ -826,6 +826,7 @@ const PLACE_STATES = new Set(["ahead", "behind", "level", "no_rival", "not_measu
 const UNMEASURED_PLACE_STATES = new Set(["not_measured", "not_measured_this_week"]);
 /** The engine pins at most 5 places and reads 25 at once; 10 is room to spare. */
 const MAX_PLACES = 10;
+const PLACE_KEY = /^[A-Za-z0-9_.:-]{1,64}$/;
 /** Raw entries looked at, so a huge array is never walked to its end. */
 const MAX_PLACES_SCANNED = 50;
 const MAX_PLACE_LABEL_CHARS = 120;
@@ -891,7 +892,8 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
   if (!item || typeof item !== "object") return null;
   const p = item as Record<string, unknown>;
   const key = p.place_key;
-  if (typeof key !== "string" || !key.trim() || seen.has(key)) return null;
+  // The engine's key is "pl_" and 12 hex digits: an identifier, never free text.
+  if (typeof key !== "string" || !PLACE_KEY.test(key) || seen.has(key)) return null;
   const label = cleanName(p.label, MAX_PLACE_LABEL_CHARS);
   if (label === null) return null;
   if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) return null;
