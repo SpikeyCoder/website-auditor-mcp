@@ -325,7 +325,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
     place_key: z.string(),
     label: z.string(),
     state: z.enum(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]).describe(
-      "not_measured (not yet checked) and not_measured_this_week (not checked this week) mean the area has no count: never a zero, and not evidence the business is absent there."),
+      "not_measured (not yet checked) and not_measured_this_week (not checked this week) mean the area has no count: never a zero, and not evidence the business is absent there. ahead, behind and level compare the business with the top rival (level is a tie or within 2 answers); no_rival means nobody else was named."),
     named: z.number().nullable().describe("Answers that named the business there; null when the area was not measured (not zero, and not evidence the business is absent there)."),
     sample: z.number().describe("Answers asked from this place (0 when `state` says the area was not measured; `state` and `named`, not this count, say whether it was measured)."),
     gap: z.number().nullable().describe("Answers naming the business minus answers naming the top rival (the business's own count when nobody else was named); null when the area was not measured or no figure was sent."),
@@ -336,7 +336,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
   })).optional().describe(
     "Results asked as if from each neighborhood or town, measured separately from the citywide score (not a breakdown of it). Present only when the report holds them; absent means no area results, not a failure."),
   places_not_shown: z.number().int().optional().describe(
-    "How many of the report's places are not in `places` (unreadable, inconsistent or a repeated key, past the cap of 10, or past the 50 entries read); stops counting at 99 (the summary then says '99 or more'); present only when some are left out."),
+    "How many of the report's places are not in `places` (unreadable, inconsistent or a repeated key, past the cap of 10, or past the 50 entries read); stops counting at 99, so 99 means 99 or more (the summary then says '99 or more'); present only when some are left out."),
 };
 
 export const runAuditOutput: ZodRawShape = {

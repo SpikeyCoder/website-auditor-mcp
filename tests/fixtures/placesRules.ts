@@ -14,6 +14,6 @@ export const PLACES_README_RULES: Array<[string, RegExp]> = [
   ["both not-measured states", /`not_measured` or `not_measured_this_week` with `named: null`/],
   ["separate from the citywide score", /separately from the citywide score/],
   ["places_not_shown", /`places_not_shown` counts the reported areas left out of the list/],
-  ["partial", /`partial: true`/],
+  ["partial", /`partial: true` marks an area only partly measured/],
   ["absent is not a failure", /`places` is absent[^.]*not a failure/],
 ];
