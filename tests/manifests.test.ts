@@ -334,7 +334,7 @@ describe("published manifests stay in sync with the code", () => {
     // Drift the other way: a manifest entry that mentions places must be a tool whose runtime description does too.
     const served = new Set(withPlaces.map((t: { name: string }) => t.name));
     for (const listed of manifest.tools as Array<{ name: string; description: string }>) {
-      if (/\bplaces_not_shown\b|\bplaces:/.test(listed.description)) {
+      if (/places_not_shown|`places`|\bplaces:/.test(listed.description)) {
         expect(served.has(listed.name), `${listed.name}: manifest mentions places, runtime description does not`).toBe(true);
       }
     }
