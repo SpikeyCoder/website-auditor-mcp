@@ -826,7 +826,8 @@ const PLACE_STATES = new Set(["ahead", "behind", "level", "no_rival", "not_measu
 const UNMEASURED_PLACE_STATES = new Set(["not_measured", "not_measured_this_week"]);
 /** The engine pins at most 5 places and reads 25 at once; 10 is room to spare. */
 const MAX_PLACES = 10;
-const PLACE_KEY = /^[A-Za-z0-9_.:-]{1,64}$/;
+// make_place_key: "pl_" and 12 hex digits.
+const PLACE_KEY = /^pl_[0-9a-f]{12}$/;
 /** Raw entries looked at, so a huge array is never walked to its end. */
 const MAX_PLACES_SCANNED = 50;
 const MAX_PLACE_LABEL_CHARS = 120;
@@ -837,7 +838,13 @@ const MAX_PLACE_SAMPLE = 10_000;
 /** A date or timestamp as the engine writes it (2026-11-09 or 2026-11-09T10:00:00+00:00), else null. */
 function isoInstant(v: unknown): string | null {
   if (typeof v !== "string" || v.length > 40) return null;
-  return /^\d{4}-\d{2}-\d{2}([T ][0-9:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(v) && !Number.isNaN(Date.parse(v)) ? v : null;
+  if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(v)) return null;
+  const when = new Date(`${v.slice(0, 10)}T00:00:00Z`);
+  // Date.parse rolls 2026-02-31 over to March: the day has to survive a round trip.
+  if (Number.isNaN(when.getTime()) || when.toISOString().slice(0, 10) !== v.slice(0, 10)) return null;
+  const hour = v.length > 10 ? Number(v.slice(11, 13)) : 0;
+  const minute = v.length > 10 ? Number(v.slice(14, 16)) : 0;
+  return hour <= 23 && minute <= 59 ? v : null;
 }
 
 /** The one sentence for a place, rebuilt from the checked fields (see gapSentence). */
@@ -900,7 +907,8 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
   const key = p.place_key;
   // The engine's key is "pl_" and 12 hex digits: an identifier, never free text.
   if (typeof key !== "string" || !PLACE_KEY.test(key) || seen.has(key)) return null;
-  const label = cleanName(p.label, MAX_PLACE_LABEL_CHARS);
+  // Trailing punctuation goes: the label is followed by a colon in the sentence.
+  const label = cleanName(p.label, MAX_PLACE_LABEL_CHARS)?.replace(/[\s.:;,!?]+$/, "") || null;
   if (label === null) return null;
   if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) return null;
   const state = p.state as AiVisibilityPlace["state"];
