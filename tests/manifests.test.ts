@@ -331,6 +331,13 @@ describe("published manifests stay in sync with the code", () => {
       (t: { name: string; description: string }) => t.name === "get_ai_visibility" || /`places`|places_not_shown/.test(t.description),
     );
     expect(withPlaces.map((t: { name: string }) => t.name)).toContain("get_ai_visibility");
+    // Drift the other way: a manifest entry that mentions places must be a tool whose runtime description does too.
+    const served = new Set(withPlaces.map((t: { name: string }) => t.name));
+    for (const listed of manifest.tools as Array<{ name: string; description: string }>) {
+      if (/\bplaces_not_shown\b|\bplaces:/.test(listed.description)) {
+        expect(served.has(listed.name), `${listed.name}: manifest mentions places, runtime description does not`).toBe(true);
+      }
+    }
     for (const spec of withPlaces) {
       const listed = manifest.tools.find((t: { name: string }) => t.name === spec.name);
       expect(listed, `${spec.name} is served but not listed`).toBeTruthy();

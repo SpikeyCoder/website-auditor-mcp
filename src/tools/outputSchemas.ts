@@ -336,7 +336,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
   })).optional().describe(
     "Results asked as if from each neighborhood or town, measured separately from the citywide score (not a breakdown of it). Present only when the report holds them; absent means no area results, not a failure."),
   places_not_shown: z.number().int().optional().describe(
-    "How many of the report's places are not in `places` (unreadable or inconsistent, or past the cap of 10); stops counting at 99 (the summary then says '99 or more'); present only when some are left out."),
+    "How many of the report's places are not in `places` (unreadable or inconsistent, past the cap of 10, or past the 50 entries read); stops counting at 99 (the summary then says '99 or more'); present only when some are left out."),
 };
 
 export const runAuditOutput: ZodRawShape = {
