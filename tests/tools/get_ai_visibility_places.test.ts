@@ -169,6 +169,13 @@ const engineFigure = (over: Record<string, unknown> = {}) => ({
 const engineBlock = (...figs: Array<Record<string, unknown>>) =>
   ({ method: "places-v1", places: figs, locked: [{ place_key: "pl_6c0000000000", label: "Ballard", state: "locked" }], unlocked: 1, upgrade_url: "https://x", note: "n" });
 
+function BLOCK_KEYED() {
+  return engineBlock(
+    engineFigure({ place_key: "pl_00000000000a", label: "Highland" }),
+    engineFigure({ place_key: "pl_00000000000b", label: "Baker", state: "not_measured", named: null, sample: 0, gap: null, top_rival: null }),
+  );
+}
+
 describe("get_ai_visibility places: the engine's real shape", () => {
   it("reads a figure as the engine sends it, and passes on none of its answer text or drawing fields", () => {
     const out = toAiVisibility(withPlaces(engineBlock(engineFigure())));
@@ -246,7 +253,7 @@ describe("get_ai_visibility places: hostile engine text", () => {
     expect(all.summary).not.toContain("not shown");
     const many = toAiVisibility(withPlaces(engineBlock(...Array.from({ length: 200 }, (_, i) => keyed(i)))));
     expect(many.places_not_shown).toBe(99);
-    expect(many.summary).toContain("99 more areas were not shown.");
+    expect(many.summary).toContain("99 or more areas were not shown.");
   });
 
   it("keeps at most 10 places, so the summary cannot grow without bound", () => {
@@ -330,7 +337,7 @@ describe("get_ai_visibility places: a hostile block fails safe", () => {
   });
 });
 
-describe("get_ai_visibility places: review fixes", () => {
+describe("get_ai_visibility places: dates, gaps, labels and wording", () => {
   it("a no_rival place where the business itself was named is kept", () => {
     const out = toAiVisibility(withPlaces(engineBlock(engineFigure({
       state: "no_rival", named: 4, sample: 12, gap: 4, top_rival: null }))));
@@ -364,7 +371,7 @@ describe("get_ai_visibility places: review fixes", () => {
   });
 });
 
-describe("get_ai_visibility places: review round 2", () => {
+describe("get_ai_visibility places: measured_at and labels", () => {
   it("measured_at must be a real calendar date", () => {
     const at = (v: string) => toAiVisibility(withPlaces(engineBlock(engineFigure({ measured_at: v })))).places![0];
     for (const bad of ["2026-02-31", "2026-13-01", "2026-11-09T24:00:00Z", "2026-11-31T10:00:00Z"]) {
@@ -406,11 +413,11 @@ describe("get_ai_visibility places: review round 2", () => {
   });
 });
 
-describe("get_ai_visibility places: review round 3", () => {
+describe("get_ai_visibility places: consistency of state, rival and sample", () => {
   it("a level place with a small sample is kept", () => {
     const out = toAiVisibility(withPlaces(engineBlock(engineFigure({
       state: "level", named: 2, sample: 3, gap: 1, top_rival: "X" }))));
-    expect(out.places?.[0].sentence).toBe("Capitol Hill: named in 2 of 3 answers; level with X (1 of 3).");
+    expect(out.places?.[0].sentence).toBe("Capitol Hill: named in 2 of 3 answers; about level with X (1 of 3).");
   });
 
   it("a top rival named in no answer at all is a corrupt figure, and the place is dropped", () => {
@@ -429,7 +436,7 @@ describe("get_ai_visibility places: review round 3", () => {
   });
 });
 
-describe("get_ai_visibility places: review round 5", () => {
+describe("get_ai_visibility places: summary lead and the partial flag", () => {
   it("a mixed block is not introduced as 'asked from each area'", () => {
     const out = toAiVisibility(withPlaces(BLOCK_KEYED()));
     expect(out.summary).not.toContain("Asked from each area");
@@ -442,9 +449,18 @@ describe("get_ai_visibility places: review round 5", () => {
     expect(out.places![0].sentence).not.toContain("free checks");
   });
 });
-function BLOCK_KEYED() {
-  return engineBlock(
-    engineFigure({ place_key: "pl_00000000000a", label: "Highland" }),
-    engineFigure({ place_key: "pl_00000000000b", label: "Baker", state: "not_measured", named: null, sample: 0, gap: null, top_rival: null }),
-  );
-}
+
+describe("get_ai_visibility places: unreadable labels and near-level places", () => {
+  it("a label with no letter or digit names no area", () => {
+    for (const label of ["...", "\u2014", "- -"]) {
+      expect(toAiVisibility(withPlaces(engineBlock(engineFigure({ label }))))).not.toHaveProperty("places");
+    }
+  });
+
+  it("a level place that is not exactly level says 'about level'", () => {
+    const at = (gap: number, named: number) => toAiVisibility(withPlaces(engineBlock(engineFigure({
+      state: "level", named, sample: 10, gap, top_rival: "Rival" })))).places![0].sentence;
+    expect(at(0, 4)).toBe("Capitol Hill: named in 4 of 10 answers; level with Rival (4 of 10).");
+    expect(at(1, 5)).toBe("Capitol Hill: named in 5 of 10 answers; about level with Rival (4 of 10).");
+  });
+});

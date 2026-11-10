@@ -800,7 +800,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   const notShown = local.places_not_shown;
   const placesSuffix = placesFound
     ? ` By area: ${placesFound.map((p) => p.sentence).join(" ")}` +
-      (notShown ? ` ${notShown} more ${plural(notShown, "area was", "areas were")} not shown.` : "")
+      (notShown ? ` ${notShown >= MAX_NOT_SHOWN ? `${MAX_NOT_SHOWN} or` : notShown} more ${plural(notShown, "area was", "areas were")} not shown.` : "")
     : "";
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
@@ -827,6 +827,10 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
 const PLACE_STATES = new Set(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]);
 /** States that carry no count at all (never a 0). */
 const UNMEASURED_PLACE_STATES = new Set(["not_measured", "not_measured_this_week"]);
+type MeasuredPlaceState = "ahead" | "behind" | "level" | "no_rival";
+function isUnmeasured(state: AiVisibilityPlace["state"]): state is "not_measured" | "not_measured_this_week" {
+  return UNMEASURED_PLACE_STATES.has(state);
+}
 /** The engine pins at most 5 places and reads 25 at once; 10 is room to spare. */
 const MAX_PLACES = 10;
 // make_place_key: "pl_" and 12 hex digits.
@@ -834,6 +838,8 @@ const PLACE_KEY = /^pl_[0-9a-f]{12}$/;
 /** Raw entries looked at, so a huge array is never walked to its end. */
 const MAX_PLACES_SCANNED = 50;
 const MAX_PLACE_LABEL_CHARS = 120;
+/** places_not_shown stops counting here: "99 or more". */
+const MAX_NOT_SHOWN = 99;
 const MAX_PLACE_RIVAL_CHARS = 80;
 /** More than any one place is ever asked (engines x questions); a larger count is not from the engine. */
 const MAX_PLACE_SAMPLE = 10_000;
@@ -841,17 +847,14 @@ const MAX_PLACE_SAMPLE = 10_000;
 /** A date or timestamp as the engine writes it (2026-11-09 or 2026-11-09T10:00:00+00:00), else null. */
 function isoInstant(v: unknown): string | null {
   if (typeof v !== "string" || v.length > 40) return null;
-  if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(v)) return null;
-  const when = new Date(`${v.slice(0, 10)}T00:00:00Z`);
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2}):?(\d{2}))?)?$/.exec(v);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, sec, oh, om] = m;
   // Date.parse rolls 2026-02-31 over to March: the day has to survive a round trip.
-  if (Number.isNaN(when.getTime()) || when.toISOString().slice(0, 10) !== v.slice(0, 10)) return null;
-  if (v.length === 10) return v;
-  const time = /(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-](\d{2}):?(\d{2}))?$/.exec(v.slice(11));
-  if (!time) return null;
-  const [, h, m, sec, oh, om] = time;
-  const ok = Number(h) <= 23 && Number(m) <= 59 && (sec === undefined || Number(sec) <= 59)
-    && (oh === undefined || (Number(oh) <= 14 && Number(om) <= 59));
-  return ok ? v : null;
+  const day = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (day.getUTCFullYear() !== Number(y) || day.getUTCMonth() !== Number(mo) - 1 || day.getUTCDate() !== Number(d)) return null;
+  const within = (x: string | undefined, max: number) => x === undefined || Number(x) <= max;
+  return within(h, 23) && within(mi, 59) && within(sec, 59) && within(oh, 14) && within(om, 59) ? v : null;
 }
 
 /** The one sentence for an unmeasured place, rebuilt from the checked fields (see gapSentence). */
@@ -861,14 +864,14 @@ function unmeasuredSentence(label: string, state: "not_measured" | "not_measured
 
 /** The one sentence for a measured place. The rival's own count is named - gap, checked by the caller. */
 function measuredSentence(
-  label: string, state: "ahead" | "behind" | "level" | "no_rival", named: number, sample: number,
+  label: string, state: MeasuredPlaceState, named: number, sample: number,
   rival: string | undefined, gap: number | null, partial: boolean,
 ): string {
   const base = `${label}: named in ${named} of ${sample} ${plural(sample, "answer", "answers")}`;
   const tail = partial ? " Only partly measured." : "";
   if (state === "no_rival" || rival === undefined || gap === null) return `${base}, and no rival was named.${tail}`;
   const theirs = named - gap;
-  if (state === "level") return `${base}; level with ${rival} (${theirs} of ${sample}).${tail}`;
+  if (state === "level") return `${base}; ${gap === 0 ? "level with" : "about level with"} ${rival} (${theirs} of ${sample}).${tail}`;
   return `${base}; ${state === "ahead" ? "ahead of" : "behind"} ${rival} (${theirs} of ${sample}).${tail}`;
 }
 
@@ -909,7 +912,7 @@ function readPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[]; plac
   }
   if (places.length === 0) return {};
   // Left out (dropped as unreadable, or past the cap), so a subset is never read as every area. Capped: a hostile length is no number to relay.
-  const notShown = Math.min(list.length - places.length, 99);
+  const notShown = Math.min(list.length - places.length, MAX_NOT_SHOWN);
   return notShown > 0 ? { places, places_not_shown: notShown } : { places };
 }
 
@@ -921,13 +924,14 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
   if (typeof key !== "string" || !PLACE_KEY.test(key) || seen.has(key)) return null;
   // A trailing colon, comma or semicolon goes: the label is followed by a colon in the sentence.
   const label = cleanName(p.label, MAX_PLACE_LABEL_CHARS)?.replace(/[\s:;,]+$/, "") || null;
-  if (label === null) return null;
+  // A name needs a letter or a digit: "..." or a dash names no area.
+  if (label === null || !/[\p{L}\p{N}]/u.test(label)) return null;
   if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) return null;
   const state = p.state as AiVisibilityPlace["state"];
-  if (UNMEASURED_PLACE_STATES.has(state)) {
+  if (isUnmeasured(state)) {
     seen.add(key);
     return { place_key: key, label, state, named: null, sample: 0, gap: null,
-      sentence: unmeasuredSentence(label, state as "not_measured" | "not_measured_this_week") };
+      sentence: unmeasuredSentence(label, state) };
   }
   const named = count(p.named);
   const sample = count(p.sample);
@@ -965,7 +969,7 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
     ...(rival !== undefined ? { top_rival: rival } : {}),
     ...(measured !== null ? { measured_at: measured } : {}),
     ...(partial ? { partial: true } : {}),
-    sentence: measuredSentence(label, state as "ahead" | "behind" | "level" | "no_rival", named, sample, rival, gap, partial),
+    sentence: measuredSentence(label, state, named, sample, rival, gap, partial),
   };
 }
 
