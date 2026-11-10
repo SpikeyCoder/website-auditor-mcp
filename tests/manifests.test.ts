@@ -326,7 +326,9 @@ describe("published manifests stay in sync with the code", () => {
   // not leave out the one rule a reader can get wrong (a null count is not
   // measured, never zero).
   it("every tool whose runtime description covers `places` carries the same rules in the manifest", () => {
-    const withPlaces = SERVED_TOOLS.filter((t: { description: string }) => /(^|[\s`])places`?:/.test(t.description));
+    const withPlaces = SERVED_TOOLS.filter(
+      (t: { name: string; description: string }) => t.name === "get_ai_visibility" || /`places`|places_not_shown/.test(t.description),
+    );
     expect(withPlaces.map((t: { name: string }) => t.name)).toContain("get_ai_visibility");
     for (const spec of withPlaces) {
       const listed = manifest.tools.find((t: { name: string }) => t.name === spec.name);

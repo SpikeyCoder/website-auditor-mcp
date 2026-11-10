@@ -2,8 +2,7 @@
 export const PLACES_RULES: Array<[string, RegExp]> = [
   ["names the field", /(^|[\s`])places`?:/],
   ["separate from the citywide score", /measured separately from the citywide score, not as a breakdown of it/],
-  ["null is not measured", /named: null[^.]*was not measured/],
-  ["not zero, not absent there", /not zero and not evidence the business is missing there/],
+  ["null is not measured, not zero, not absent there", /named: null[^.]*was not measured[^.]*not zero and not evidence the business is missing there/],
   ["partial", /partial: true`? means only part of the answers were measured/],
   ["places_not_shown", /`?places_not_shown`? means more areas exist than are listed/],
   ["summary already has the sentences", /already in `?summary`?/],
