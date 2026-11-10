@@ -353,7 +353,7 @@ describe("published manifests stay in sync with the code", () => {
     expect(json).toMatch(/never a zero, and not evidence the business is absent there/);
     expect(json).toMatch(/null when the area was not measured \(not zero, and not evidence the business is absent there\)/);
     expect(json).toMatch(/0 when `state` says the area was not measured/);
-    expect(json).toMatch(/null when the area was not measured or no rival was named/);
+    expect(json).toMatch(/null when the area was not measured or no figure was sent/);
   });
 
   it("the primary sources surface explains the semantics, not just the key", () => {
