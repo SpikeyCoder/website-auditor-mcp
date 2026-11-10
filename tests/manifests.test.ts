@@ -318,6 +318,19 @@ describe("published manifests stay in sync with the code", () => {
     }
   });
 
+  // ── The per-area `places` semantics reach BOTH description surfaces ──
+  //
+  // Same linkage as name_warning and sources above: the directory listing must
+  // not leave out the one rule a reader can get wrong (a null count is not
+  // measured, never zero).
+  it("get_ai_visibility's manifest listing explains `places` and the not-measured rule", () => {
+    const listed = manifest.tools.find((t: { name: string }) => t.name === "get_ai_visibility");
+    expect(listed.description).toContain("places");
+    expect(listed.description).toMatch(/named: null means that area was not measured/);
+    expect(listed.description).toMatch(/not zero/);
+    expect(listed.description).toContain("places_not_shown");
+  });
+
   it("the primary sources surface explains the semantics, not just the key", () => {
     // get_ai_visibility is where the evidence lives, so its listing must carry
     // the two things a reader can get wrong: competitor rows are not targets,

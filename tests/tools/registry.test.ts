@@ -20,6 +20,19 @@ describe("tool registry", () => {
     expect(gate.check_upgrade_status).toBe("free");
   });
 
+  it("get_ai_visibility describes `places`: separate from the citywide score, not-measured is not zero", () => {
+    const av = P0_TOOLS.find((t) => t.name === "get_ai_visibility")!;
+    const d = av.description;
+    expect(d).toContain("`places`");
+    expect(d).toMatch(/measured separately from the citywide score, not as a breakdown of it/);
+    // A null count is "not measured", never a zero and never "absent there".
+    expect(d).toMatch(/`named: null` means that area was not measured/);
+    expect(d).toMatch(/not zero and not evidence the business is missing there/);
+    expect(d).toContain("`places_not_shown`");
+    expect(d).toMatch(/already in `summary`/);
+    expect(d).toMatch(/absent `places` means no area results[^.]*not a failure/);
+  });
+
   it("uses the verbatim, trigger-first descriptions from the listing doc", () => {
     const av = P0_TOOLS.find((t) => t.name === "get_ai_visibility")!;
     // The differentiator phrase must be present so we own the intent in registries.

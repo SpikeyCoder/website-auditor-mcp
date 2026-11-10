@@ -325,7 +325,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
     place_key: z.string(),
     label: z.string(),
     state: z.enum(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]),
-    named: z.number().nullable().describe("Answers that named the business there; null when not measured, never 0."),
+    named: z.number().nullable().describe("Answers that named the business there; null when the area was not measured (not zero, and not evidence the business is absent there)."),
     sample: z.number().describe("Answers asked from this place."),
     gap: z.number().nullable(),
     top_rival: z.string().optional(),
@@ -333,7 +333,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
     partial: z.literal(true).optional().describe("Present when the place was only partly measured: the counts cover only part of the answers."),
     sentence: z.string().describe("The plain sentence for this place, also in summary."),
   })).optional().describe(
-    "Results asked from each place, beside the citywide score. Present only when the report holds them."),
+    "Results asked as if from each neighborhood or town, measured separately from the citywide score (not a breakdown of it). Present only when the report holds them; absent means no area results, not a failure."),
   places_not_shown: z.number().int().optional().describe(
     "How many of the report's places are not in `places` (unreadable, or past the cap of 10); present only when some are left out."),
 };
