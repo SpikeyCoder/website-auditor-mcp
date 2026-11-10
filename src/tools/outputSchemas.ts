@@ -334,6 +334,8 @@ export const getAiVisibilityOutput: ZodRawShape = {
     sentence: z.string().describe("The plain sentence for this place, also in summary."),
   })).optional().describe(
     "Results asked from each place, beside the citywide score. Present only when the report holds them."),
+  places_not_shown: z.number().int().optional().describe(
+    "How many of the report's places are not in `places` (unreadable, or past the cap of 10); present only when some are left out."),
 };
 
 export const runAuditOutput: ZodRawShape = {

@@ -234,6 +234,21 @@ describe("get_ai_visibility places: hostile engine text", () => {
     expect(out).not.toHaveProperty("places");
   });
 
+  it("says how many places were left out, so a subset is not read as every area", () => {
+    const keyed = (i: number, over: Record<string, unknown> = {}) =>
+      engineFigure({ place_key: `pl_${String(i).padStart(12, "0")}`, label: `Area ${i}`, ...over });
+    const some = toAiVisibility(withPlaces(engineBlock(keyed(1), keyed(2, { state: "wonderful" }), keyed(3))));
+    expect(some.places).toHaveLength(2);
+    expect(some.places_not_shown).toBe(1);
+    expect(some.summary).toContain("1 more area was not shown.");
+    const all = toAiVisibility(withPlaces(engineBlock(keyed(1), keyed(2))));
+    expect(all).not.toHaveProperty("places_not_shown");
+    expect(all.summary).not.toContain("not shown");
+    const many = toAiVisibility(withPlaces(engineBlock(...Array.from({ length: 200 }, (_, i) => keyed(i)))));
+    expect(many.places_not_shown).toBe(99);
+    expect(many.summary).toContain("99 more areas were not shown.");
+  });
+
   it("keeps at most 10 places, so the summary cannot grow without bound", () => {
     const many = Array.from({ length: 200 }, (_, i) => engineFigure({ place_key: `pl_${String(i).padStart(12, "0")}`, label: `Area ${i}` }));
     const out = toAiVisibility(withPlaces(engineBlock(...many)));

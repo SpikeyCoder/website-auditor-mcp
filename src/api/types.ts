@@ -101,7 +101,7 @@ export interface AiVisibilityBlock {
    */
   recommendation_gap?: unknown;
   stance_counts?: unknown;
-  /** Per-place results (local_places.free_report_payload / dashboard_payload): read with readPlaces, never passed on as is. */
+  /** Per-place results (local_places.free_report_payload / dashboard_payload): read by localPlaces (mappers.ts), never passed on as is. */
   places?: unknown;
   /**
    * How the business was identified (chaos_tester #334). Optional because a
@@ -408,6 +408,8 @@ export interface AiVisibility {
    * sentence in `summary`.
    */
   places?: AiVisibilityPlace[];
+  /** How many entries of the engine's block were left out (unreadable, or past the cap of 10), at most 99. Absent when none. */
+  places_not_shown?: number;
 }
 
 export interface AuditIssue {

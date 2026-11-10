@@ -797,8 +797,10 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   const local = scoredNames.length > 0 && !av.is_simulated ? localPlaces(av) : {};
   const placesFound = local.places;
   // A neutral lead: a mix of measured and unmeasured places must not read as all asked.
+  const notShown = local.places_not_shown;
   const placesSuffix = placesFound
-    ? ` By area: ${placesFound.map((p) => p.sentence).join(" ")}`
+    ? ` By area: ${placesFound.map((p) => p.sentence).join(" ")}` +
+      (notShown ? ` ${notShown} more ${plural(notShown, "area was", "areas were")} not shown.` : "")
     : "";
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
@@ -882,7 +884,7 @@ function measuredSentence(
  * dropped, never repaired; a block with nothing left reads as absent; and a
  * block that cannot be read at all (a getter that throws) reads as absent too.
  */
-function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
+function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[]; places_not_shown?: number } {
   try {
     return readPlaces(av);
   } catch {
@@ -890,7 +892,7 @@ function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
   }
 }
 
-function readPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
+function readPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[]; places_not_shown?: number } {
   const raw = av.places as { places?: unknown } | null | undefined;
   const list = raw && typeof raw === "object" ? (raw as { places?: unknown }).places : undefined;
   if (!Array.isArray(list)) return {};
@@ -905,7 +907,10 @@ function readPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
       // One unreadable place costs only itself.
     }
   }
-  return places.length > 0 ? { places } : {};
+  if (places.length === 0) return {};
+  // Left out (dropped as unreadable, or past the cap), so a subset is never read as every area. Capped: a hostile length is no number to relay.
+  const notShown = Math.min(list.length - places.length, 99);
+  return notShown > 0 ? { places, places_not_shown: notShown } : { places };
 }
 
 function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
