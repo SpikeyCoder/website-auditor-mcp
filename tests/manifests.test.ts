@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SERVED_TOOLS, labelFor } from "../src/tools/registry.js";
+import { PLACES_RULES } from "./fixtures/placesRules.js";
 import { PROMPT_SPECS } from "../src/mcp/prompts.js";
 import { annotationsFor, SERVER_VERSION } from "../src/mcp/server.js";
 import { FALLBACK_PRICE } from "../src/tools/upgrade.js";
@@ -323,12 +324,15 @@ describe("published manifests stay in sync with the code", () => {
   // Same linkage as name_warning and sources above: the directory listing must
   // not leave out the one rule a reader can get wrong (a null count is not
   // measured, never zero).
-  it("get_ai_visibility's manifest listing explains `places` and the not-measured rule", () => {
-    const listed = manifest.tools.find((t: { name: string }) => t.name === "get_ai_visibility");
-    expect(listed.description).toContain("places");
-    expect(listed.description).toMatch(/named: null means that area was not measured/);
-    expect(listed.description).toMatch(/not zero/);
-    expect(listed.description).toContain("places_not_shown");
+  it("every tool whose runtime description covers `places` carries the same rules in the manifest", () => {
+    const withPlaces = SERVED_TOOLS.filter((t: { description: string }) => /`places`/.test(t.description));
+    expect(withPlaces.map((t: { name: string }) => t.name)).toEqual(["get_ai_visibility"]);
+    for (const spec of withPlaces) {
+      const listed = manifest.tools.find((t: { name: string }) => t.name === spec.name);
+      for (const [rule, pattern] of PLACES_RULES) {
+        expect(listed.description, `${spec.name} manifest: ${rule}`).toMatch(pattern);
+      }
+    }
   });
 
   it("the primary sources surface explains the semantics, not just the key", () => {

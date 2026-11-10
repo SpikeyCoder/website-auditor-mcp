@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { P0_TOOLS, P1_TOOLS, ALL_TOOL_SPECS, SERVED_TOOLS } from "../../src/tools/registry.js";
+import { PLACES_RULES } from "../fixtures/placesRules.js";
 import { computeChanges } from "../../src/api/mappers.js";
 
 describe("tool registry", () => {
@@ -22,15 +23,7 @@ describe("tool registry", () => {
 
   it("get_ai_visibility describes `places`: separate from the citywide score, not-measured is not zero", () => {
     const av = P0_TOOLS.find((t) => t.name === "get_ai_visibility")!;
-    const d = av.description;
-    expect(d).toContain("`places`");
-    expect(d).toMatch(/measured separately from the citywide score, not as a breakdown of it/);
-    // A null count is "not measured", never a zero and never "absent there".
-    expect(d).toMatch(/`named: null` means that area was not measured/);
-    expect(d).toMatch(/not zero and not evidence the business is missing there/);
-    expect(d).toContain("`places_not_shown`");
-    expect(d).toMatch(/already in `summary`/);
-    expect(d).toMatch(/absent `places` means no area results[^.]*not a failure/);
+    for (const [rule, pattern] of PLACES_RULES) expect(av.description, rule).toMatch(pattern);
   });
 
   it("uses the verbatim, trigger-first descriptions from the listing doc", () => {
