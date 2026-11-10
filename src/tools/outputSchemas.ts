@@ -330,7 +330,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
     gap: z.number().nullable(),
     top_rival: z.string().optional(),
     measured_at: z.string().optional(),
-    partial: z.literal(true).optional().describe("Present when this week's free checks ran out part-way: the counts cover only part of the answers."),
+    partial: z.literal(true).optional().describe("Present when the place was only partly measured: the counts cover only part of the answers."),
     sentence: z.string().describe("The plain sentence for this place, also in summary."),
   })).optional().describe(
     "Results asked from each place, beside the citywide score. Present only when the report holds them."),

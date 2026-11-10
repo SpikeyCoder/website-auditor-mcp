@@ -101,6 +101,8 @@ export interface AiVisibilityBlock {
    */
   recommendation_gap?: unknown;
   stance_counts?: unknown;
+  /** Per-place results (local_places.free_report_payload / dashboard_payload): read with readPlaces, never passed on as is. */
+  places?: unknown;
   /**
    * How the business was identified (chaos_tester #334). Optional because a
    * report produced before that deploy — or replayed from cache — has no such
@@ -331,7 +333,7 @@ export interface AiVisibilityPlace {
   gap: number | null;
   top_rival?: string;
   measured_at?: string;
-  /** True when this week's free checks ran out part-way: the counts are of a part of the answers. */
+  /** True when the place was only partly measured (the engine sets it when the week's checks ran out part-way): the counts are of a part of the answers. */
   partial?: true;
   /** The plain sentence for this place, rebuilt from the checked fields and also folded into the reply's summary. */
   sentence: string;

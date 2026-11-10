@@ -58,7 +58,7 @@ describe("get_ai_visibility places", () => {
   it("is absent when the report has no places (a report from before, or the flag off)", () => {
     const out = toAiVisibility(reachableReport());
     expect(out).not.toHaveProperty("places");
-    expect(out.summary).not.toContain("Asked from each area");
+    expect(out.summary).not.toContain("By area:");
   });
 
   it("drops malformed places rather than inventing one, and a bad block reads as absent", () => {
@@ -130,7 +130,7 @@ describe("get_ai_visibility places", () => {
     const simulated = { ...report, ai_visibility: { ...report.ai_visibility, is_simulated: true } as never };
     const out = toAiVisibility(simulated);
     expect(out).not.toHaveProperty("places");
-    expect(out.summary).not.toContain("Asked from each area");
+    expect(out.summary).not.toContain("By area:");
 
     const none = withPlaces(BLOCK);
     for (const key of ["ChatGPT", "Perplexity", "Claude", "Gemini"]) {
@@ -140,7 +140,7 @@ describe("get_ai_visibility places", () => {
     const empty = toAiVisibility(none);
     expect(empty.summary).toContain("no AI-visibility score");
     expect(empty).not.toHaveProperty("places");
-    expect(empty.summary).not.toContain("Asked from each area");
+    expect(empty.summary).not.toContain("By area:");
   });
 
   it("reaches the tool result for a subscriber", async () => {
@@ -396,12 +396,32 @@ describe("get_ai_visibility places: review round 3", () => {
     expect(out).not.toHaveProperty("places");
   });
 
-  it("does not say the areas were asked when none of them was measured", () => {
+  it("an all-unmeasured block reads as not measured, never as asked", () => {
     const out = toAiVisibility(withPlaces(engineBlock(engineFigure({
       state: "not_measured", named: null, sample: 0, gap: null, top_rival: null }))));
     expect(out.places).toHaveLength(1);
     expect(out.summary).toContain("Capitol Hill: not measured yet.");
-    expect(out.summary).not.toContain("Asked from each area");
-    expect(toAiVisibility(withPlaces(engineBlock(engineFigure()))).summary).toContain("Asked from each area:");
+    expect(out.summary).toContain("By area: Capitol Hill: not measured yet.");
+    expect(toAiVisibility(withPlaces(engineBlock(engineFigure()))).summary).toContain("By area:");
   });
 });
+
+describe("get_ai_visibility places: review round 5", () => {
+  it("a mixed block is not introduced as 'asked from each area'", () => {
+    const out = toAiVisibility(withPlaces(BLOCK_KEYED()));
+    expect(out.summary).not.toContain("Asked from each area");
+    expect(out.summary).toContain("By area: ");
+  });
+
+  it("the partial wording names no cause the engine did not send", () => {
+    const out = toAiVisibility(withPlaces(engineBlock(engineFigure({ partial: true }))));
+    expect(out.places![0].sentence).toContain("Only partly measured.");
+    expect(out.places![0].sentence).not.toContain("free checks");
+  });
+});
+function BLOCK_KEYED() {
+  return engineBlock(
+    engineFigure({ place_key: "pl_00000000000a", label: "Highland" }),
+    engineFigure({ place_key: "pl_00000000000b", label: "Baker", state: "not_measured", named: null, sample: 0, gap: null, top_rival: null }),
+  );
+}

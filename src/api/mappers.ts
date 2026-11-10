@@ -796,10 +796,9 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   // beside a "no score" sentence would contradict it.
   const local = scoredNames.length > 0 && !av.is_simulated ? localPlaces(av) : {};
   const placesFound = local.places;
-  // "Asked from each area" only when one was: all-unmeasured sentences say so themselves.
-  const placesLead = placesFound?.some((p) => p.named !== null) ? "Asked from each area:" : "By area:";
+  // A neutral lead: a mix of measured and unmeasured places must not read as all asked.
   const placesSuffix = placesFound
-    ? ` ${placesLead} ${placesFound.map((p) => p.sentence).join(" ")}`
+    ? ` By area: ${placesFound.map((p) => p.sentence).join(" ")}`
     : "";
 
   // trend is filled in by the tool layer (Pro history lookup); the mapper
@@ -853,18 +852,19 @@ function isoInstant(v: unknown): string | null {
   return ok ? v : null;
 }
 
-/** The one sentence for a place, rebuilt from the checked fields (see gapSentence). */
-function placeSentence(
-  label: string, state: AiVisibilityPlace["state"], named: number | null, sample: number,
+/** The one sentence for an unmeasured place, rebuilt from the checked fields (see gapSentence). */
+function unmeasuredSentence(label: string, state: "not_measured" | "not_measured_this_week"): string {
+  return state === "not_measured" ? `${label}: not measured yet.` : `${label}: not measured this week.`;
+}
+
+/** The one sentence for a measured place. The rival's own count is named - gap, checked by the caller. */
+function measuredSentence(
+  label: string, state: "ahead" | "behind" | "level" | "no_rival", named: number, sample: number,
   rival: string | undefined, gap: number | null, partial: boolean,
 ): string {
-  if (state === "not_measured") return `${label}: not measured yet.`;
-  if (state === "not_measured_this_week") return `${label}: not measured this week.`;
   const base = `${label}: named in ${named} of ${sample} ${plural(sample, "answer", "answers")}`;
-  const tail = partial ? " Only partly measured: this week's free checks ran out." : "";
-  if (state === "no_rival" || rival === undefined || gap === null || named === null) {
-    return `${base}, and no rival was named.${tail}`;
-  }
+  const tail = partial ? " Only partly measured." : "";
+  if (state === "no_rival" || rival === undefined || gap === null) return `${base}, and no rival was named.${tail}`;
   const theirs = named - gap;
   if (state === "level") return `${base}; level with ${rival} (${theirs} of ${sample}).${tail}`;
   return `${base}; ${state === "ahead" ? "ahead of" : "behind"} ${rival} (${theirs} of ${sample}).${tail}`;
@@ -891,7 +891,7 @@ function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
 }
 
 function readPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[] } {
-  const raw = (av as { places?: { places?: unknown } }).places;
+  const raw = av.places as { places?: unknown } | null | undefined;
   const list = raw && typeof raw === "object" ? (raw as { places?: unknown }).places : undefined;
   if (!Array.isArray(list)) return {};
   const places: AiVisibilityPlace[] = [];
@@ -922,7 +922,7 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
   if (UNMEASURED_PLACE_STATES.has(state)) {
     seen.add(key);
     return { place_key: key, label, state, named: null, sample: 0, gap: null,
-      sentence: placeSentence(label, state, null, 0, undefined, null, false) };
+      sentence: unmeasuredSentence(label, state as "not_measured" | "not_measured_this_week") };
   }
   const named = count(p.named);
   const sample = count(p.sample);
@@ -960,7 +960,7 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
     ...(rival !== undefined ? { top_rival: rival } : {}),
     ...(measured !== null ? { measured_at: measured } : {}),
     ...(partial ? { partial: true } : {}),
-    sentence: placeSentence(label, state, named, sample, rival, gap, partial),
+    sentence: measuredSentence(label, state as "ahead" | "behind" | "level" | "no_rival", named, sample, rival, gap, partial),
   };
 }
 
