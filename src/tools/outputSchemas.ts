@@ -327,9 +327,9 @@ export const getAiVisibilityOutput: ZodRawShape = {
     state: z.enum(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]).describe(
       "not_measured and not_measured_this_week mean the area has no count (not yet checked, or not this week): never a zero, and not evidence the business is absent there."),
     named: z.number().nullable().describe("Answers that named the business there; null when the area was not measured (not zero, and not evidence the business is absent there)."),
-    sample: z.number().describe("Answers asked from this place; 0 when the area was not measured (no answers asked yet), which says nothing about whether the business is named there."),
-    gap: z.number().nullable(),
-    top_rival: z.string().optional(),
+    sample: z.number().describe("Answers asked from this place (0 when `state` says the area was not measured; `state` and `named`, not this count, say whether it was measured)."),
+    gap: z.number().nullable().describe("Answers naming the business minus answers naming the top rival; null when the area was not measured or no rival was named."),
+    top_rival: z.string().optional().describe("The rival named most often there; absent when none was named or the area was not measured."),
     measured_at: z.string().optional(),
     partial: z.literal(true).optional().describe("Present when the place was only partly measured: the counts cover only part of the answers."),
     sentence: z.string().describe("The plain sentence for this place, also in summary."),

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SERVED_TOOLS, labelFor } from "../src/tools/registry.js";
@@ -345,6 +346,14 @@ describe("published manifests stay in sync with the code", () => {
     const shape = getAiVisibilityOutput as Record<string, { description?: string }>;
     expect(shape.places.description).toMatch(/separately from the citywide score \(not a breakdown of it\)/);
     expect(shape.places.description).toMatch(/absent means no area results, not a failure/);
+    // The per-field rules live on the item's fields: read them off the schema's JSON form.
+    const item = (z.object(getAiVisibilityOutput).shape.places as z.ZodOptional<z.ZodArray<z.ZodObject<z.ZodRawShape>>>)
+      .unwrap().element.shape;
+    const json = Object.values(item).map((f) => f.description ?? "").join("\n");
+    expect(json).toMatch(/never a zero, and not evidence the business is absent there/);
+    expect(json).toMatch(/null when the area was not measured \(not zero, and not evidence the business is absent there\)/);
+    expect(json).toMatch(/0 when `state` says the area was not measured/);
+    expect(json).toMatch(/null when the area was not measured or no rival was named/);
   });
 
   it("the primary sources surface explains the semantics, not just the key", () => {

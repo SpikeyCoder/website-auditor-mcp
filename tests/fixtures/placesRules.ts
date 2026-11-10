@@ -1,10 +1,10 @@
 /** What a reader must be told about `places`, matched with or without backticks so each surface is held to the same rules. */
 export const PLACES_RULES: Array<[string, RegExp]> = [
-  ["names the field", /(^|[\s`])places`?:/],
+  ["names the field", /The result can also carry `?places`?: up to 10 per-area results/],
   ["separate from the citywide score", /measured separately from the citywide score, not as a breakdown of it/],
   ["null is not measured, not zero, not absent there", /named: null[^.]*was not measured[^.]*not zero and not evidence the business is missing there/],
   ["partial", /partial: true`? means only part of the answers were measured/],
-  ["places_not_shown", /`?places_not_shown`? means more areas exist than are listed/],
+  ["places_not_shown", /`?places_not_shown`? counts reported areas left out of the list/],
   ["summary already has the sentences", /already in `?summary`?/],
   ["absent is not a failure", /absent `?places`? means no area results are shown for this run, not a failure/],
 ];
@@ -13,7 +13,7 @@ export const PLACES_RULES: Array<[string, RegExp]> = [
 export const PLACES_README_RULES: Array<[string, RegExp]> = [
   ["both not-measured states", /`not_measured` or `not_measured_this_week` with `named: null`/],
   ["separate from the citywide score", /separately from the citywide score/],
-  ["places_not_shown", /`places_not_shown`/],
+  ["places_not_shown", /`places_not_shown` counts the reported areas left out of the list/],
   ["partial", /`partial: true`/],
   ["absent is not a failure", /`places` is absent[^.]*not a failure/],
 ];
