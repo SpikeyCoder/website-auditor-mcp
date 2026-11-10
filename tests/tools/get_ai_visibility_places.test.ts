@@ -374,6 +374,14 @@ describe("get_ai_visibility places: review round 2", () => {
     expect(at("2026-11-09T10:00:59.123+05:30").measured_at).toBe("2026-11-09T10:00:59.123+05:30");
   });
 
+  it("a level place cannot be one where a rival is visibly ahead (more than 2 answers)", () => {
+    const out = toAiVisibility(withPlaces(engineBlock(
+      engineFigure({ place_key: "pl_00000000000a", label: "Joe", state: "level", named: 4, sample: 12, gap: -3, top_rival: "Joe's" }),
+      engineFigure({ place_key: "pl_00000000000b", label: "Two", state: "level", named: 4, sample: 12, gap: -2, top_rival: "Joe's" }),
+    )));
+    expect(out.places?.map((p) => p.label)).toEqual(["Two"]);
+  });
+
   it("a level place cannot carry a large lead or deficit", () => {
     const out = toAiVisibility(withPlaces(engineBlock(
       engineFigure({ place_key: "pl_00000000000a", label: "Far", state: "level", named: 9, sample: 10, gap: 8, top_rival: "X" }),

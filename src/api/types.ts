@@ -315,8 +315,7 @@ export interface DashboardLink {
  * One neighborhood / location / service area the business was asked about FROM
  * (per-place results from the engine). `named` of `sample` answers named it there; a place
  * with no answers is `not_measured` (or `not_measured_this_week`) with `named: null` and
- * `sample: 0` — never 0 named. No letter
- * grade: the sample and a plain sentence only.
+ * `sample: 0` — never 0 named. No letter grade: the sample and a plain sentence only.
  */
 export interface AiVisibilityPlace {
   place_key: string;

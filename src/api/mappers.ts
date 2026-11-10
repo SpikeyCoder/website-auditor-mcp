@@ -942,8 +942,8 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
     // A top rival was named at least once.
     if (theirs < 1 || theirs > sample) return null;
     if ((state === "ahead" && gap <= 0) || (state === "behind" && gap >= 0)) return null;
-    // "Level" is a tie or a small difference (the engine's margin is 1 answer): a lead of more than a quarter of the sample (2 at least) is not one.
-    if (state === "level" && Math.abs(gap) > Math.max(2, Math.floor(sample / 4))) return null;
+    // "Level" is a tie or a small difference (the engine's margin is 1 answer): a lead of more than 2 answers is not one.
+    if (state === "level" && Math.abs(gap) > 2) return null;
   } else if (state === "ahead") {
     // Ahead with nobody else named: the gap is the business's own count.
     if (named === 0 || (gap !== null && gap !== named)) return null;
