@@ -842,9 +842,13 @@ function isoInstant(v: unknown): string | null {
   const when = new Date(`${v.slice(0, 10)}T00:00:00Z`);
   // Date.parse rolls 2026-02-31 over to March: the day has to survive a round trip.
   if (Number.isNaN(when.getTime()) || when.toISOString().slice(0, 10) !== v.slice(0, 10)) return null;
-  const hour = v.length > 10 ? Number(v.slice(11, 13)) : 0;
-  const minute = v.length > 10 ? Number(v.slice(14, 16)) : 0;
-  return hour <= 23 && minute <= 59 ? v : null;
+  if (v.length === 10) return v;
+  const time = /(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-](\d{2}):?(\d{2}))?$/.exec(v.slice(11));
+  if (!time) return null;
+  const [, h, m, sec, oh, om] = time;
+  const ok = Number(h) <= 23 && Number(m) <= 59 && (sec === undefined || Number(sec) <= 59)
+    && (oh === undefined || (Number(oh) <= 14 && Number(om) <= 59));
+  return ok ? v : null;
 }
 
 /** The one sentence for a place, rebuilt from the checked fields (see gapSentence). */
@@ -907,8 +911,8 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
   const key = p.place_key;
   // The engine's key is "pl_" and 12 hex digits: an identifier, never free text.
   if (typeof key !== "string" || !PLACE_KEY.test(key) || seen.has(key)) return null;
-  // Trailing punctuation goes: the label is followed by a colon in the sentence.
-  const label = cleanName(p.label, MAX_PLACE_LABEL_CHARS)?.replace(/[\s.:;,!?]+$/, "") || null;
+  // A trailing colon, comma or semicolon goes: the label is followed by a colon in the sentence.
+  const label = cleanName(p.label, MAX_PLACE_LABEL_CHARS)?.replace(/[\s:;,]+$/, "") || null;
   if (label === null) return null;
   if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) return null;
   const state = p.state as AiVisibilityPlace["state"];
@@ -934,6 +938,8 @@ function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
     const theirs = named - gap;
     if (theirs < 0 || theirs > sample) return null;
     if ((state === "ahead" && gap <= 0) || (state === "behind" && gap >= 0)) return null;
+    // "Level" is a tie or a small difference (the engine's margin is 1 answer): a lead of a quarter of the sample is not one.
+    if (state === "level" && Math.abs(gap) * 4 > sample) return null;
   } else if (state === "ahead") {
     // Ahead with nobody else named: the gap is the business's own count.
     if (named === 0 || (gap !== null && gap !== named)) return null;

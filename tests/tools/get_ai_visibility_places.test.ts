@@ -358,11 +358,27 @@ describe("get_ai_visibility places: review round 2", () => {
     expect(at("2026-02-28").measured_at).toBe("2026-02-28");
   });
 
-  it("a label's trailing punctuation does not run into the colon of its sentence", () => {
-    const out = toAiVisibility(withPlaces(engineBlock(engineFigure({ label: "Capitol Hill. :" }))));
+  it("a label's trailing colon does not double up in its sentence, but a real period stays", () => {
+    const out = toAiVisibility(withPlaces(engineBlock(engineFigure({ label: "Capitol Hill ::" }))));
     expect(out.places![0].label).toBe("Capitol Hill");
     expect(out.places![0].sentence.startsWith("Capitol Hill: named")).toBe(true);
-    const only = toAiVisibility(withPlaces(engineBlock(engineFigure({ label: " ..:" }))));
-    expect(only).not.toHaveProperty("places");
+    expect(toAiVisibility(withPlaces(engineBlock(engineFigure({ label: "Washington D.C." })))).places![0].label).toBe("Washington D.C.");
+    expect(toAiVisibility(withPlaces(engineBlock(engineFigure({ label: " ;:" })))) ).not.toHaveProperty("places");
+  });
+
+  it("measured_at seconds and UTC offset are range-checked too", () => {
+    const at = (v: string) => toAiVisibility(withPlaces(engineBlock(engineFigure({ measured_at: v })))).places![0];
+    for (const bad of ["2026-11-09T10:00:99Z", "2026-11-09T10:00:60Z", "2026-11-09T10:00:00+25:61", "2026-11-09T10:00:00+99:99"]) {
+      expect(at(bad)).not.toHaveProperty("measured_at");
+    }
+    expect(at("2026-11-09T10:00:59.123+05:30").measured_at).toBe("2026-11-09T10:00:59.123+05:30");
+  });
+
+  it("a level place cannot carry a large lead or deficit", () => {
+    const out = toAiVisibility(withPlaces(engineBlock(
+      engineFigure({ place_key: "pl_00000000000a", label: "Far", state: "level", named: 9, sample: 10, gap: 8, top_rival: "X" }),
+      engineFigure({ place_key: "pl_00000000000b", label: "Near", state: "level", named: 5, sample: 12, gap: 1, top_rival: "X" }),
+    )));
+    expect(out.places?.map((p) => p.label)).toEqual(["Near"]);
   });
 });
