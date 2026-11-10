@@ -9,6 +9,7 @@ import type {
   AiVisibilityBlock,
   AiVisibility,
   AiVisibilitySource,
+  AiVisibilityPlace,
   AiVisibilitySnapshot,
   AiVisibilityTrend,
   SnapshotQuestion,
@@ -789,6 +790,19 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
   const asked = questionsAsked(av);
   const gapSuffix = gap && gap.sentence ? ` ${gap.sentence}` : "";
 
+  // Where it is recommended, area by area, in the sentence the model reads.
+  // After the citywide sentences, which it never replaces.
+  // Not for an estimated run or one that scored nothing: per-area counts
+  // beside a "no score" sentence would contradict it.
+  const local = scoredNames.length > 0 && !av.is_simulated ? localPlaces(av) : {};
+  const placesFound = local.places;
+  // A neutral lead: a mix of measured and unmeasured places must not read as all asked.
+  const notShown = local.places_not_shown;
+  const placesSuffix = placesFound
+    ? ` By area: ${placesFound.map((p) => p.sentence).join(" ")}` +
+      (notShown ? ` ${notShown >= MAX_NOT_SHOWN ? `${MAX_NOT_SHOWN} or` : notShown} more ${plural(notShown, "area was", "areas were")} not shown.` : "")
+    : "";
+
   // trend is filled in by the tool layer (Pro history lookup); the mapper
   // itself only ever sees a single report.
   return {
@@ -797,7 +811,7 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     engine_status,
     appears_by_engine,
     top_competitor: competitor,
-    summary: `${summary}${gapSuffix}`,
+    summary: `${summary}${gapSuffix}${placesSuffix}`,
     ...gapAndCounts(reconciled),
     ...(asked.length > 0 && !av.is_simulated && scoredNames.length > 0 ? { questions_asked: asked } : {}),
     ...(coverage_note ? { coverage_note } : {}),
@@ -806,6 +820,156 @@ export function toAiVisibility(report: AuditReport): AiVisibility {
     ...(provenance.verified !== undefined ? { name_verified: provenance.verified } : {}),
     ...(provenance.source ? { name_source: provenance.source } : {}),
     ...citedSources(av),
+    ...local,
+  };
+}
+
+const PLACE_STATES = new Set(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]);
+/** States that carry no count at all (never a 0). */
+const UNMEASURED_PLACE_STATES = new Set(["not_measured", "not_measured_this_week"]);
+type MeasuredPlaceState = "ahead" | "behind" | "level" | "no_rival";
+function isUnmeasured(state: AiVisibilityPlace["state"]): state is "not_measured" | "not_measured_this_week" {
+  return UNMEASURED_PLACE_STATES.has(state);
+}
+/** The engine pins at most 5 places and reads 25 at once; 10 is room to spare. */
+const MAX_PLACES = 10;
+// make_place_key: "pl_" and 12 hex digits.
+const PLACE_KEY = /^pl_[0-9a-f]{12}$/;
+/** Raw entries looked at, so a huge array is never walked to its end. */
+const MAX_PLACES_SCANNED = 50;
+const MAX_PLACE_LABEL_CHARS = 120;
+/** places_not_shown stops counting here: "99 or more". */
+const MAX_NOT_SHOWN = 99;
+const MAX_PLACE_RIVAL_CHARS = 80;
+/** More than any one place is ever asked (engines x questions); a larger count is not from the engine. */
+const MAX_PLACE_SAMPLE = 10_000;
+
+/** A date or timestamp as the engine writes it (2026-11-09 or 2026-11-09T10:00:00+00:00), else null. */
+function isoInstant(v: unknown): string | null {
+  if (typeof v !== "string" || v.length > 40) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2}):?(\d{2}))?)?$/.exec(v);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, sec, oh, om] = m;
+  // Date.parse rolls 2026-02-31 over to March: the day has to survive a round trip.
+  const day = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (day.getUTCFullYear() !== Number(y) || day.getUTCMonth() !== Number(mo) - 1 || day.getUTCDate() !== Number(d)) return null;
+  const within = (x: string | undefined, max: number) => x === undefined || Number(x) <= max;
+  return within(h, 23) && within(mi, 59) && within(sec, 59) && within(oh, 14) && within(om, 59) ? v : null;
+}
+
+/** The one sentence for an unmeasured place, rebuilt from the checked fields (see gapSentence). */
+function unmeasuredSentence(label: string, state: "not_measured" | "not_measured_this_week"): string {
+  return state === "not_measured" ? `${label}: not measured yet.` : `${label}: not measured this week.`;
+}
+
+/** The one sentence for a measured place. The rival's own count is named - gap, checked by the caller. */
+function measuredSentence(
+  label: string, state: MeasuredPlaceState, named: number, sample: number,
+  rival: string | undefined, gap: number | null, partial: boolean,
+): string {
+  const base = `${label}: named in ${named} of ${sample} ${plural(sample, "answer", "answers")}`;
+  const tail = partial ? " Only partly measured." : "";
+  if (state === "no_rival" || rival === undefined || gap === null) return `${base}, and no rival was named.${tail}`;
+  const theirs = named - gap;
+  if (state === "level") return `${base}; ${gap === 0 ? "level with" : "about level with"} ${rival} (${theirs} of ${sample}).${tail}`;
+  return `${base}; ${state === "ahead" ? "ahead of" : "behind"} ${rival} (${theirs} of ${sample}).${tail}`;
+}
+
+/**
+ * The per-place results (ai_visibility.places.places), validated one by one.
+ * Nothing the engine wrote as prose is relayed: the label and the rival's name
+ * (read out of third-party answers) are cleaned and capped, the counts are
+ * checked, and the sentence is rebuilt from them, so the words and the numbers
+ * agree and no engine text can add an instruction. A place is kept only when it
+ * has a key not already seen, a label, a known state, and either is unmeasured
+ * (no counts, never a 0) or carries a real sample (named <= sample,
+ * 0 < sample) whose rival and gap agree with its state. Anything else is
+ * dropped, never repaired; a block with nothing left reads as absent; and a
+ * block that cannot be read at all (a getter that throws) reads as absent too.
+ */
+function localPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[]; places_not_shown?: number } {
+  try {
+    return readPlaces(av);
+  } catch {
+    return {};
+  }
+}
+
+function readPlaces(av: AiVisibilityBlock): { places?: AiVisibilityPlace[]; places_not_shown?: number } {
+  const raw = av.places as { places?: unknown } | null | undefined;
+  const list = raw && typeof raw === "object" ? (raw as { places?: unknown }).places : undefined;
+  if (!Array.isArray(list)) return {};
+  const places: AiVisibilityPlace[] = [];
+  const seen = new Set<string>();
+  const scan = Math.min(list.length, MAX_PLACES_SCANNED);
+  for (let i = 0; i < scan && places.length < MAX_PLACES; i++) {
+    try {
+      const place = readPlace(list[i], seen);
+      if (place) places.push(place);
+    } catch {
+      // One unreadable place costs only itself.
+    }
+  }
+  if (places.length === 0) return {};
+  // Left out (dropped as unreadable, or past the cap), so a subset is never read as every area. Capped: a hostile length is no number to relay.
+  const notShown = Math.min(list.length - places.length, MAX_NOT_SHOWN);
+  return notShown > 0 ? { places, places_not_shown: notShown } : { places };
+}
+
+function readPlace(item: unknown, seen: Set<string>): AiVisibilityPlace | null {
+  if (!item || typeof item !== "object") return null;
+  const p = item as Record<string, unknown>;
+  const key = p.place_key;
+  // The engine's key is "pl_" and 12 hex digits: an identifier, never free text.
+  if (typeof key !== "string" || !PLACE_KEY.test(key) || seen.has(key)) return null;
+  // A trailing colon, comma or semicolon goes: the label is followed by a colon in the sentence.
+  const label = cleanName(p.label, MAX_PLACE_LABEL_CHARS)?.replace(/[\s:;,]+$/, "") || null;
+  // A name needs a letter or a digit: "..." or a dash names no area.
+  if (label === null || !/[\p{L}\p{N}]/u.test(label)) return null;
+  if (typeof p.state !== "string" || !PLACE_STATES.has(p.state)) return null;
+  const state = p.state as AiVisibilityPlace["state"];
+  if (isUnmeasured(state)) {
+    seen.add(key);
+    return { place_key: key, label, state, named: null, sample: 0, gap: null,
+      sentence: unmeasuredSentence(label, state) };
+  }
+  const named = count(p.named);
+  const sample = count(p.sample);
+  if (named === null || sample === null || sample <= 0 || sample > MAX_PLACE_SAMPLE || named > sample) return null;
+  const partial = p.partial === true;
+  // A gap that is sent but is not a whole number is a corrupt figure, not an absent one.
+  const gap = p.gap === null || p.gap === undefined ? null : wholeNumber(p.gap);
+  if (gap === null && p.gap !== null && p.gap !== undefined) return null;
+  const rawRival = state === "no_rival" || p.top_rival === null || p.top_rival === undefined ? null : p.top_rival;
+  const rival = rawRival === null ? undefined : cleanName(rawRival, MAX_PLACE_RIVAL_CHARS);
+  // A rival that was sent but cannot be read is not "no rival": the place is dropped.
+  if (rival === null) return null;
+  if (rival !== undefined) {
+    // The rival's own count is named - gap: it has to be a count that can be.
+    if (gap === null) return null;
+    const theirs = named - gap;
+    // A top rival was named at least once.
+    if (theirs < 1 || theirs > sample) return null;
+    if ((state === "ahead" && gap <= 0) || (state === "behind" && gap >= 0)) return null;
+    // "Level" is a tie or a small difference (the engine's margin is 1 answer): a lead of more than 2 answers is not one.
+    if (state === "level" && Math.abs(gap) > 2) return null;
+  } else if (state === "ahead") {
+    // Ahead with nobody else named: the gap is the business's own count.
+    if (named === 0 || (gap !== null && gap !== named)) return null;
+  } else if (state === "no_rival") {
+    // Nobody else was named; the business itself may or may not have been.
+    if (gap !== null && gap !== named) return null;
+  } else {
+    return null;   // behind / level need a rival to be behind or level with
+  }
+  seen.add(key);
+  const measured = isoInstant(p.measured_at);
+  return {
+    place_key: key, label, state, named, sample, gap,
+    ...(rival !== undefined ? { top_rival: rival } : {}),
+    ...(measured !== null ? { measured_at: measured } : {}),
+    ...(partial ? { partial: true } : {}),
+    sentence: measuredSentence(label, state, named, sample, rival, gap, partial),
   };
 }
 

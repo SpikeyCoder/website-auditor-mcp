@@ -101,6 +101,8 @@ export interface AiVisibilityBlock {
    */
   recommendation_gap?: unknown;
   stance_counts?: unknown;
+  /** Per-place results (local_places.free_report_payload / dashboard_payload): read by localPlaces (mappers.ts), never passed on as is. */
+  places?: unknown;
   /**
    * How the business was identified (chaos_tester #334). Optional because a
    * report produced before that deploy — or replayed from cache — has no such
@@ -309,6 +311,33 @@ export interface DashboardLink {
   note: string;
 }
 
+/**
+ * One neighborhood / location / service area the business was asked about FROM
+ * (per-place results from the engine). `named` of `sample` answers named it there; a place
+ * with no answers is `not_measured` (or `not_measured_this_week`) with `named: null` and
+ * `sample: 0` — never 0 named. No letter grade: the sample and a plain sentence only.
+ */
+export interface AiVisibilityPlace {
+  place_key: string;
+  label: string;
+  /**
+   * ahead / behind / level (a tie or a small difference) / no_rival (no business
+   * other than this one was named there) / not_measured, or not_measured_this_week (a free
+   * report whose weekly checks ran out).
+   */
+  state: "ahead" | "behind" | "level" | "no_rival" | "not_measured" | "not_measured_this_week";
+  named: number | null;
+  sample: number;
+  /** Answers naming the business minus answers naming the top rival there. */
+  gap: number | null;
+  top_rival?: string;
+  measured_at?: string;
+  /** True when the place was only partly measured (the engine sets it when the week's checks ran out part-way): the counts are of a part of the answers. */
+  partial?: true;
+  /** The plain sentence for this place, rebuilt from the checked fields and also folded into the reply's summary. */
+  sentence: string;
+}
+
 export interface AiVisibility {
   /** Pro only, and only on a get_ai_visibility reply: the member's dashboard. */
   dashboard?: DashboardLink;
@@ -372,6 +401,15 @@ export interface AiVisibility {
    * whose rows are all malformed reads as absent, never as an empty list.
    */
   sources?: AiVisibilitySource[] | null;
+  /**
+   * Results asked from each place, beside (never instead of) the citywide score.
+   * Absent when the report holds none (older reports, or the engine's local
+   * places off): "never measured", not "no places". Each place is also one
+   * sentence in `summary`.
+   */
+  places?: AiVisibilityPlace[];
+  /** How many entries of the engine's block were left out (unreadable or inconsistent, or past the caps), at most 99. Absent when none. */
+  places_not_shown?: number;
 }
 
 export interface AuditIssue {

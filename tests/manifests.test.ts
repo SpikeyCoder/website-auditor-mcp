@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SERVED_TOOLS, labelFor } from "../src/tools/registry.js";
+import { PLACES_RULES, PLACES_README_RULES } from "./fixtures/placesRules.js";
+import { getAiVisibilityOutput } from "../src/tools/outputSchemas.js";
 import { PROMPT_SPECS } from "../src/mcp/prompts.js";
 import { annotationsFor, SERVER_VERSION } from "../src/mcp/server.js";
 import { FALLBACK_PRICE } from "../src/tools/upgrade.js";
@@ -316,6 +319,47 @@ describe("published manifests stay in sync with the code", () => {
       expect(listed, `${spec.name} is served but not listed`).toBeTruthy();
       expect(listed.description, `${spec.name} manifest description`).toContain("sources");
     }
+  });
+
+  // ── The per-area `places` semantics reach BOTH description surfaces ──
+  //
+  // Same linkage as name_warning and sources above: the directory listing must
+  // not leave out the one rule a reader can get wrong (a null count is not
+  // measured, never zero).
+  it("every tool whose runtime description covers `places` carries the same rules in the manifest", () => {
+    const withPlaces = SERVED_TOOLS.filter(
+      (t: { name: string; description: string }) => t.name === "get_ai_visibility" || /`places`|places_not_shown/.test(t.description),
+    );
+    // Drift the other way: a manifest entry that mentions places must be a tool whose runtime description does too.
+    const served = new Set(withPlaces.map((t: { name: string }) => t.name));
+    for (const listed of manifest.tools as Array<{ name: string; description: string }>) {
+      if (/places_not_shown|`places`|\bplaces:/.test(listed.description)) {
+        expect(served.has(listed.name), `${listed.name}: manifest mentions places, runtime description does not`).toBe(true);
+      }
+    }
+    for (const spec of withPlaces) {
+      const listed = manifest.tools.find((t: { name: string }) => t.name === spec.name);
+      expect(listed, `${spec.name} is served but not listed`).toBeTruthy();
+      for (const [rule, pattern] of PLACES_RULES) {
+        expect(listed.description, `${spec.name} manifest: ${rule}`).toMatch(pattern);
+      }
+    }
+  });
+
+  it("the README row and the output schema carry the places rules too", () => {
+    const row = readFileSync(join(root, "README.md"), "utf8").split("\n").find((l) => l.startsWith("| `get_ai_visibility`"))!;
+    for (const [rule, pattern] of PLACES_README_RULES) expect(row, `README: ${rule}`).toMatch(pattern);
+    const shape = getAiVisibilityOutput as Record<string, { description?: string }>;
+    expect(shape.places.description).toMatch(/separately from the citywide score \(not a breakdown of it\)/);
+    expect(shape.places.description).toMatch(/absent means no area results, not a failure/);
+    // The per-field rules live on the item's fields: read them off the schema's JSON form.
+    const item = (z.object(getAiVisibilityOutput).shape.places as z.ZodOptional<z.ZodArray<z.ZodObject<z.ZodRawShape>>>)
+      .unwrap().element.shape;
+    const json = Object.values(item).map((f) => f.description ?? "").join("\n");
+    expect(json).toMatch(/never a zero, and not evidence the business is absent there/);
+    expect(json).toMatch(/null when the area was not measured \(not zero, and not evidence the business is absent there\)/);
+    expect(json).toMatch(/0 when `state` says the area was not measured/);
+    expect(json).toMatch(/null when the area was not measured or no figure was sent/);
   });
 
   it("the primary sources surface explains the semantics, not just the key", () => {

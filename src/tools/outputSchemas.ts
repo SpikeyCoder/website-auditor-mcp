@@ -321,6 +321,22 @@ export const getAiVisibilityOutput: ZodRawShape = {
   // answers cited nothing attributable, and an ABSENT key means no readable
   // citation records exist at all. Absent must never be read as null.
   sources: z.array(aiVisibilitySource).nullable().optional(),
+  places: z.array(z.object({
+    place_key: z.string(),
+    label: z.string(),
+    state: z.enum(["ahead", "behind", "level", "no_rival", "not_measured", "not_measured_this_week"]).describe(
+      "not_measured (not yet checked) and not_measured_this_week (not checked this week) mean the area has no count: never a zero, and not evidence the business is absent there."),
+    named: z.number().nullable().describe("Answers that named the business there; null when the area was not measured (not zero, and not evidence the business is absent there)."),
+    sample: z.number().describe("Answers asked from this place (0 when `state` says the area was not measured; `state` and `named`, not this count, say whether it was measured)."),
+    gap: z.number().nullable().describe("Answers naming the business minus answers naming the top rival (the business's own count when nobody else was named); null when the area was not measured or no figure was sent."),
+    top_rival: z.string().optional().describe("The rival named most often there; absent when none was named or the area was not measured."),
+    measured_at: z.string().optional(),
+    partial: z.literal(true).optional().describe("Present when the place was only partly measured: the counts cover only part of the answers."),
+    sentence: z.string().describe("The plain sentence for this place, also in summary."),
+  })).optional().describe(
+    "Results asked as if from each neighborhood or town, measured separately from the citywide score (not a breakdown of it). Present only when the report holds them; absent means no area results, not a failure."),
+  places_not_shown: z.number().int().optional().describe(
+    "How many of the report's places are not in `places` (unreadable or inconsistent, or past the caps); capped at 99, so 99 means 99 or more; present only when some are left out."),
 };
 
 export const runAuditOutput: ZodRawShape = {

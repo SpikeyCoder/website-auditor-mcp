@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { P0_TOOLS, P1_TOOLS, ALL_TOOL_SPECS, SERVED_TOOLS } from "../../src/tools/registry.js";
+import { PLACES_RULES } from "../fixtures/placesRules.js";
 import { computeChanges } from "../../src/api/mappers.js";
 
 describe("tool registry", () => {
@@ -18,6 +19,11 @@ describe("tool registry", () => {
     expect(gate.get_changes).toBe("pro");
     expect(gate.compare_competitors).toBe("pro");
     expect(gate.check_upgrade_status).toBe("free");
+  });
+
+  it("get_ai_visibility describes `places`: separate from the citywide score, not-measured is not zero", () => {
+    const av = P0_TOOLS.find((t) => t.name === "get_ai_visibility")!;
+    for (const [rule, pattern] of PLACES_RULES) expect(av.description, rule).toMatch(pattern);
   });
 
   it("uses the verbatim, trigger-first descriptions from the listing doc", () => {
