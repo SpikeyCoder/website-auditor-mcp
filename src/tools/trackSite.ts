@@ -10,7 +10,11 @@
  * Product rules surfaced as clean structured errors:
  *   - Pro-gated (PRO_REQUIRED for free/no key)
  *   - at most 3 tracked domains, or 5 for a subscription started before
- *     2026-10-18 (LIMIT_REACHED past the cap — untrack one first)
+ *     2026-10-18; an Agency account includes 10 client sites (LIMIT_REACHED
+ *     past the cap — untrack one first). Agency's extra client sites past 10
+ *     are bought in the Agency command center on the website: the API's
+ *     key-authed route never buys one, so past the cap this tool is refused
+ *     the same way for every plan.
  *   - weekly cadence only in v1 (INVALID_INPUT for anything else)
  */
 import { dashboardLink, dashboardField, withDashboardNote, type DashboardLink } from "./dashboardLink.js";
