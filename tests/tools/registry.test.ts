@@ -94,16 +94,19 @@ describe("tool registry", () => {
     expect(track.description).toContain("not to make get_changes work");
   });
 
-  it("list_tracked_sites states each plan's site limit, Agency's included, and no price", () => {
-    // The limits the API enforces: Pro 3 (5 before 2026-10-18), Agency 10 included. Agency's extra
-    // client sites are bought in the command center on the website; the key-authed route the
-    // tools call never buys one, so the copy sends the reader there instead of promising it here.
-    // No price: the hosted deployment's info style states none anywhere (upsellStyle.test.ts).
+  it("list_tracked_sites states the site limit of each plan it can name, with no price and no pointer elsewhere", () => {
+    // The limits the API enforces: Pro 3 (5 before 2026-10-18); Agency 10 included, plus the extra
+    // client sites it has added. The `limit` the tool returns is the account's own, so the copy
+    // says what the numbers are and stops: no price (the hosted deployment's info style states
+    // none anywhere, upsellStyle.test.ts) and no pointer to where to buy (the neutral copy
+    // carries no instruction about external sources, NEUTRAL_EDITS).
     const list = ALL_TOOL_SPECS.find((t) => t.name === "list_tracked_sites")!;
-    expect(list.description).toContain("3 sites, or 5 for a subscription started before 18 October 2026");
-    expect(list.description).toContain("an Agency account includes 10 client sites");
-    expect(list.description).toContain("added from the Agency command center on the website, not through this tool");
+    const limits = list.description.match(/\(3 sites[^)]*\)/)?.[0] ?? "";
+    for (const figure of ["3 sites", "5 for a subscription started before 18 October 2026", "Agency account includes 10 client sites", "extra client sites"]) {
+      expect(limits, figure).toContain(figure);
+    }
     expect(list.description).not.toMatch(/\$\d/);
+    expect(list.description).not.toMatch(/command center|not through this tool/i);
   });
 
   it("keeps the verbatim compare_competitors copy but appends quota guidance for agents", () => {
