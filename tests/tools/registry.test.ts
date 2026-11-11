@@ -101,12 +101,12 @@ describe("tool registry", () => {
     // none anywhere, upsellStyle.test.ts) and no pointer to where to buy (the neutral copy
     // carries no instruction about external sources, NEUTRAL_EDITS).
     const list = ALL_TOOL_SPECS.find((t) => t.name === "list_tracked_sites")!;
-    const limits = list.description.match(/\(3 sites[^)]*\)/)?.[0] ?? "";
+    const limits = list.description.slice(list.description.indexOf("(3 sites"));
     for (const figure of ["3 sites", "5 for a subscription started before 18 October 2026", "Agency account includes 10 client sites", "extra client sites"]) {
       expect(limits, figure).toContain(figure);
     }
     expect(list.description).not.toMatch(/\$\d/);
-    expect(list.description).not.toMatch(/command center|not through this tool/i);
+    expect(list.description).not.toMatch(/command center|not through this tool|dashboard|contact (sales|us)|buy/i);
   });
 
   it("keeps the verbatim compare_competitors copy but appends quota guidance for agents", () => {
