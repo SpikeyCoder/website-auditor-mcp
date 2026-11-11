@@ -2,7 +2,8 @@
  * list_tracked_sites [Pro]
  *
  * List the domains currently enrolled for scheduled monitoring, with cadence,
- * active state, and slot accounting (used / remaining of the 5-domain cap).
+ * active state, and slot accounting (used / remaining of the account's own limit:
+ * 3 sites, 5 before 2026-10-18, Agency 10 plus its extra sites).
  * Read-only.
  */
 import type { TrackedDomain } from "../api/types.js";

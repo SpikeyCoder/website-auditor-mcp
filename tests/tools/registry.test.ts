@@ -94,6 +94,21 @@ describe("tool registry", () => {
     expect(track.description).toContain("not to make get_changes work");
   });
 
+  it("list_tracked_sites states the site limit of each plan it can name, with no price and no pointer elsewhere", () => {
+    // The limits the API enforces: Pro 3 (5 before 2026-10-18); Agency 10 included, plus the extra
+    // client sites it has added. The `limit` the tool returns is the account's own, so the copy
+    // says what the numbers are and stops: no price (the hosted deployment's info style states
+    // none anywhere, upsellStyle.test.ts) and no pointer to where to buy (the neutral copy
+    // carries no instruction about external sources, NEUTRAL_EDITS).
+    const list = ALL_TOOL_SPECS.find((t) => t.name === "list_tracked_sites")!;
+    const limits = list.description.slice(list.description.indexOf("(3 sites"));
+    for (const figure of ["3 sites", "5 for a subscription started before 18 October 2026", "Agency account includes 10 client sites", "extra client sites"]) {
+      expect(limits, figure).toContain(figure);
+    }
+    expect(list.description).not.toMatch(/\$\d/);
+    expect(list.description).not.toMatch(/command center|not through this tool|dashboard|contact (sales|us)|buy/i);
+  });
+
   it("keeps the verbatim compare_competitors copy but appends quota guidance for agents", () => {
     const compare = P0_TOOLS.find((t) => t.name === "compare_competitors")!;
     // Original listing-doc opening is preserved (agents still match on it)...

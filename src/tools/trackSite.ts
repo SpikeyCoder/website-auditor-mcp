@@ -10,7 +10,11 @@
  * Product rules surfaced as clean structured errors:
  *   - Pro-gated (PRO_REQUIRED for free/no key)
  *   - at most 3 tracked domains, or 5 for a subscription started before
- *     2026-10-18 (LIMIT_REACHED past the cap — untrack one first)
+ *     2026-10-18; an Agency account includes 10 client sites, plus any extra
+ *     ones it has added (LIMIT_REACHED past the cap — untrack one first).
+ *     The API sells an extra client site only to a caller that can reach
+ *     Stripe (the website's own screens); as of its addTrackedDomain the
+ *     key-authed route these tools call does not, so it answers LIMIT_REACHED.
  *   - weekly cadence only in v1 (INVALID_INPUT for anything else)
  */
 import { dashboardLink, dashboardField, withDashboardNote, type DashboardLink } from "./dashboardLink.js";
