@@ -56,6 +56,7 @@
  */
 import { z } from "zod";
 import type { ZodRawShape } from "zod";
+import { PAID_PLANS } from "../api/plans.js";
 
 /** An object that mirrors upstream data: extra keys are expected, not an error. */
 const open = <T extends ZodRawShape>(shape: T) => z.object(shape).passthrough();
@@ -626,7 +627,8 @@ export const getSampleAuditOutput: ZodRawShape = {
 };
 
 export const checkUpgradeStatusOutput: ZodRawShape = {
-  tier: z.string().describe('"none" | "free" | "pro".'),
+  tier: z.string().describe('"none" | "free" | "pro". Every paid plan, Agency and Enterprise included, is "pro" here; `plan` names it.'),
+  plan: z.enum(PAID_PLANS).optional().describe("Which paid plan the live subscription is for; absent when there is none, or the API did not say."),
   status: z.string().describe("Raw subscription status: active, trialing, canceled, none, …"),
   current_period_end: z.string().nullable(),
   cancel_at_period_end: z.boolean(),

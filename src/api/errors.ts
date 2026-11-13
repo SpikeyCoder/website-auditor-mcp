@@ -12,6 +12,7 @@ export type ErrorCode =
   | "PRO_REQUIRED" // a Pro tool was called without an active subscription
   | "SUBSCRIPTION_UNVERIFIED" // couldn't confirm subscription state (outage) — retryable, NOT a downgrade
   | "OVER_QUOTA" // shared daily audit cap hit (429) — every subscriber has it; not a plan boundary
+  | "EXTRA_RUNS_UNAVAILABLE" // an Agency/Enterprise account's extra audit runs on its tracked sites are not available: the month's count is used, or they are paused for the provider budget (429); the message names the day they are back. Not the daily cap, not a plan boundary
   | "LIMIT_REACHED" // tracked-domain cap reached (3 domains; 5 for a subscription started before 2026-10-18; Agency 10 client sites) — untrack one first (409)
   | "UNREACHABLE_DOMAIN" // no page of the audited site loaded
   | "INVALID_INPUT" // bad domain / missing required argument (400)

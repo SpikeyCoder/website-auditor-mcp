@@ -355,7 +355,7 @@ export const CHECK_UPGRADE_STATUS_TOOL: ToolSpec = {
   effect: "stored",
   title: "Check upgrade status",
   description:
-    'Check the caller\'s own Website Auditor subscription standing. Use this when someone asks "am I on Pro," "is my trial still active," "when does my subscription renew/end," "why is this tool locked," or before suggesting an upgrade. Works with any valid API key and consumes no audit quota. Returns the tier (none/free/pro), raw subscription status, period end, whether the subscription is set to cancel, the upgrade URL, and a plain-language summary — including what starting Pro requires (a payment method and accepting the Terms).',
+    'Check the caller\'s own Website Auditor subscription standing. Use this when someone asks "am I on Pro," "which plan am I on," "is my trial still active," "when does my subscription renew/end," "why is this tool locked," or before suggesting an upgrade. Works with any valid API key and consumes no audit quota. Returns the tier (none/free/pro; every paid plan, Agency and Enterprise included, is pro), the plan (pro, agency or enterprise) when there is a live subscription, raw subscription status, period end, whether the subscription is set to cancel, the upgrade URL, and a plain-language summary — including what starting Pro requires (a payment method and accepting the Terms).',
   inputSchema: {},
 };
 

@@ -26,6 +26,7 @@
  *                          tool instead fans out real runAudit calls today)
  */
 import type { WaConfig } from "../config.js";
+import { PAID_PLANS, type PaidPlan } from "./plans.js";
 import type {
   AiVisibilitySnapshot,
   AuditReport,
@@ -106,6 +107,14 @@ export interface SchemaParams {
 
 export interface SubscriptionInfo {
   tier: "free" | "pro";
+  /**
+   * Which paid plan the live subscription is for, when the API says (it has
+   * answered `plan` beside `tier` since the Agency plan; a build without it
+   * leaves this unset). `tier` stays "pro" for every paid plan, as the API
+   * itself answers, so nothing that gates on it can lock an Agency or
+   * Enterprise member out; this only names the plan in what the member reads.
+   */
+  plan?: PaidPlan;
   status: string;
   current_period_end?: string;
   /** True when the subscription is set to end (not renew) at the period end. */
@@ -277,6 +286,7 @@ export class WaApiClient implements WaApiClientLike {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/subscription`);
     const body = (await this.requestJson("GET", url)) as {
       tier?: string;
+      plan?: unknown;
       status?: string;
       current_period_end?: string | null;
       cancel_at_period_end?: boolean;
@@ -286,6 +296,10 @@ export class WaApiClient implements WaApiClientLike {
     const status = typeof body.status === "string" && body.status ? body.status : "none";
     const tier: "free" | "pro" = ACTIVE_SUBSCRIPTION_STATUSES.includes(status) ? "pro" : "free";
     const info: SubscriptionInfo = { tier, status };
+    // Only a live subscription has a plan to name, and only one this build knows.
+    if (tier === "pro" && typeof body.plan === "string" && (PAID_PLANS as readonly string[]).includes(body.plan)) {
+      info.plan = body.plan as PaidPlan;
+    }
     if (body.current_period_end) info.current_period_end = body.current_period_end;
     if (typeof body.cancel_at_period_end === "boolean") {
       info.cancel_at_period_end = body.cancel_at_period_end;
@@ -879,6 +893,8 @@ export class WaApiClient implements WaApiClientLike {
       reason?: unknown;
       /** FREE_AUDIT_LIMIT: a free ChatGPT audit past its per-account limit. */
       code?: unknown;
+      /** EXTRA_AUDIT_RUNS_*: the Agency month's count, with the day it resets. */
+      extra_audit_runs?: unknown;
     };
     const message = b.error || `Website Auditor API returned HTTP ${status}.`;
     const upgradeUrl = this.cfg.upgradeUrl;
@@ -913,6 +929,35 @@ export class WaApiClient implements WaApiClientLike {
             upgradeUrl,
             details: { reason: FREE_AUDIT_LIMIT_REASON, limit: b.reason === "cadence" ? "cadence" : "daily_cap" },
           });
+        }
+        // An Agency or Enterprise account's extra audit runs: a re-run of a site
+        // it TRACKS past the month's count (or the provider budget behind it).
+        // Not the daily audit cap below, and not a plan boundary: the weekly and
+        // daily checks go on, and an audit of a site it does not track is not
+        // counted. Its own code, so nothing reads it as "today's quota is
+        // spent" (compare_competitors would) or as a reason to upgrade. When
+        // is back is the whole remedy: the API's sentence names the day, and
+        // when a build of it does not, the reset it sent is said here (the
+        // OVER_QUOTA branch below says its own, unvalidated).
+        if (b.code === "EXTRA_AUDIT_RUNS_SPENT" || b.code === "EXTRA_AUDIT_RUNS_BUDGET") {
+          const raw = b.extra_audit_runs && typeof b.extra_audit_runs === "object" && !Array.isArray(b.extra_audit_runs)
+            ? (b.extra_audit_runs as Record<string, unknown>)
+            : undefined;
+          // Said only when it is a real date. Date.parse alone rolls 2026-02-30
+          // over to March 2, so the day must also survive a round trip.
+          const sent = typeof raw?.resets_at === "string" ? raw.resets_at : undefined;
+          const resetsAt = sent !== undefined && /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z)?$/.test(sent) &&
+            !Number.isNaN(Date.parse(sent)) && new Date(Date.parse(sent)).toISOString().slice(0, 10) === sent.slice(0, 10)
+            ? sent
+            : undefined;
+          // An impossible reset is not repeated in details either: the model reads both.
+          let details: Record<string, unknown> | undefined = raw;
+          if (raw && resetsAt === undefined && "resets_at" in raw) {
+            const { resets_at: _dropped, ...rest } = raw;
+            details = rest;
+          }
+          const text = resetsAt && !message.includes(resetsAt.slice(0, 10)) ? `${message} It resets at ${resetsAt}.` : message;
+          return new WaApiError("EXTRA_RUNS_UNAVAILABLE", text, { status, details });
         }
         // Same reasoning as the 409 above, one status code along. This is the
         // server's shared daily audit cap (rateLimitPerDay), not a plan

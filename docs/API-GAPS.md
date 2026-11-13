@@ -33,12 +33,17 @@ Shipped in website-auditor-api **PR #7**: `GET /api/subscription` (X-API-Key
 authed via `apiKeyAuth`, mounted at `/api`). It reads the same Supabase
 `subscriptions` table as the web session (`resolveSubscription` in
 `services/subscriptions.js`, statuses `active`/`trialing` ⇒ Pro) and returns
-`{ success, tier, status, current_period_end, cancel_at_period_end }`. `401` on a
+`{ success, tier, plan, status, current_period_end, cancel_at_period_end }`. `tier` is
+`pro` for every paid plan (Pro, Agency, Enterprise) and `plan` names it (`null`
+when nothing is live), so no gate locks an Agency account out. `401` on a
 missing/invalid/revoked key; `500` on a lookup failure. It surfaces the real
 `status` so "never subscribed" (`none`) is distinguishable from "lapsed"
 (`canceled`/`past_due`).
 **MCP wiring (live):** `client.getSubscription()` calls it and maps
-`status ∈ {active,trialing}` ⇒ `pro`. `DefaultSubscriptionProvider` caches the
+`status ∈ {active,trialing}` ⇒ `pro`, and carries `plan` into check_upgrade_status.
+A 429 with `code` `EXTRA_AUDIT_RUNS_SPENT` / `EXTRA_AUDIT_RUNS_BUDGET` (an Agency
+or Enterprise account's extra runs on its tracked sites) is `EXTRA_RUNS_UNAVAILABLE`,
+not `OVER_QUOTA`. `DefaultSubscriptionProvider` caches the
 tier per key (`WA_SUBSCRIPTION_CACHE_TTL_MS`, default 60s) and, on an endpoint
 outage, honors the last-known cached tier or defaults to `free` **flagged
 unverified** (Pro tools then return `SUBSCRIPTION_UNVERIFIED`, not a false

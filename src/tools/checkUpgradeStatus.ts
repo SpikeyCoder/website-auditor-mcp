@@ -14,14 +14,24 @@
  * too: a customer who used a trial in the last 12 months is billed
  * immediately, so the copy says "may", and checkout tells the truth.
  */
+import type { PaidPlan } from "../api/plans.js";
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
 import { ALREADY_CONNECTED_NOTE, fromApiError, isFreeAuditCaller, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
 import { oauthEnabled } from "../auth/oauth.js";
 import { PRICE, upgradeLink, plansAreDescribedAt } from "./upgrade.js";
 
+/** How a paid plan reads in a sentence. */
+const PLAN_LABEL: Record<PaidPlan, string> = { pro: "Pro", agency: "Agency", enterprise: "Enterprise" };
+
 export interface UpgradeStatus {
   tier: "none" | "free" | "pro";
+  /**
+   * The paid plan behind `tier: "pro"`: an Agency or Enterprise account reads
+   * "pro" in `tier` (the API's own public answer, so no gate locks it out) and
+   * says which plan it is here. Absent without a live subscription.
+   */
+  plan?: PaidPlan;
   /** Raw subscription status ('active', 'trialing', 'canceled', 'none', …). */
   status: string;
   current_period_end: string | null;
@@ -132,9 +142,11 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   // Under info style even a member's own "resubscribe" link is a new
   // subscription the plugin would be promoting, so it says where plans are
   // described instead (plansAreDescribedAt).
-  const keepPro = deps.config.upsellStyle === "info"
+  // The plan's own name: an Agency member is not told they have Pro.
+  const label = PLAN_LABEL[sub.plan ?? "pro"];
+  const keepPlan = deps.config.upsellStyle === "info"
     ? `${plansAreDescribedAt(deps.config)}.`
-    : `Resubscribe at ${upgradeUrl} to keep Pro tools.`;
+    : `Resubscribe at ${upgradeUrl} to keep ${label} tools.`;
 
   let message: string;
   if (sub.tier === "pro" && sub.status === "trialing") {
@@ -142,17 +154,17 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     // cancel_at_period_end=true — it will NOT convert or charge, so the
     // auto-conversion wording would be flatly wrong for that state.
     message = canceling
-      ? `Free trial active${periodEnd ? ` until ${periodEnd}` : ""}, but set not to convert — Pro access simply ends then. ` +
-        keepPro
-      : `Free trial active${periodEnd ? ` until ${periodEnd}` : ""} — all Pro tools are unlocked. ` +
+      ? `Free trial active${periodEnd ? ` until ${periodEnd}` : ""}, but set not to convert — ${label} access simply ends then. ` +
+        keepPlan
+      : `Free trial active${periodEnd ? ` until ${periodEnd}` : ""} — all ${label} tools are unlocked. ` +
         (deps.config.upsellStyle === "info"
           // The info link is a plans page, where nothing can be cancelled.
           ? `The subscription starts automatically when the trial ends unless you cancel it from your Website Auditor account.`
           : `The subscription starts automatically when the trial ends unless canceled at ${upgradeUrl}.`);
   } else if (sub.tier === "pro") {
     message = canceling
-      ? `Pro subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. ${keepPro}`
-      : `Pro subscription active${periodEnd ? ` (renews ${periodEnd})` : ""} — all tools are unlocked.`;
+      ? `${label} subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. ${keepPlan}`
+      : `${label} subscription active${periodEnd ? ` (renews ${periodEnd})` : ""} — all tools are unlocked.`;
   } else if (isFreeAuditCaller(deps, { tier: sub.tier, verified: true, freeAudit: sub.freeAudits === true })) {
     // A free ChatGPT or Claude connector account (WA_FREE_AUDITS=chatgpt or
     // claude, and the API's free_audits): it CAN audit, so "audits are locked"
@@ -189,6 +201,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
 
   return ok({
     tier: sub.tier,
+    ...(sub.tier === "pro" && sub.plan ? { plan: sub.plan } : {}),
     status: sub.status,
     current_period_end: periodEnd,
     cancel_at_period_end: canceling,
