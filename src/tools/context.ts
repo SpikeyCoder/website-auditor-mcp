@@ -393,11 +393,11 @@ export function fromApiError(
     // A free audit's own limit is worded the same on every service (the Claude
     // connector's included): "used for now", or "wait a minute" for the rhythm
     // check, which the API's one sentence cannot tell apart.
+    const withNote = (m: string) => m + (allowanceNote ? ` ${allowanceNote}` : "");
     const message = e.code === "PRO_REQUIRED" && freeLimit
-      ? freeAuditLimitMessage(config, site, (e.details as { limit?: unknown }).limit === "cadence")
-        + (allowanceNote ? ` ${allowanceNote}` : "")
+      ? withNote(freeAuditLimitMessage(config, site, (e.details as { limit?: unknown }).limit === "cadence"))
       : config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
-        ? planNotIncludedMessage(config, site) + (allowanceNote ? ` ${allowanceNote}` : "")
+        ? withNote(planNotIncludedMessage(config, site))
         : e.message;
     return err(e.code, message, {
       upgrade_url: target === undefined ? undefined : tagSite(tagSource(target), site, config),
