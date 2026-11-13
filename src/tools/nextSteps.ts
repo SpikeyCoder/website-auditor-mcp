@@ -32,7 +32,7 @@ function isFixable(r: Record<string, unknown>): boolean {
 /** The AI engines this result did not check (the report's locked_engines). */
 function lockedEngines(report: AuditReport): string[] {
   const raw = report.ai_visibility?.locked_engines;
-  return Array.isArray(raw) ? [...new Set(raw.filter((n): n is string => typeof n === "string" && n.trim() !== ""))] : [];
+  return Array.isArray(raw) ? [...new Set(raw.filter((n): n is string => typeof n === "string").map((n) => n.trim()).filter(Boolean))] : [];
 }
 
 /**
@@ -42,9 +42,9 @@ function lockedEngines(report: AuditReport): string[] {
  */
 export function uncheckedEnginesNote(report: AuditReport): string | null {
   const locked = lockedEngines(report);
-  if (locked.length === 0) return null;
-  if (locked.length >= ENGINE_COUNT) return `Not checked in this result: ${locked.join(", ")}.`;
-  return `${ENGINE_COUNT - locked.length} of ${ENGINE_COUNT} AI engines were checked in this result; not checked: ${locked.join(", ")}.`;
+  // Names, no count: how many of the rest answered is the score's own coverage
+  // note (get_ai_visibility), which a count here could contradict.
+  return locked.length === 0 ? null : `AI engines not checked in this result: ${locked.join(", ")}.`;
 }
 
 export function freeNextSteps(report: AuditReport, domain: string): NextStep[] {

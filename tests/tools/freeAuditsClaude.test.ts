@@ -69,15 +69,14 @@ describe("a free Claude connector account", () => {
   it("still says which AI engines a free result left out, with no tool name", async () => {
     const report = { ...reachableReport(), ai_visibility: { ...reachableReport().ai_visibility, locked_engines: ["Google AI Overviews", "Microsoft Copilot"] } };
     const deps = claudeDeps({ client: { runAudit: vi.fn(async () => ({ runId: "run1", report, raw: {} })) } });
-    const note = "4 of 6 AI engines were checked in this result; not checked: Google AI Overviews, Microsoft Copilot.";
+    const note = "AI engines not checked in this result: Google AI Overviews, Microsoft Copilot.";
     const res = await runAudit({ domain: "acme.com" }, deps);
     expect(res.ok && (res.data as { summary?: string }).summary).toBe(note);
     const vis = await getAiVisibility({ domain: "acme.com" }, deps);
     expect(vis.ok && (vis.data as { summary?: string }).summary).toContain(note);
     for (const r of [res, vis]) expect(JSON.stringify(r)).not.toMatch(MONEY);
     const withLocked = (locked_engines: unknown) => ({ ...reachableReport(), ai_visibility: { ...reachableReport().ai_visibility, locked_engines } }) as never;
-    expect(uncheckedEnginesNote(withLocked(["Claude", "Claude"]))).toBe("5 of 6 AI engines were checked in this result; not checked: Claude.");
-    expect(uncheckedEnginesNote(withLocked(["a", "b", "c", "d", "e", "f", "g"]))).toBe("Not checked in this result: a, b, c, d, e, f, g.");
+    expect(uncheckedEnginesNote(withLocked(["Claude", "Claude "]))).toBe("AI engines not checked in this result: Claude.");
     expect(uncheckedEnginesNote(withLocked(undefined))).toBeNull();
   });
   it("get_ai_visibility and get_report are open to it; other Pro tools stay gated", async () => {
