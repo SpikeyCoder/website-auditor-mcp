@@ -236,8 +236,9 @@ function planNotIncludedMessage(config: WaConfig, site?: string): string {
 /**
  * A free audit refused for its account's limit: the same neutral plan reply
  * and the same plans link as any plan boundary (info style, the page OpenAI
- * already reviewed), worded for what is true of an audit: the audits this
- * account's current plan includes are used for now.
+ * already reviewed; the portal on the Claude connector), worded for what is
+ * true of an audit: the audits this account's current plan includes are used
+ * for now.
  */
 function freeAuditLimitMessage(config: WaConfig, site?: string, cadence = false): string {
   if (cadence) {
@@ -389,10 +390,15 @@ export function fromApiError(
     // needs before retrying, and it says nothing about plans.
     const allowanceNote = /Your daily allowance[^.]*(?:\.[^.]*?counts toward it)?\./.exec(e.message)?.[0];
     const freeLimit = (e.details as { reason?: unknown } | undefined)?.reason === FREE_AUDIT_LIMIT_REASON;
-    const message = config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
-      ? (freeLimit ? freeAuditLimitMessage(config, site, (e.details as { limit?: unknown }).limit === "cadence") : planNotIncludedMessage(config, site))
+    // A free audit's own limit is worded the same on every service (the Claude
+    // connector's included): "used for now", or "wait a minute" for the rhythm
+    // check, which the API's one sentence cannot tell apart.
+    const message = e.code === "PRO_REQUIRED" && freeLimit
+      ? freeAuditLimitMessage(config, site, (e.details as { limit?: unknown }).limit === "cadence")
         + (allowanceNote ? ` ${allowanceNote}` : "")
-      : e.message;
+      : config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
+        ? planNotIncludedMessage(config, site) + (allowanceNote ? ` ${allowanceNote}` : "")
+        : e.message;
     return err(e.code, message, {
       upgrade_url: target === undefined ? undefined : tagSite(tagSource(target), site, config),
       details: e.details,

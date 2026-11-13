@@ -73,7 +73,7 @@ export function buildInstructions(
    * model is still told to relay them.
    */
   copy: ToolCopy = "full",
-  /** WA_FREE_AUDITS=chatgpt: see config.freeAudits. Adds one fact; false changes nothing. */
+  /** WA_FREE_AUDITS=chatgpt or claude: see config.freeAudits. Adds one fact; false changes nothing. */
   freeAudits = false,
 ): string {
   // Same reason keySetupNote exists (src/tools/context.ts): "set WA_API_KEY in
@@ -280,7 +280,18 @@ export function buildInstructions(
 
     errorGuidance,
 
-    ...(freeAudits
+    // Under neutral copy (the Claude connector) the same facts, described: Anthropic's directory
+    // review rejects instructions that tell Claude to call a tool.
+    ...(freeAudits && neutral
+      ? [
+          "FREE AUDITS. A connected account may be able to run run_audit and get_ai_visibility on a site the user " +
+            "asks about, and get_report for an audit it ran, without a plan; those audits may check fewer AI engines than a full audit, and the result says which. " +
+            "So the plan sentence above does not settle whether an account can audit: run_audit's own answer says so. " +
+            "A result's `next_steps`, when present, are plain facts, each with the name of the tool that acts on it. " +
+            "When a tool returns PRO_REQUIRED, the answer above applies unchanged.",
+        ]
+      : []),
+    ...(freeAudits && !neutral
       ? [
           "FREE AUDITS. A connected account may be able to run run_audit and get_ai_visibility on a site the user " +
             "asks about, and get_report for an audit it ran, without a plan; those audits may check fewer AI engines than a full audit, and the result says which. " +
