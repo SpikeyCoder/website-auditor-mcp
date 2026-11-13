@@ -297,7 +297,7 @@ export class WaApiClient implements WaApiClientLike {
     // reverse) must not be offered the other's free audit, whose flag may be
     // off. No channel is the only kind the API sent before it had two: ChatGPT.
     const grantChannel = body.free_audits?.channel ?? "chatgpt";
-    if (tier === "free" && body.free_audits?.eligible === true && this.cfg.freeAuditsChannel !== undefined && grantChannel === this.cfg.freeAuditsChannel) {
+    if (tier === "free" && body.free_audits?.eligible === true && grantChannel === this.cfg.freeAuditsChannel) {
       info.freeAudits = true;
     }
     return info;

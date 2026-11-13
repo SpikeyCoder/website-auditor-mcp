@@ -288,8 +288,9 @@ export function buildInstructions(
             "asks about, and get_report for an audit it ran, without a plan; those audits may check fewer AI engines than a full audit, and the result says which. " +
             "So the plan sentence above does not settle whether an account can audit: run_audit's own answer says so. " +
             "A result's `next_steps`, when present, are plain facts, each with the name of the tool that acts on it. " +
-            "A PRO_REQUIRED whose details.reason is free_audit_limit is this account's own limit, not a missing plan: " +
-            "with details.limit cadence it clears in a minute, and its message is the whole answer. " +
+            "A PRO_REQUIRED whose details.reason is free_audit_limit, whatever its details.limit, is this account's own limit, " +
+            "not a missing plan, so its message is the whole answer and the plan terms above do not apply to it; " +
+            "with details.limit cadence it clears in a minute. " +
             "Any other PRO_REQUIRED is answered as above.",
         ]
       : []),

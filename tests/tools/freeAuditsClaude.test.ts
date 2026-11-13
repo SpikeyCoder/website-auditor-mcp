@@ -113,7 +113,8 @@ describe("what the Claude service publishes with the flag on", () => {
     expect(on.startsWith(off)).toBe(true);
     const added = on.slice(off.length);
     expect(added).toContain("FREE AUDITS.");
-    expect(added).toContain("free_audit_limit is this account's own limit, not a missing plan");
+    expect(added).toContain("free_audit_limit, whatever its details.limit, is this account's own limit");
+    expect(added).toContain("the plan terms above do not apply to it");
     expect(added).not.toMatch(MONEY);
     expect(added).not.toMatch(/\bcall\b/i);
   });
