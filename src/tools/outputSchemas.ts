@@ -626,7 +626,8 @@ export const getSampleAuditOutput: ZodRawShape = {
 };
 
 export const checkUpgradeStatusOutput: ZodRawShape = {
-  tier: z.string().describe('"none" | "free" | "pro".'),
+  tier: z.string().describe('"none" | "free" | "pro". Every paid plan, Agency and Enterprise included, is "pro" here; `plan` names it.'),
+  plan: z.enum(["pro", "agency", "enterprise"]).optional().describe("Which paid plan the live subscription is for; absent when there is none, or the API did not say."),
   status: z.string().describe("Raw subscription status: active, trialing, canceled, none, …"),
   current_period_end: z.string().nullable(),
   cancel_at_period_end: z.boolean(),
