@@ -105,7 +105,6 @@ export interface SchemaParams {
   type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto";
 }
 
-
 export interface SubscriptionInfo {
   tier: "free" | "pro";
   /**
@@ -931,20 +930,21 @@ export class WaApiClient implements WaApiClientLike {
             details: { reason: FREE_AUDIT_LIMIT_REASON, limit: b.reason === "cadence" ? "cadence" : "daily_cap" },
           });
         }
-        // An Agency or Enterprise account's month of extra audit runs: a
-        // re-run of a site it TRACKS past the month's count (or the provider
-        // budget behind it). Not the daily audit cap below, and not a plan
-        // boundary: the weekly and daily checks go on, and an audit of a site
-        // it does not track is not counted. Its own code, so nothing reads it
-        // as "today's quota is spent" (compare_competitors would) or as a
-        // reason to upgrade; the API's sentence names the day it is back.
+        // An Agency or Enterprise account's extra audit runs: a re-run of a site
+        // it TRACKS past the month's count (or the provider budget behind it).
+        // Not the daily audit cap below, and not a plan boundary: the weekly and
+        // daily checks go on, and an audit of a site it does not track is not
+        // counted. Its own code, so nothing reads it as "today's quota is
+        // spent" (compare_competitors would) or as a reason to upgrade. When
+        // is back is the whole remedy: the API's sentence names the day, and
+        // when a build of it does not, the reset it sent is said here, as the
+        // OVER_QUOTA branch below does.
         if (b.code === "EXTRA_AUDIT_RUNS_SPENT" || b.code === "EXTRA_AUDIT_RUNS_BUDGET") {
-          // The day it is back is the whole remedy: the API's sentence names it,
-          // and when a build of it does not, details.resets_at is said here.
           const block = b.extra_audit_runs && typeof b.extra_audit_runs === "object" ? (b.extra_audit_runs as { resets_at?: unknown }) : undefined;
-          // A UTC day only (a bare date or a Z timestamp): anything else is not said as one.
-          const day = typeof block?.resets_at === "string" ? /^(\d{4}-\d{2}-\d{2})(?:T[\d:.]+Z)?$/.exec(block.resets_at)?.[1] : undefined;
-          const text = day && !message.includes(day) ? `${message} It is back on ${day} (UTC).` : message;
+          // Said only when it is a real date: an impossible one is not repeated.
+          const resetsAt = typeof block?.resets_at === "string" ? block.resets_at : undefined;
+          const real = resetsAt !== undefined && /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z)?$/.test(resetsAt) && !Number.isNaN(Date.parse(resetsAt));
+          const text = real && !message.includes(resetsAt.slice(0, 10)) ? `${message} It resets at ${resetsAt}.` : message;
           return new WaApiError("EXTRA_RUNS_UNAVAILABLE", text, { status, details: block });
         }
         // Same reasoning as the 409 above, one status code along. This is the

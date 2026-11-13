@@ -333,6 +333,10 @@ describe("the month's extra audit runs (Agency)", () => {
       fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: "Paused.", extra_audit_runs: { resets_at: "2026-12-01T00:00:00+02:00" } })) as unknown as typeof fetch,
     });
     await expect(offset.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ message: "Paused." });
+    const impossible = new WaApiClient(config as never, {
+      fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: "Paused.", extra_audit_runs: { resets_at: "2026-13-45T00:00:00Z" } })) as unknown as typeof fetch,
+    });
+    await expect(impossible.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ message: "Paused." });
   });
 
   it("a 429 whose sentence does not name the day gets it from the reset the API sent", async () => {
@@ -341,7 +345,7 @@ describe("the month's extra audit runs (Agency)", () => {
       fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_SPENT", error: "The month's extra audit runs are used.", extra_audit_runs: { resets_at: NEXT_DAY } })) as unknown as typeof fetch,
     });
     await expect(client.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({
-      code: "EXTRA_RUNS_UNAVAILABLE", message: "The month's extra audit runs are used. It is back on 2026-12-01 (UTC).",
+      code: "EXTRA_RUNS_UNAVAILABLE", message: `The month's extra audit runs are used. It resets at ${NEXT_DAY}.`,
     });
   });
 

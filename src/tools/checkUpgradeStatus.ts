@@ -144,7 +144,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
   // described instead (plansAreDescribedAt).
   // The plan's own name: an Agency member is not told they have Pro.
   const label = PLAN_LABEL[sub.plan ?? "pro"];
-  const keepPro = deps.config.upsellStyle === "info"
+  const keepPlan = deps.config.upsellStyle === "info"
     ? `${plansAreDescribedAt(deps.config)}.`
     : `Resubscribe at ${upgradeUrl} to keep ${label} tools.`;
 
@@ -155,7 +155,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     // auto-conversion wording would be flatly wrong for that state.
     message = canceling
       ? `Free trial active${periodEnd ? ` until ${periodEnd}` : ""}, but set not to convert — ${label} access simply ends then. ` +
-        keepPro
+        keepPlan
       : `Free trial active${periodEnd ? ` until ${periodEnd}` : ""} — all ${label} tools are unlocked. ` +
         (deps.config.upsellStyle === "info"
           // The info link is a plans page, where nothing can be cancelled.
@@ -163,7 +163,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
           : `The subscription starts automatically when the trial ends unless canceled at ${upgradeUrl}.`);
   } else if (sub.tier === "pro") {
     message = canceling
-      ? `${label} subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. ${keepPro}`
+      ? `${label} subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. ${keepPlan}`
       : `${label} subscription active${periodEnd ? ` (renews ${periodEnd})` : ""} — all tools are unlocked.`;
   } else if (isFreeAuditCaller(deps, { tier: sub.tier, verified: true, freeAudit: sub.freeAudits === true })) {
     // A free ChatGPT or Claude connector account (WA_FREE_AUDITS=chatgpt or
