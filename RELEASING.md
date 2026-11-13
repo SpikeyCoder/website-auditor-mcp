@@ -310,11 +310,15 @@ the service's environment, so a plain release does not change the flag.
 The same audit, limits and engine guard for an account connected through
 Claude's connector, set only on `website-auditor-mcp-claude`. The API's flag is
 `FREE_CLAUDE_AUDITS`, which its `deploy.yml` deploys `on` unless the repository
-variable says otherwise. That is safe before this server has the flag: the
-Claude service without it gates the tools as before, and the ChatGPT service
-takes only a `chatgpt` grant (`free_audits.channel`), so a Claude connection
-reaching it is not offered one. Turn on, once this server's release with
-`claude` support is deployed there:
+variable says otherwise. Order matters: deploy this server's release with
+`claude` support to **both** services before the API. From that release on, a
+service takes only its own channel's grant (`free_audits.channel`), so the
+Claude service without `WA_FREE_AUDITS=claude` gates the tools as before and
+the ChatGPT service refuses a Claude connection's grant. Earlier releases take
+any grant, so with the API deployed first a Claude connection that reaches the
+ChatGPT service is offered the free audit there (the same audit, counted
+against the same allowance). Turn on, once that release is on
+`website-auditor-mcp-claude`:
 
 ```sh
 gcloud run services update website-auditor-mcp-claude --region us-central1 --update-env-vars WA_FREE_AUDITS=claude

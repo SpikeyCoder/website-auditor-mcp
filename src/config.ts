@@ -109,6 +109,12 @@ export interface WaConfig {
    * FREE_CLAUDE_AUDITS); this only lets the tools offer it. Absent means off.
    */
   freeAudits?: boolean;
+  /**
+   * Whose free audit this service offers when `freeAudits` is on: the
+   * WA_FREE_AUDITS value it was turned on with. The API's grant names its
+   * channel too, and the client takes only a matching one (api/client.ts).
+   */
+  freeAuditsChannel?: "chatgpt" | "claude";
   /** Timeout (ms) for calls to the API portal. */
   requestTimeoutMs: number;
   /**
@@ -321,6 +327,10 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
   const upsellStyle = parseUpsellStyle(env.WA_UPSELL_STYLE);
   const linkChannel = parseLinkChannel(normalizeEnvValue(env.WA_LINK_CHANNEL));
   const freeAuditsFor = normalizeEnvValue(env.WA_FREE_AUDITS)?.toLowerCase();
+  const freeAuditsChannel: WaConfig["freeAuditsChannel"] =
+    freeAuditsFor === "chatgpt" && upsellStyle === "info" ? "chatgpt"
+      : freeAuditsFor === "claude" && upsellStyle === "link" && linkChannel === "claude" ? "claude"
+        : undefined;
   return {
     apiBaseUrl: stripTrailingSlash(normalizeEnvValue(env.WA_API_BASE_URL) || "https://api.website-auditor.io"),
     siteUrl,
@@ -331,8 +341,8 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     authChallenge: parseAuthChallenge(normalizeEnvValue(env.WA_AUTH_CHALLENGE)),
     toolCopy: parseToolCopy(normalizeEnvValue(env.WA_TOOL_COPY)),
     linkChannel,
-    freeAudits: (freeAuditsFor === "chatgpt" && upsellStyle === "info")
-      || (freeAuditsFor === "claude" && upsellStyle === "link" && linkChannel === "claude"),
+    freeAudits: freeAuditsChannel !== undefined,
+    freeAuditsChannel,
     requestTimeoutMs: parseIntOr(env.WA_REQUEST_TIMEOUT_MS, 120000),
     auditCacheTtlMs: parseIntOr(env.WA_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000),
     subscriptionCacheTtlMs: parseIntOr(env.WA_SUBSCRIPTION_CACHE_TTL_MS, 60 * 1000),

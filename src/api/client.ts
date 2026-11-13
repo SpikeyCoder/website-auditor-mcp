@@ -290,13 +290,14 @@ export class WaApiClient implements WaApiClientLike {
     if (typeof body.cancel_at_period_end === "boolean") {
       info.cancel_at_period_end = body.cancel_at_period_end;
     }
-    // Only this service's own channel's grant: the API names the connector the
-    // account came through (chatgpt or claude), and access tokens are not bound
-    // to one service, so a Claude connection reaching the ChatGPT service (or
-    // the reverse) must not be offered the other's free audit, whose flag may be
+    // Only this service's own channel's grant (config.freeAuditsChannel, unset
+    // when this service offers none): the API names the connector the account
+    // came through (chatgpt or claude), and access tokens are not bound to one
+    // service, so a Claude connection reaching the ChatGPT service (or the
+    // reverse) must not be offered the other's free audit, whose flag may be
     // off. No channel is the only kind the API sent before it had two: ChatGPT.
-    const serviceChannel = this.cfg.linkChannel === "claude" ? "claude" : "chatgpt";
-    if (tier === "free" && body.free_audits?.eligible === true && (body.free_audits.channel ?? "chatgpt") === serviceChannel) {
+    const grantChannel = body.free_audits?.channel ?? "chatgpt";
+    if (tier === "free" && body.free_audits?.eligible === true && this.cfg.freeAuditsChannel !== undefined && grantChannel === this.cfg.freeAuditsChannel) {
       info.freeAudits = true;
     }
     return info;

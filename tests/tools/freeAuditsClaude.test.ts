@@ -133,4 +133,11 @@ describe("each service takes only its own channel's grant", () => {
     expect((await mk(CHATGPT_ENV, grant()).getSubscription()).freeAudits).toBe(true);
     expect((await mk(CHATGPT_ENV, grant("claude")).getSubscription()).freeAudits).toBeUndefined();
   });
+  it("a service with no free audit takes no grant, and the channel comes from WA_FREE_AUDITS", async () => {
+    expect((await mk({}, grant("chatgpt")).getSubscription()).freeAudits).toBeUndefined();
+    expect((await mk({ ...CLAUDE_ENV, WA_FREE_AUDITS: "off" }, grant("claude")).getSubscription()).freeAudits).toBeUndefined();
+    expect(loadConfig(CLAUDE_ENV).freeAuditsChannel).toBe("claude");
+    expect(loadConfig(CHATGPT_ENV).freeAuditsChannel).toBe("chatgpt");
+    expect(loadConfig({}).freeAuditsChannel).toBeUndefined();
+  });
 });
