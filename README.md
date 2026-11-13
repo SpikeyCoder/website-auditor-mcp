@@ -242,6 +242,9 @@ minute:
 
 Errors are normalized to stable codes agents can branch on — e.g.
 `AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `OVER_QUOTA`,
+`LIMIT_REACHED` (the account's tracked-site limit), `EXTRA_RUNS_SPENT` (an Agency
+or Enterprise account's month of extra audit runs on its tracked sites; the
+message names the day it is back),
 `UNREACHABLE_DOMAIN`, `INVALID_INPUT`, `TIMEOUT`. A domain that resolves but
 whose pages never load (down, refusing, timing out, or answering 404/5xx on
 every page) returns `UNREACHABLE_DOMAIN`; one that does not resolve is refused

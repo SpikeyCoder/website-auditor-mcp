@@ -152,7 +152,7 @@
     },
     {
       "name": "check_upgrade_status",
-      "description": "Check upgrade status [read-only]. Reports the caller's own subscription standing: tier (none/free/pro), status, period end, and what upgrading unlocks — including that starting Pro requires a payment method and accepting the Terms. Works with any valid API key; consumes no audit quota."
+      "description": "Check upgrade status [read-only]. Reports the caller's own subscription standing: tier (none/free/pro; every paid plan, Agency and Enterprise included, is pro), plan (pro, agency or enterprise), status, period end, and what upgrading unlocks — including that starting Pro requires a payment method and accepting the Terms. Works with any valid API key; consumes no audit quota."
     }
   ],
   "prompts": [

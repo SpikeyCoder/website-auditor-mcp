@@ -110,7 +110,15 @@ function standin(s: Standin): typeof fetch {
     if (url.pathname === "/api/monitoring-status") {
       return json(200, { success: true, ...slots(), sites: s.tracked.map((d) => ({ domain: d, cadence: "weekly", active: true, last_audited_at: null, next_run_at: null, latest: null, previous: null })) });
     }
-    if (url.pathname === "/api/ai-visibility-history") return json(200, { success: true, domain: url.searchParams.get("domain"), snapshots: [] });
+    if (url.pathname === "/api/ai-visibility-history") {
+      // Two measured snapshots of one question for a tracked client; nothing for any other site.
+      const asked = { key: "q", business_name: "Client", name_source: "detected", business_location: "", market_scope: "global", queries: ["best client"] };
+      const snap = (captured_at: string, score: number) => ({
+        captured_at, score, by_engine: { chatgpt: score, perplexity: score, claude: score, gemini: score }, source: "scheduled", question: asked,
+      });
+      const mine = s.tracked.includes(url.searchParams.get("domain") ?? "");
+      return json(200, { success: true, domain: url.searchParams.get("domain"), snapshots: mine ? [snap("2026-11-02T00:00:00Z", 40), snap("2026-11-09T00:00:00Z", 55)] : [] });
+    }
     if (url.pathname === "/api/audit" && s.extraRunsSpent && s.tracked.includes(url.searchParams.get("businessUrl") ?? "")) {
       return json(429, {
         success: false,
@@ -145,12 +153,13 @@ describe("an Agency account through the MCP", () => {
     const list = await listTrackedSites({}, deps);
     const status = await getMonitoringStatus({}, deps);
     const changes = await getChanges({ domain: "client1.example.net" }, deps);
-    for (const r of [list, status]) {
-      expect(r.ok).toBe(true);
-    }
-    // get_changes with no history is a flagged "nothing to compare", never a plan refusal.
-    if (!changes.ok) expect(changes.error.code).not.toBe("PRO_REQUIRED");
-    expect(state.calls).toContain("GET /api/tracked-domains");
+    const untracked = await getChanges({ domain: "nobody.example.net" }, deps);
+    expect(list.ok && status.ok).toBe(true);
+    // The weekly snapshots of a tracked client: the change between the last two.
+    expect(changes.ok && changes.data.score_delta).toBe(15);
+    // A site with no history is a flagged "nothing to compare", never a plan refusal.
+    expect(!untracked.ok && untracked.error.code).toBe("NOT_YET_AVAILABLE");
+    expect(state.calls).toEqual(expect.arrayContaining(["GET /api/tracked-domains", "GET /api/monitoring-status", "GET /api/ai-visibility-history"]));
   });
 
   it("list_tracked_sites reports Agency's own cap, the same sites the account tracks", async () => {
@@ -294,5 +303,28 @@ describe("the month's extra audit runs (Agency)", () => {
     if (res.ok) return;
     expect(res.error.code).toBe("EXTRA_RUNS_SPENT");
     expect(res.error.message).not.toMatch(/daily audit quota/i);
+  });
+
+  it("the provider-budget pause is the same code, its day in the message, and no details to read when the API sends none", async () => {
+    const config = testConfig({ apiKey: "wa_x" });
+    const message = "This account's extra audit runs are paused for the month to stay within the provider budget. They are available again on 2026-12-01 (UTC).";
+    const client = new WaApiClient(config as never, {
+      fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: message, extra_audit_runs: { resets_at: NEXT_DAY } })) as unknown as typeof fetch,
+    });
+    await expect(client.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({
+      code: "EXTRA_RUNS_SPENT", message, details: { resets_at: NEXT_DAY },
+    });
+    const bare = new WaApiClient(config as never, {
+      fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: message })) as unknown as typeof fetch,
+    });
+    await expect(bare.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ code: "EXTRA_RUNS_SPENT", message });
+  });
+
+  it("the ordinary daily 429 is still OVER_QUOTA", async () => {
+    const config = testConfig({ apiKey: "wa_x" });
+    const client = new WaApiClient(config as never, {
+      fetch: (async () => json(429, { success: false, error: "Rate limit exceeded. You can make 10 requests per day." })) as unknown as typeof fetch,
+    });
+    await expect(client.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ code: "OVER_QUOTA" });
   });
 });
