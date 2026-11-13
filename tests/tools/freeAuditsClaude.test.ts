@@ -46,6 +46,7 @@ describe("the flag on the Claude service", () => {
     expect(loadConfig({ ...CLAUDE_ENV, WA_FREE_AUDITS: "chatgpt" }).freeAudits).toBe(false);
     expect(loadConfig({ ...CLAUDE_ENV, WA_FREE_AUDITS: "" }).freeAudits).toBe(false);
     expect(loadConfig({ ...CLAUDE_ENV, WA_TOOL_COPY: "full" }).freeAudits).toBe(false);
+    expect(loadConfig({ WA_FREE_AUDITS: "chatgpt", WA_UPSELL_STYLE: "info", WA_TOOL_COPY: "neutral" }).freeAudits).toBe(false);
     const { WA_TOOL_COPY: _copy, ...noCopy } = CLAUDE_ENV as Record<string, string>;
     expect(loadConfig(noCopy).freeAudits).toBe(false);
   });

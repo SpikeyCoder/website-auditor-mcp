@@ -328,11 +328,12 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
   const linkChannel = parseLinkChannel(normalizeEnvValue(env.WA_LINK_CHANNEL));
   const toolCopy = parseToolCopy(normalizeEnvValue(env.WA_TOOL_COPY));
   const freeAuditsFor = normalizeEnvValue(env.WA_FREE_AUDITS)?.toLowerCase();
-  // claude needs the whole Claude service shape, neutral copy included: only
-  // the neutral instructions describe the free audit without telling Claude to
-  // call a tool, and keep the plan terms off the account's own limit.
+  // Each channel needs its whole service shape, so the copy-keyed behaviour
+  // (descriptions, next_steps, instructions) always matches the channel: claude
+  // only with neutral copy, which describes the free audit without telling
+  // Claude to call a tool, and chatgpt only without it.
   const freeAuditsChannel: WaConfig["freeAuditsChannel"] =
-    freeAuditsFor === "chatgpt" && upsellStyle === "info" ? "chatgpt"
+    freeAuditsFor === "chatgpt" && upsellStyle === "info" && toolCopy !== "neutral" ? "chatgpt"
       : freeAuditsFor === "claude" && upsellStyle === "link" && linkChannel === "claude" && toolCopy === "neutral" ? "claude"
         : undefined;
   return {
