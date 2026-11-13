@@ -263,7 +263,7 @@ describe("the tier resolver", () => {
     expect((await pro.resolve("wa_k")).freeAudit).toBeUndefined();
   });
   it("the client reads free_audits only for a free tier", async () => {
-    const mk = (body: unknown) => new WaApiClient({ ...loadConfig({}), apiKey: "wa_k" }, { fetch: (async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch });
+    const mk = (body: unknown) => new WaApiClient({ ...loadConfig({ WA_FREE_AUDITS: "chatgpt", WA_UPSELL_STYLE: "info" }), apiKey: "wa_k" }, { fetch: (async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch });
     expect((await mk({ tier: "free", status: "none", free_audits: { eligible: true } }).getSubscription()).freeAudits).toBe(true);
     expect((await mk({ tier: "free", status: "none" }).getSubscription()).freeAudits).toBeUndefined();
     expect((await mk({ status: "active", free_audits: { eligible: true } }).getSubscription()).freeAudits).toBeUndefined();

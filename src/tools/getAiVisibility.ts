@@ -13,7 +13,7 @@
  */
 import type { AiVisibility } from "../api/types.js";
 import { toAiVisibility, computeTrend, detectUnreachable, measuredRun } from "../api/mappers.js";
-import { freeNextSteps, nextStepsSentence } from "./nextSteps.js";
+import { freeNextSteps, nextStepsSentence, uncheckedEnginesNote } from "./nextSteps.js";
 import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
 import { gateAuditTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
@@ -76,15 +76,15 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
 
   const result = toAiVisibility(response.report);
   if (free) {
-    // History and trend are monitoring's; the free result says what is next.
+    // History and trend are monitoring's; the free result says what is next,
+    // except under neutral copy (the Claude connector; see runAudit.ts).
+    const free_result = { ...result, trend: null, trend_note: "No trend is returned with this result." };
+    if (deps.config.toolCopy === "neutral") {
+      const note = uncheckedEnginesNote(response.report);
+      return ok(note ? { ...free_result, summary: `${result.summary} ${note}` } : free_result);
+    }
     const next_steps = freeNextSteps(response.report, args.domain);
-    return ok({
-      ...result,
-      trend: null,
-      trend_note: "No trend is returned with this result.",
-      summary: `${result.summary} ${nextStepsSentence(next_steps)}`,
-      next_steps,
-    });
+    return ok({ ...free_result, summary: `${result.summary} ${nextStepsSentence(next_steps)}`, next_steps });
   }
   await attachTrend(result, args.domain, response.runId, deps);
   const link = await dashboardLink(deps, "get_ai_visibility", args.domain);

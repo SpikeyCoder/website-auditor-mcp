@@ -14,7 +14,7 @@
 import type { AuditSummary } from "../api/types.js";
 import { toAuditSummary, detectUnreachable } from "../api/mappers.js";
 import { dashboardLink, dashboardField } from "./dashboardLink.js";
-import { freeNextSteps, nextStepsSentence } from "./nextSteps.js";
+import { freeNextSteps, nextStepsSentence, uncheckedEnginesNote } from "./nextSteps.js";
 import { gateAuditTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface RunAuditArgs {
@@ -49,13 +49,17 @@ export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<Tool
 
   // A free audit: no dashboard link (Pro's), and what the result found that
   // another tool can act on, as a field and as a sentence (tools/nextSteps.ts).
+  // Not under neutral copy (the Claude connector): there those tools answer with
+  // the plan's terms, which neutral copy keeps out of what the server volunteers.
   if (free) {
+    const summaryOnly = toAuditSummary(response.report, { siteUrl: deps.config.siteUrl });
+    if (deps.config.toolCopy === "neutral") {
+      // Still say which engines this result left out, as the instructions promise.
+      const note = uncheckedEnginesNote(response.report);
+      return ok(note ? { ...summaryOnly, summary: note } : summaryOnly);
+    }
     const next_steps = freeNextSteps(response.report, args.domain);
-    return ok({
-      ...toAuditSummary(response.report, { siteUrl: deps.config.siteUrl }),
-      summary: nextStepsSentence(next_steps),
-      next_steps,
-    });
+    return ok({ ...summaryOnly, summary: nextStepsSentence(next_steps), next_steps });
   }
 
   // No `summary` on this reply: the link's note rides in `dashboard.note`.

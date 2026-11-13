@@ -696,8 +696,8 @@ const NEUTRAL_TITLES: Partial<Record<string, string>> = {
 };
 
 /**
- * The three tools a free ChatGPT account may use on its own site
- * (WA_FREE_AUDITS=chatgpt, config.freeAudits). Their description says what is
+ * The three tools a free ChatGPT or Claude connector account may use on its own site
+ * (WA_FREE_AUDITS=chatgpt or claude, config.freeAudits). Their description says what is
  * true then, with no price, trial or plan pitch.
  */
 const FREE_AUDIT_TOOLS = new Set(["run_audit", "get_ai_visibility", "get_report"]);
@@ -710,7 +710,9 @@ const FREE_AUDIT_SUFFIX =
  * later transform that appends text cannot let it through on an info server.
  */
 export function descriptionFor(spec: ToolSpec, style: UpsellStyle, copy: ToolCopy = "full", freeAudits = false): string {
-  const suffix = freeAudits && FREE_AUDIT_TOOLS.has(spec.name)
+  // Neutral copy (the Claude connector) keeps the reviewed descriptions with the
+  // free audit on: the server instructions describe it instead.
+  const suffix = freeAudits && copy !== "neutral" && FREE_AUDIT_TOOLS.has(spec.name)
     ? FREE_AUDIT_SUFFIX
     : copy === "neutral"
       ? PRO_SUFFIX_NEUTRAL[style]

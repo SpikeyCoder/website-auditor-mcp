@@ -299,8 +299,33 @@ gcloud run services update website-auditor-mcp --region us-central1 --update-env
 
 The API's variable is wiped by its next deploy unless the repository variable
 `FREE_CHATGPT_AUDITS` is set to `on` as well (its `deploy.yml` replaces the
-environment). Do not set `WA_FREE_AUDITS` on `website-auditor-mcp-claude`; it is
-ignored there. Turn off: the same two commands with `FREE_CHATGPT_AUDITS=off`
+environment). `WA_FREE_AUDITS=chatgpt` is ignored on `website-auditor-mcp-claude`;
+that service has its own value, below. Turn off: the same two commands with `FREE_CHATGPT_AUDITS=off`
 and `WA_FREE_AUDITS=off` (either one alone also ends the free audit: the tools
 stop offering it, or the API refuses it). `gcloud run deploy --source .` keeps
 the service's environment, so a plain release does not change the flag.
+
+### The same free audit in Claude's connector (`WA_FREE_AUDITS=claude`)
+
+The same audit, limits and engine guard for an account connected through
+Claude's connector, set only on `website-auditor-mcp-claude`. The API's flag is
+`FREE_CLAUDE_AUDITS`, which its `deploy.yml` deploys `on` unless the repository
+variable says otherwise. Order matters: deploy this server's release with
+`claude` support to **both** services before the API. From that release on, a
+service takes only its own channel's grant (`free_audits.channel`), so the
+Claude service without `WA_FREE_AUDITS=claude` gates the tools as before and
+the ChatGPT service refuses a Claude connection's grant. Earlier releases take
+any grant, so with the API deployed first a Claude connection that reaches the
+ChatGPT service is offered the free audit there (the same audit, counted
+against the same allowance). Turn on, once that release is on
+`website-auditor-mcp-claude`:
+
+```sh
+gcloud run services update website-auditor-mcp-claude --region us-central1 --update-env-vars WA_FREE_AUDITS=claude
+```
+
+It changes no tool description and adds no `next_steps` there; the server
+instructions gain one descriptive FREE AUDITS paragraph.
+
+Turn off: `WA_FREE_AUDITS=off` there, or the API's repository variable
+`FREE_CLAUDE_AUDITS=off` and a deploy (either one alone ends it).

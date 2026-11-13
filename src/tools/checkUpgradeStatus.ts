@@ -154,11 +154,11 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       ? `Pro subscription active but set to end${periodEnd ? ` on ${periodEnd}` : ""}. ${keepPro}`
       : `Pro subscription active${periodEnd ? ` (renews ${periodEnd})` : ""} — all tools are unlocked.`;
   } else if (isFreeAuditCaller(deps, { tier: sub.tier, verified: true, freeAudit: sub.freeAudits === true })) {
-    // A free ChatGPT account (WA_FREE_AUDITS=chatgpt and the API's
-    // free_audits): it CAN audit, so "audits are locked" would be false, and a
-    // model that reads this before run_audit would not call it. Same rule as
-    // gateAuditTool; info style only (isFreeAuditCaller needs the flag, which
-    // needs info style), so no price, trial or "subscribe".
+    // A free ChatGPT or Claude connector account (WA_FREE_AUDITS=chatgpt or
+    // claude, and the API's free_audits): it CAN audit, so "audits are locked"
+    // would be false, and a model that reads this before run_audit would not
+    // call it. Same rule as gateAuditTool. No price, trial or "subscribe" on
+    // either service: only where plans are described.
     message =
       `${sub.status === "none" ? "No active plan" : `Plan not active (status: ${sub.status})`}, but this account ` +
       `can run run_audit and get_ai_visibility on a site the user asks about, and get_report for an audit it ran; ` +

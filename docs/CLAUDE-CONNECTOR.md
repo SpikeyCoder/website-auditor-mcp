@@ -153,7 +153,10 @@ Checked against the live servers on 2026-10-15:
      - `WA_OAUTH_RESOURCE_URL`, which is this URL;
      - `WA_INSTALL_ID`, a fresh UUID, so telemetry separates the boxes.
    - **Added:** `WA_AUTH_CHALLENGE=http`, `WA_TOOL_COPY=neutral` and
-     `WA_LINK_CHANNEL=claude`.
+     `WA_LINK_CHANNEL=claude`. Later, `WA_FREE_AUDITS=claude` turns on the
+     free audit for accounts connected here (RELEASING.md, "The same free
+     audit in Claude's connector"); set it with `--update-env-vars`, not in
+     the command below.
    - **Left out:**
      - `WA_UPSELL_STYLE`, so it defaults to link;
      - `WA_UPSELL_INFO_URL`;
