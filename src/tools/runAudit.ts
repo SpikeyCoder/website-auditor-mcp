@@ -49,13 +49,13 @@ export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<Tool
 
   // A free audit: no dashboard link (Pro's), and what the result found that
   // another tool can act on, as a field and as a sentence (tools/nextSteps.ts).
+  // Not under neutral copy (the Claude connector): there those tools answer with
+  // the plan's terms, which neutral copy keeps out of what the server volunteers.
   if (free) {
+    const summaryOnly = toAuditSummary(response.report, { siteUrl: deps.config.siteUrl });
+    if (deps.config.toolCopy === "neutral") return ok(summaryOnly);
     const next_steps = freeNextSteps(response.report, args.domain);
-    return ok({
-      ...toAuditSummary(response.report, { siteUrl: deps.config.siteUrl }),
-      summary: nextStepsSentence(next_steps),
-      next_steps,
-    });
+    return ok({ ...summaryOnly, summary: nextStepsSentence(next_steps), next_steps });
   }
 
   // No `summary` on this reply: the link's note rides in `dashboard.note`.

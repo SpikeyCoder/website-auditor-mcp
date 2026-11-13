@@ -76,15 +76,12 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
 
   const result = toAiVisibility(response.report);
   if (free) {
-    // History and trend are monitoring's; the free result says what is next.
+    // History and trend are monitoring's; the free result says what is next,
+    // except under neutral copy (the Claude connector; see runAudit.ts).
+    const free_result = { ...result, trend: null, trend_note: "No trend is returned with this result." };
+    if (deps.config.toolCopy === "neutral") return ok(free_result);
     const next_steps = freeNextSteps(response.report, args.domain);
-    return ok({
-      ...result,
-      trend: null,
-      trend_note: "No trend is returned with this result.",
-      summary: `${result.summary} ${nextStepsSentence(next_steps)}`,
-      next_steps,
-    });
+    return ok({ ...free_result, summary: `${result.summary} ${nextStepsSentence(next_steps)}`, next_steps });
   }
   await attachTrend(result, args.domain, response.runId, deps);
   const link = await dashboardLink(deps, "get_ai_visibility", args.domain);

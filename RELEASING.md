@@ -324,5 +324,8 @@ against the same allowance). Turn on, once that release is on
 gcloud run services update website-auditor-mcp-claude --region us-central1 --update-env-vars WA_FREE_AUDITS=claude
 ```
 
+It changes no tool description and adds no `next_steps` there; the server
+instructions gain one descriptive FREE AUDITS paragraph.
+
 Turn off: `WA_FREE_AUDITS=off` there, or the API's repository variable
 `FREE_CLAUDE_AUDITS=off` and a deploy (either one alone ends it).

@@ -52,14 +52,17 @@ describe("the flag on the Claude service", () => {
 });
 
 describe("a free Claude connector account", () => {
-  it("run_audit runs the audit and returns next_steps and no dashboard link", async () => {
+  it("run_audit runs the audit, with no next_steps and no dashboard link", async () => {
     const deps = claudeDeps();
     const res = await runAudit({ domain: "acme.com" }, deps);
     expect(deps.client.runAudit).toHaveBeenCalledOnce();
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.dashboard).toBeUndefined();
-    expect(Array.isArray(res.data.next_steps)).toBe(true);
+    expect(res.data.next_steps).toBeUndefined();
+    expect(JSON.stringify(res.data)).not.toMatch(/track_site|get_gtm_plan|compare_competitors/);
+    const vis = await getAiVisibility({ domain: "acme.com" }, deps);
+    expect(vis.ok && (vis.data as { next_steps?: unknown }).next_steps).toBeUndefined();
   });
   it("get_ai_visibility and get_report are open to it; other Pro tools stay gated", async () => {
     const deps = claudeDeps();
@@ -104,10 +107,8 @@ describe("the account's limit on the Claude service", () => {
 });
 
 describe("what the Claude service publishes with the flag on", () => {
-  it("changes exactly the three tools' descriptions, with no money words", () => {
-    const changed = SERVED_TOOLS.filter((s) => descriptionFor(s, "link", "neutral", true) !== descriptionFor(s, "link", "neutral"));
-    expect(changed.map((s) => s.name).sort()).toEqual(["get_ai_visibility", "get_report", "run_audit"]);
-    for (const s of changed) expect(descriptionFor(s, "link", "neutral", true)).not.toMatch(MONEY);
+  it("changes no tool description: the reviewed neutral copy stands", () => {
+    for (const s of SERVED_TOOLS) expect(descriptionFor(s, "link", "neutral", true)).toBe(descriptionFor(s, "link", "neutral"));
   });
   it("adds one descriptive paragraph to the instructions: no money words, no telling Claude to call a tool", () => {
     const args = ["https://x/", "link", "http", true, "neutral"] as const;

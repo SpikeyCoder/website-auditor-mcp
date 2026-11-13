@@ -710,7 +710,9 @@ const FREE_AUDIT_SUFFIX =
  * later transform that appends text cannot let it through on an info server.
  */
 export function descriptionFor(spec: ToolSpec, style: UpsellStyle, copy: ToolCopy = "full", freeAudits = false): string {
-  const suffix = freeAudits && FREE_AUDIT_TOOLS.has(spec.name)
+  // Neutral copy (the Claude connector) keeps the reviewed descriptions with the
+  // free audit on: the server instructions describe it instead.
+  const suffix = freeAudits && copy !== "neutral" && FREE_AUDIT_TOOLS.has(spec.name)
     ? FREE_AUDIT_SUFFIX
     : copy === "neutral"
       ? PRO_SUFFIX_NEUTRAL[style]
