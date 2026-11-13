@@ -26,6 +26,7 @@
  *                          tool instead fans out real runAudit calls today)
  */
 import type { WaConfig } from "../config.js";
+import { PAID_PLANS, type PaidPlan } from "./plans.js";
 import type {
   AiVisibilitySnapshot,
   AuditReport,
@@ -104,8 +105,6 @@ export interface SchemaParams {
   type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto";
 }
 
-import { PAID_PLANS, type PaidPlan } from "./plans.js";
-export type { PaidPlan } from "./plans.js";
 
 export interface SubscriptionInfo {
   tier: "free" | "pro";
@@ -943,8 +942,8 @@ export class WaApiClient implements WaApiClientLike {
           // The day it is back is the whole remedy: the API's sentence names it,
           // and when a build of it does not, details.resets_at is said here.
           const block = b.extra_audit_runs && typeof b.extra_audit_runs === "object" ? (b.extra_audit_runs as { resets_at?: unknown }) : undefined;
-          // An ISO date only: anything else is not said as a day.
-          const day = typeof block?.resets_at === "string" ? /^\d{4}-\d{2}-\d{2}(?=$|T)/.exec(block.resets_at)?.[0] : undefined;
+          // A UTC day only (a bare date or a Z timestamp): anything else is not said as one.
+          const day = typeof block?.resets_at === "string" ? /^(\d{4}-\d{2}-\d{2})(?:T[\d:.]+Z)?$/.exec(block.resets_at)?.[1] : undefined;
           const text = day && !message.includes(day) ? `${message} It is back on ${day} (UTC).` : message;
           return new WaApiError("EXTRA_RUNS_UNAVAILABLE", text, { status, details: block });
         }

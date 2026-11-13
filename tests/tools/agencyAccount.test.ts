@@ -329,6 +329,10 @@ describe("the month's extra audit runs (Agency)", () => {
       fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: "Paused.", extra_audit_runs: { resets_at: "next month" } })) as unknown as typeof fetch,
     });
     await expect(odd.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ code: "EXTRA_RUNS_UNAVAILABLE", message: "Paused." });
+    const offset = new WaApiClient(config as never, {
+      fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: "Paused.", extra_audit_runs: { resets_at: "2026-12-01T00:00:00+02:00" } })) as unknown as typeof fetch,
+    });
+    await expect(offset.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ message: "Paused." });
   });
 
   it("a 429 whose sentence does not name the day gets it from the reset the API sent", async () => {
