@@ -32,7 +32,7 @@ function isFixable(r: Record<string, unknown>): boolean {
 /** The AI engines this result did not check (the report's locked_engines). */
 function lockedEngines(report: AuditReport): string[] {
   const raw = report.ai_visibility?.locked_engines;
-  return Array.isArray(raw) ? raw.filter((n): n is string => typeof n === "string") : [];
+  return Array.isArray(raw) ? [...new Set(raw.filter((n): n is string => typeof n === "string" && n.trim() !== ""))] : [];
 }
 
 /**
@@ -43,6 +43,7 @@ function lockedEngines(report: AuditReport): string[] {
 export function uncheckedEnginesNote(report: AuditReport): string | null {
   const locked = lockedEngines(report);
   if (locked.length === 0) return null;
+  if (locked.length >= ENGINE_COUNT) return `Not checked in this result: ${locked.join(", ")}.`;
   return `${ENGINE_COUNT - locked.length} of ${ENGINE_COUNT} AI engines were checked in this result; not checked: ${locked.join(", ")}.`;
 }
 

@@ -17,6 +17,7 @@ import { buildInstructions } from "../../src/mcp/instructions.js";
 import { loadConfig } from "../../src/config.js";
 import { WaApiError, FREE_AUDIT_LIMIT_REASON } from "../../src/api/errors.js";
 import { WaApiClient } from "../../src/api/client.js";
+import { uncheckedEnginesNote } from "../../src/tools/nextSteps.js";
 import { makeDeps, fixedResolution } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
 
@@ -74,6 +75,10 @@ describe("a free Claude connector account", () => {
     const vis = await getAiVisibility({ domain: "acme.com" }, deps);
     expect(vis.ok && (vis.data as { summary?: string }).summary).toContain(note);
     for (const r of [res, vis]) expect(JSON.stringify(r)).not.toMatch(MONEY);
+    const withLocked = (locked_engines: unknown) => ({ ...reachableReport(), ai_visibility: { ...reachableReport().ai_visibility, locked_engines } }) as never;
+    expect(uncheckedEnginesNote(withLocked(["Claude", "Claude"]))).toBe("5 of 6 AI engines were checked in this result; not checked: Claude.");
+    expect(uncheckedEnginesNote(withLocked(["a", "b", "c", "d", "e", "f", "g"]))).toBe("Not checked in this result: a, b, c, d, e, f, g.");
+    expect(uncheckedEnginesNote(withLocked(undefined))).toBeNull();
   });
   it("get_ai_visibility and get_report are open to it; other Pro tools stay gated", async () => {
     const deps = claudeDeps();
