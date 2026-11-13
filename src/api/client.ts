@@ -105,8 +105,8 @@ export interface SchemaParams {
 }
 
 /** The plans /api/subscription names in `plan`. Every one of them is `tier: "pro"` here. */
-export type PaidPlan = "pro" | "agency" | "enterprise";
-const PAID_PLANS: readonly string[] = ["pro", "agency", "enterprise"];
+export const PAID_PLANS = ["pro", "agency", "enterprise"] as const;
+export type PaidPlan = (typeof PAID_PLANS)[number];
 
 export interface SubscriptionInfo {
   tier: "free" | "pro";
@@ -300,7 +300,7 @@ export class WaApiClient implements WaApiClientLike {
     const tier: "free" | "pro" = ACTIVE_SUBSCRIPTION_STATUSES.includes(status) ? "pro" : "free";
     const info: SubscriptionInfo = { tier, status };
     // Only a live subscription has a plan to name, and only one this build knows.
-    if (tier === "pro" && typeof body.plan === "string" && PAID_PLANS.includes(body.plan)) {
+    if (tier === "pro" && typeof body.plan === "string" && (PAID_PLANS as readonly string[]).includes(body.plan)) {
       info.plan = body.plan as PaidPlan;
     }
     if (body.current_period_end) info.current_period_end = body.current_period_end;
@@ -941,7 +941,12 @@ export class WaApiClient implements WaApiClientLike {
         // as "today's quota is spent" (compare_competitors would) or as a
         // reason to upgrade; the API's sentence names the day it is back.
         if (b.code === "EXTRA_AUDIT_RUNS_SPENT" || b.code === "EXTRA_AUDIT_RUNS_BUDGET") {
-          return new WaApiError("EXTRA_RUNS_SPENT", message, { status, details: b.extra_audit_runs });
+          // The day it is back is the whole remedy: the API's sentence names it,
+          // and when a build of it does not, details.resets_at is said here.
+          const resetsAt = (b.extra_audit_runs as { resets_at?: unknown } | undefined)?.resets_at;
+          const day = typeof resetsAt === "string" ? resetsAt.slice(0, 10) : undefined;
+          const text = day && !message.includes(day) ? `${message} It is back on ${day} (UTC).` : message;
+          return new WaApiError("EXTRA_RUNS_SPENT", text, { status, details: b.extra_audit_runs });
         }
         // Same reasoning as the 409 above, one status code along. This is the
         // server's shared daily audit cap (rateLimitPerDay), not a plan

@@ -14,6 +14,7 @@
  * too: a customer who used a trial in the last 12 months is billed
  * immediately, so the copy says "may", and checkout tells the truth.
  */
+import type { PaidPlan } from "../api/client.js";
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
 import { ALREADY_CONNECTED_NOTE, fromApiError, isFreeAuditCaller, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
@@ -21,7 +22,7 @@ import { oauthEnabled } from "../auth/oauth.js";
 import { PRICE, upgradeLink, plansAreDescribedAt } from "./upgrade.js";
 
 /** How a paid plan reads in a sentence. */
-const PLAN_LABEL = { pro: "Pro", agency: "Agency", enterprise: "Enterprise" } as const;
+const PLAN_LABEL: Record<PaidPlan, string> = { pro: "Pro", agency: "Agency", enterprise: "Enterprise" };
 
 export interface UpgradeStatus {
   tier: "none" | "free" | "pro";
@@ -30,7 +31,7 @@ export interface UpgradeStatus {
    * "pro" in `tier` (the API's own public answer, so no gate locks it out) and
    * says which plan it is here. Absent without a live subscription.
    */
-  plan?: "pro" | "agency" | "enterprise";
+  plan?: PaidPlan;
   /** Raw subscription status ('active', 'trialing', 'canceled', 'none', …). */
   status: string;
   current_period_end: string | null;

@@ -178,6 +178,13 @@ describe("an Agency account through the MCP", () => {
     expect(res.ok && res.data.limit).toBe(15);
   });
 
+  it("applies no cap of its own: Enterprise's 50 and a long client list pass through as the API states them", async () => {
+    const { deps } = world({ plan: "enterprise", tracked: sites(30) });
+    const res = await listTrackedSites({}, deps);
+    expect(res.ok && res.data).toMatchObject({ limit: 50, used: 30, remaining: 20 });
+    expect(res.ok && res.data.tracked).toHaveLength(30);
+  });
+
   it("a Pro account is still capped at 3, or 5 when grandfathered", async () => {
     expect(await listTrackedSites({}, world({ plan: "pro" }).deps).then((r) => r.ok && r.data.limit)).toBe(3);
     expect(await listTrackedSites({}, world({ plan: "pro", proCap: 5 }).deps).then((r) => r.ok && r.data.limit)).toBe(5);
@@ -318,6 +325,16 @@ describe("the month's extra audit runs (Agency)", () => {
       fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: message })) as unknown as typeof fetch,
     });
     await expect(bare.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ code: "EXTRA_RUNS_SPENT", message });
+  });
+
+  it("a 429 whose sentence does not name the day gets it from the reset the API sent", async () => {
+    const config = testConfig({ apiKey: "wa_x" });
+    const client = new WaApiClient(config as never, {
+      fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_SPENT", error: "The month's extra audit runs are used.", extra_audit_runs: { resets_at: NEXT_DAY } })) as unknown as typeof fetch,
+    });
+    await expect(client.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({
+      code: "EXTRA_RUNS_SPENT", message: "The month's extra audit runs are used. It is back on 2026-12-01 (UTC).",
+    });
   });
 
   it("the ordinary daily 429 is still OVER_QUOTA", async () => {
