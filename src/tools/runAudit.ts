@@ -14,7 +14,7 @@
 import type { AuditSummary } from "../api/types.js";
 import { toAuditSummary, detectUnreachable } from "../api/mappers.js";
 import { dashboardLink, dashboardField } from "./dashboardLink.js";
-import { freeNextSteps, nextStepsSentence } from "./nextSteps.js";
+import { freeNextSteps, nextStepsSentence, uncheckedEnginesNote } from "./nextSteps.js";
 import { gateAuditTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface RunAuditArgs {
@@ -53,7 +53,11 @@ export async function runAudit(args: RunAuditArgs, deps: ToolDeps): Promise<Tool
   // the plan's terms, which neutral copy keeps out of what the server volunteers.
   if (free) {
     const summaryOnly = toAuditSummary(response.report, { siteUrl: deps.config.siteUrl });
-    if (deps.config.toolCopy === "neutral") return ok(summaryOnly);
+    if (deps.config.toolCopy === "neutral") {
+      // Still say which engines this result left out, as the instructions promise.
+      const note = uncheckedEnginesNote(response.report);
+      return ok(note ? { ...summaryOnly, summary: note } : summaryOnly);
+    }
     const next_steps = freeNextSteps(response.report, args.domain);
     return ok({ ...summaryOnly, summary: nextStepsSentence(next_steps), next_steps });
   }

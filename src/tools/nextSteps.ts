@@ -29,6 +29,23 @@ function isFixable(r: Record<string, unknown>): boolean {
   return r.has_fix === true && impact > 0 && r.name !== AI_FINDING_NAME;
 }
 
+/** The AI engines this result did not check (the report's locked_engines). */
+function lockedEngines(report: AuditReport): string[] {
+  const raw = report.ai_visibility?.locked_engines;
+  return Array.isArray(raw) ? raw.filter((n): n is string => typeof n === "string") : [];
+}
+
+/**
+ * Which engines a free result left out, as a plain fact and with no tool name,
+ * for a server that sends no next_steps (neutral copy, the Claude connector).
+ * Null when every engine was checked.
+ */
+export function uncheckedEnginesNote(report: AuditReport): string | null {
+  const locked = lockedEngines(report);
+  if (locked.length === 0) return null;
+  return `${ENGINE_COUNT - locked.length} of ${ENGINE_COUNT} AI engines were checked in this result; not checked: ${locked.join(", ")}.`;
+}
+
 export function freeNextSteps(report: AuditReport, domain: string): NextStep[] {
   const host = siteHostname(domain) ?? "this site";
   const steps: NextStep[] = [];
@@ -39,8 +56,7 @@ export function freeNextSteps(report: AuditReport, domain: string): NextStep[] {
     steps.push({ tool: "get_fix", what: `${fixes} ${fixes === 1 ? "fix" : "fixes"} available for ${host}` });
   }
 
-  const lockedRaw = report.ai_visibility?.locked_engines;
-  const locked = Array.isArray(lockedRaw) ? lockedRaw.filter((n): n is string => typeof n === "string") : [];
+  const locked = lockedEngines(report);
   // The engines this plan did not check are covered by the weekly check, not by
   // asking run_audit again (a re-run of the same plan asks the same four).
   steps.push({

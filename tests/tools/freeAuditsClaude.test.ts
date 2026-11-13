@@ -65,6 +65,16 @@ describe("a free Claude connector account", () => {
     const vis = await getAiVisibility({ domain: "acme.com" }, deps);
     expect(vis.ok && (vis.data as { next_steps?: unknown }).next_steps).toBeUndefined();
   });
+  it("still says which AI engines a free result left out, with no tool name", async () => {
+    const report = { ...reachableReport(), ai_visibility: { ...reachableReport().ai_visibility, locked_engines: ["Google AI Overviews", "Microsoft Copilot"] } };
+    const deps = claudeDeps({ client: { runAudit: vi.fn(async () => ({ runId: "run1", report, raw: {} })) } });
+    const note = "4 of 6 AI engines were checked in this result; not checked: Google AI Overviews, Microsoft Copilot.";
+    const res = await runAudit({ domain: "acme.com" }, deps);
+    expect(res.ok && (res.data as { summary?: string }).summary).toBe(note);
+    const vis = await getAiVisibility({ domain: "acme.com" }, deps);
+    expect(vis.ok && (vis.data as { summary?: string }).summary).toContain(note);
+    for (const r of [res, vis]) expect(JSON.stringify(r)).not.toMatch(MONEY);
+  });
   it("get_ai_visibility and get_report are open to it; other Pro tools stay gated", async () => {
     const deps = claudeDeps();
     expect((await getAiVisibility({ domain: "acme.com" }, deps)).ok).toBe(true);
