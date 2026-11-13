@@ -14,7 +14,7 @@
  * too: a customer who used a trial in the last 12 months is billed
  * immediately, so the copy says "may", and checkout tells the truth.
  */
-import type { PaidPlan } from "../api/client.js";
+import type { PaidPlan } from "../api/plans.js";
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
 import { ALREADY_CONNECTED_NOTE, fromApiError, isFreeAuditCaller, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";

@@ -56,7 +56,7 @@
  */
 import { z } from "zod";
 import type { ZodRawShape } from "zod";
-import { PAID_PLANS } from "../api/client.js";
+import { PAID_PLANS } from "../api/plans.js";
 
 /** An object that mirrors upstream data: extra keys are expected, not an error. */
 const open = <T extends ZodRawShape>(shape: T) => z.object(shape).passthrough();

@@ -104,9 +104,8 @@ export interface SchemaParams {
   type?: "Organization" | "LocalBusiness" | "Product" | "FAQPage" | "auto";
 }
 
-/** The plans /api/subscription names in `plan`. Every one of them is `tier: "pro"` here. */
-export const PAID_PLANS = ["pro", "agency", "enterprise"] as const;
-export type PaidPlan = (typeof PAID_PLANS)[number];
+import { PAID_PLANS, type PaidPlan } from "./plans.js";
+export type { PaidPlan } from "./plans.js";
 
 export interface SubscriptionInfo {
   tier: "free" | "pro";
@@ -943,10 +942,11 @@ export class WaApiClient implements WaApiClientLike {
         if (b.code === "EXTRA_AUDIT_RUNS_SPENT" || b.code === "EXTRA_AUDIT_RUNS_BUDGET") {
           // The day it is back is the whole remedy: the API's sentence names it,
           // and when a build of it does not, details.resets_at is said here.
-          const resetsAt = (b.extra_audit_runs as { resets_at?: unknown } | undefined)?.resets_at;
-          const day = typeof resetsAt === "string" ? resetsAt.slice(0, 10) : undefined;
+          const block = b.extra_audit_runs && typeof b.extra_audit_runs === "object" ? (b.extra_audit_runs as { resets_at?: unknown }) : undefined;
+          // An ISO date only: anything else is not said as a day.
+          const day = typeof block?.resets_at === "string" ? /^\d{4}-\d{2}-\d{2}(?=$|T)/.exec(block.resets_at)?.[0] : undefined;
           const text = day && !message.includes(day) ? `${message} It is back on ${day} (UTC).` : message;
-          return new WaApiError("EXTRA_RUNS_SPENT", text, { status, details: b.extra_audit_runs });
+          return new WaApiError("EXTRA_RUNS_UNAVAILABLE", text, { status, details: block });
         }
         // Same reasoning as the 409 above, one status code along. This is the
         // server's shared daily audit cap (rateLimitPerDay), not a plan

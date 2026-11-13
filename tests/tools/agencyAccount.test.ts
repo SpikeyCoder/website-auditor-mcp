@@ -50,7 +50,7 @@ const NEXT_DAY = "2026-12-01T00:00:00.000Z";
 
 function limitOf(s: Standin): number {
   if (s.plan === "agency") return 10 + (s.extraSites ?? 0);
-  if (s.plan === "enterprise") return 50 + (s.extraSites ?? 0);
+  if (s.plan === "enterprise") return 50 + (s.extraSites ?? 0); // tiers.js ENTERPRISE_INCLUDED_SITES
   return s.proCap ?? 3;
 }
 
@@ -292,12 +292,12 @@ describe("check_upgrade_status names the plan", () => {
 });
 
 describe("the month's extra audit runs (Agency)", () => {
-  it("run_audit of a tracked client past the count is EXTRA_RUNS_SPENT with the reset, not the daily quota", async () => {
+  it("run_audit of a tracked client past the count is EXTRA_RUNS_UNAVAILABLE with the reset, not the daily quota", async () => {
     const { deps } = world({ tracked: ["client1.example.net"], extraRunsSpent: true });
     const res = await runAudit({ domain: "client1.example.net" }, deps);
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe("EXTRA_RUNS_SPENT");
+    expect(res.error.code).toBe("EXTRA_RUNS_UNAVAILABLE");
     expect(res.error.message).toContain("2026-12-01");
     expect(res.error.details).toMatchObject({ limit: 30, used: 30, resets_at: NEXT_DAY });
     expect(res.error.upgrade_url).toBeUndefined();
@@ -308,23 +308,27 @@ describe("the month's extra audit runs (Agency)", () => {
     const res = await compareCompetitors({ domain: "client1.example.net", competitors: ["rival.example.org"] }, deps);
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe("EXTRA_RUNS_SPENT");
+    expect(res.error.code).toBe("EXTRA_RUNS_UNAVAILABLE");
     expect(res.error.message).not.toMatch(/daily audit quota/i);
   });
 
-  it("the provider-budget pause is the same code, its day in the message, and no details to read when the API sends none", async () => {
+  it("the provider-budget pause is the same code, its day in the message, and no details to read when the API sends none (a reset that is not a date is not said as one)", async () => {
     const config = testConfig({ apiKey: "wa_x" });
     const message = "This account's extra audit runs are paused for the month to stay within the provider budget. They are available again on 2026-12-01 (UTC).";
     const client = new WaApiClient(config as never, {
       fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: message, extra_audit_runs: { resets_at: NEXT_DAY } })) as unknown as typeof fetch,
     });
     await expect(client.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({
-      code: "EXTRA_RUNS_SPENT", message, details: { resets_at: NEXT_DAY },
+      code: "EXTRA_RUNS_UNAVAILABLE", message, details: { resets_at: NEXT_DAY },
     });
     const bare = new WaApiClient(config as never, {
       fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: message })) as unknown as typeof fetch,
     });
-    await expect(bare.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ code: "EXTRA_RUNS_SPENT", message });
+    await expect(bare.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ code: "EXTRA_RUNS_UNAVAILABLE", message });
+    const odd = new WaApiClient(config as never, {
+      fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: "Paused.", extra_audit_runs: { resets_at: "next month" } })) as unknown as typeof fetch,
+    });
+    await expect(odd.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ code: "EXTRA_RUNS_UNAVAILABLE", message: "Paused." });
   });
 
   it("a 429 whose sentence does not name the day gets it from the reset the API sent", async () => {
@@ -333,7 +337,7 @@ describe("the month's extra audit runs (Agency)", () => {
       fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_SPENT", error: "The month's extra audit runs are used.", extra_audit_runs: { resets_at: NEXT_DAY } })) as unknown as typeof fetch,
     });
     await expect(client.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({
-      code: "EXTRA_RUNS_SPENT", message: "The month's extra audit runs are used. It is back on 2026-12-01 (UTC).",
+      code: "EXTRA_RUNS_UNAVAILABLE", message: "The month's extra audit runs are used. It is back on 2026-12-01 (UTC).",
     });
   });
 

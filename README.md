@@ -37,7 +37,7 @@ server just makes them available to agents.
 | `check_fix` | **Pro** | "I've added it": reads the live site for a fix request and says it's live or names what's missing. Once a minute per request (`CHECKED_RECENTLY` with `retry_after`). |
 | `check_upgrade_status` | Any valid key | Your own subscription standing — tier (`pro` for every paid plan), `plan` (`pro`, `agency` or `enterprise`), status, period end, and what upgrading unlocks (starting Pro requires a payment method and accepting the Terms). Consumes no audit quota. |
 
-**Plans.** Every tool marked **Pro** works the same on an Agency or Enterprise account: they are paid plans, and the API reports each as `tier: "pro"`. What differs is the account's own limits, which the API enforces and these tools report as it answers: `list_tracked_sites` and `track_site` use the account's site limit (3 on Pro, 5 for a subscription started before 18 October 2026; 10 on Agency, plus any extra sites it has added; the agreed number on Enterprise), and an Agency or Enterprise account's re-runs of its tracked sites draw on a monthly count of extra audit runs, answered as `EXTRA_RUNS_SPENT` once it is used. Tracked sites are the account's client list: `list_tracked_sites` shows the same sites as the Agency command center. A teammate on an Agency workspace connects with a workspace token (a `wa_` key from the workspace's Team & API tab), not with a login of their own, which has no plan.
+**Plans.** Every tool marked **Pro** works the same on an Agency or Enterprise account: they are paid plans, and the API reports each as `tier: "pro"`. What differs is the account's own limits, which the API enforces and these tools report as it answers: `list_tracked_sites` and `track_site` use the account's site limit (3 on Pro, 5 for a subscription started before 18 October 2026; 10 on Agency, plus any extra sites it has added; the agreed number on Enterprise), and an Agency or Enterprise account's re-runs of its tracked sites draw on a monthly count of extra audit runs, answered as `EXTRA_RUNS_UNAVAILABLE` once it is used up. Tracked sites are the account's client list: `list_tracked_sites` shows the same sites as the Agency command center. A teammate on an Agency workspace connects with a workspace token (a `wa_` key from the workspace's Team & API tab), not with a login of their own, which has no plan.
 
 ## Prompts
 
@@ -242,9 +242,9 @@ minute:
 
 Errors are normalized to stable codes agents can branch on — e.g.
 `AUTH_REQUIRED`, `INVALID_KEY`, `PRO_REQUIRED`, `OVER_QUOTA`,
-`LIMIT_REACHED` (the account's tracked-site limit), `EXTRA_RUNS_SPENT` (an Agency
-or Enterprise account's month of extra audit runs on its tracked sites; the
-message names the day it is back),
+`LIMIT_REACHED` (the account's tracked-site limit), `EXTRA_RUNS_UNAVAILABLE` (an Agency
+or Enterprise account's extra audit runs on its tracked sites are used up for
+the month or paused; the message names the day they are back),
 `UNREACHABLE_DOMAIN`, `INVALID_INPUT`, `TIMEOUT`. A domain that resolves but
 whose pages never load (down, refusing, timing out, or answering 404/5xx on
 every page) returns `UNREACHABLE_DOMAIN`; one that does not resolve is refused
