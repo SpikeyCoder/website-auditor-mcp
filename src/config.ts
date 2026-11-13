@@ -326,10 +326,14 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
   const siteUrl = stripTrailingSlash(normalizeEnvValue(env.WA_SITE_URL) || "https://website-auditor.io");
   const upsellStyle = parseUpsellStyle(env.WA_UPSELL_STYLE);
   const linkChannel = parseLinkChannel(normalizeEnvValue(env.WA_LINK_CHANNEL));
+  const toolCopy = parseToolCopy(normalizeEnvValue(env.WA_TOOL_COPY));
   const freeAuditsFor = normalizeEnvValue(env.WA_FREE_AUDITS)?.toLowerCase();
+  // claude needs the whole Claude service shape, neutral copy included: only
+  // the neutral instructions describe the free audit without telling Claude to
+  // call a tool, and keep the plan terms off the account's own limit.
   const freeAuditsChannel: WaConfig["freeAuditsChannel"] =
     freeAuditsFor === "chatgpt" && upsellStyle === "info" ? "chatgpt"
-      : freeAuditsFor === "claude" && upsellStyle === "link" && linkChannel === "claude" ? "claude"
+      : freeAuditsFor === "claude" && upsellStyle === "link" && linkChannel === "claude" && toolCopy === "neutral" ? "claude"
         : undefined;
   return {
     apiBaseUrl: stripTrailingSlash(normalizeEnvValue(env.WA_API_BASE_URL) || "https://api.website-auditor.io"),
@@ -339,7 +343,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     upsellStyle,
     upsellInfoUrl: stripTrailingSlash(normalizeEnvValue(env.WA_UPSELL_INFO_URL) || "") || siteUrl,
     authChallenge: parseAuthChallenge(normalizeEnvValue(env.WA_AUTH_CHALLENGE)),
-    toolCopy: parseToolCopy(normalizeEnvValue(env.WA_TOOL_COPY)),
+    toolCopy,
     linkChannel,
     freeAudits: freeAuditsChannel !== undefined,
     freeAuditsChannel,
