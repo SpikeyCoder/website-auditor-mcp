@@ -937,15 +937,27 @@ export class WaApiClient implements WaApiClientLike {
         // counted. Its own code, so nothing reads it as "today's quota is
         // spent" (compare_competitors would) or as a reason to upgrade. When
         // is back is the whole remedy: the API's sentence names the day, and
-        // when a build of it does not, the reset it sent is said here, as the
-        // OVER_QUOTA branch below does.
+        // when a build of it does not, the reset it sent is said here (the
+        // OVER_QUOTA branch below says its own, unvalidated).
         if (b.code === "EXTRA_AUDIT_RUNS_SPENT" || b.code === "EXTRA_AUDIT_RUNS_BUDGET") {
-          const block = b.extra_audit_runs && typeof b.extra_audit_runs === "object" ? (b.extra_audit_runs as { resets_at?: unknown }) : undefined;
-          // Said only when it is a real date: an impossible one is not repeated.
-          const resetsAt = typeof block?.resets_at === "string" ? block.resets_at : undefined;
-          const real = resetsAt !== undefined && /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z)?$/.test(resetsAt) && !Number.isNaN(Date.parse(resetsAt));
-          const text = real && !message.includes(resetsAt.slice(0, 10)) ? `${message} It resets at ${resetsAt}.` : message;
-          return new WaApiError("EXTRA_RUNS_UNAVAILABLE", text, { status, details: block });
+          const raw = b.extra_audit_runs && typeof b.extra_audit_runs === "object" && !Array.isArray(b.extra_audit_runs)
+            ? (b.extra_audit_runs as Record<string, unknown>)
+            : undefined;
+          // Said only when it is a real date. Date.parse alone rolls 2026-02-30
+          // over to March 2, so the day must also survive a round trip.
+          const sent = typeof raw?.resets_at === "string" ? raw.resets_at : undefined;
+          const resetsAt = sent !== undefined && /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z)?$/.test(sent) &&
+            !Number.isNaN(Date.parse(sent)) && new Date(Date.parse(sent)).toISOString().slice(0, 10) === sent.slice(0, 10)
+            ? sent
+            : undefined;
+          // An impossible reset is not repeated in details either: the model reads both.
+          let details: Record<string, unknown> | undefined = raw;
+          if (raw && resetsAt === undefined && "resets_at" in raw) {
+            const { resets_at: _dropped, ...rest } = raw;
+            details = rest;
+          }
+          const text = resetsAt && !message.includes(resetsAt.slice(0, 10)) ? `${message} It resets at ${resetsAt}.` : message;
+          return new WaApiError("EXTRA_RUNS_UNAVAILABLE", text, { status, details });
         }
         // Same reasoning as the 409 above, one status code along. This is the
         // server's shared daily audit cap (rateLimitPerDay), not a plan

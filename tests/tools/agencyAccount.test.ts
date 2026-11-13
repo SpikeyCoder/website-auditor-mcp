@@ -337,6 +337,26 @@ describe("the month's extra audit runs (Agency)", () => {
       fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: "Paused.", extra_audit_runs: { resets_at: "2026-13-45T00:00:00Z" } })) as unknown as typeof fetch,
     });
     await expect(impossible.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ message: "Paused." });
+    // The rejected reset is not in details either; the rest of the block is.
+    const dropped = new WaApiClient(config as never, {
+      fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_SPENT", error: "Spent.", extra_audit_runs: { limit: 5, used: 5, resets_at: "2026-02-30" } })) as unknown as typeof fetch,
+    });
+    await expect(dropped.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ details: { limit: 5, used: 5 } });
+    await expect(dropped.runAudit({ domain: "client1.example.net" })).rejects.not.toHaveProperty("details.resets_at");
+    // Real edge dates are still said: a leap day, a month-end instant.
+    for (const resets_at of ["2028-02-29", "2026-12-31T23:59:59.999Z"]) {
+      const edge = new WaApiClient(config as never, {
+        fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: "Paused.", extra_audit_runs: { resets_at } })) as unknown as typeof fetch,
+      });
+      await expect(edge.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ message: `Paused. It resets at ${resets_at}.`, details: { resets_at } });
+    }
+    // A date that parses only by rolling over (Feb 30, Feb 31) is not a real day either.
+    for (const resets_at of ["2026-02-30", "2026-02-31T00:00:00Z", "2026-04-31"]) {
+      const rolled = new WaApiClient(config as never, {
+        fetch: (async () => json(429, { success: false, code: "EXTRA_AUDIT_RUNS_BUDGET", error: "Paused.", extra_audit_runs: { resets_at } })) as unknown as typeof fetch,
+      });
+      await expect(rolled.runAudit({ domain: "client1.example.net" })).rejects.toMatchObject({ message: "Paused." });
+    }
   });
 
   it("a 429 whose sentence does not name the day gets it from the reset the API sent", async () => {
