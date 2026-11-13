@@ -16,6 +16,7 @@ import { SERVED_TOOLS, descriptionFor } from "../../src/tools/registry.js";
 import { buildInstructions } from "../../src/mcp/instructions.js";
 import { loadConfig } from "../../src/config.js";
 import { WaApiError, FREE_AUDIT_LIMIT_REASON } from "../../src/api/errors.js";
+import { WaApiClient } from "../../src/api/client.js";
 import { makeDeps, fixedResolution } from "../helpers.js";
 import { reachableReport } from "../fixtures/reports.js";
 
@@ -112,7 +113,24 @@ describe("what the Claude service publishes with the flag on", () => {
     expect(on.startsWith(off)).toBe(true);
     const added = on.slice(off.length);
     expect(added).toContain("FREE AUDITS.");
+    expect(added).toContain("free_audit_limit is this account's own limit, not a missing plan");
     expect(added).not.toMatch(MONEY);
     expect(added).not.toMatch(/\bcall\b/i);
+  });
+});
+
+describe("each service takes only its own channel's grant", () => {
+  const mk = (env: Record<string, string>, body: unknown) => new WaApiClient({ ...loadConfig(env), apiKey: "wa_k" }, { fetch: (async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch });
+  const CHATGPT_ENV = { WA_FREE_AUDITS: "chatgpt", WA_UPSELL_STYLE: "info" };
+  const grant = (channel?: string) => ({ tier: "free", status: "none", free_audits: channel === undefined ? { eligible: true } : { eligible: true, channel } });
+  it("the Claude service takes a claude grant and refuses a chatgpt or unnamed one", async () => {
+    expect((await mk(CLAUDE_ENV, grant("claude")).getSubscription()).freeAudits).toBe(true);
+    expect((await mk(CLAUDE_ENV, grant("chatgpt")).getSubscription()).freeAudits).toBeUndefined();
+    expect((await mk(CLAUDE_ENV, grant()).getSubscription()).freeAudits).toBeUndefined();
+  });
+  it("the ChatGPT service takes a chatgpt or unnamed grant and refuses a claude one", async () => {
+    expect((await mk(CHATGPT_ENV, grant("chatgpt")).getSubscription()).freeAudits).toBe(true);
+    expect((await mk(CHATGPT_ENV, grant()).getSubscription()).freeAudits).toBe(true);
+    expect((await mk(CHATGPT_ENV, grant("claude")).getSubscription()).freeAudits).toBeUndefined();
   });
 });

@@ -299,8 +299,26 @@ gcloud run services update website-auditor-mcp --region us-central1 --update-env
 
 The API's variable is wiped by its next deploy unless the repository variable
 `FREE_CHATGPT_AUDITS` is set to `on` as well (its `deploy.yml` replaces the
-environment). Do not set `WA_FREE_AUDITS` on `website-auditor-mcp-claude`; it is
-ignored there. Turn off: the same two commands with `FREE_CHATGPT_AUDITS=off`
+environment). `WA_FREE_AUDITS=chatgpt` is ignored on `website-auditor-mcp-claude`;
+that service has its own value, below. Turn off: the same two commands with `FREE_CHATGPT_AUDITS=off`
 and `WA_FREE_AUDITS=off` (either one alone also ends the free audit: the tools
 stop offering it, or the API refuses it). `gcloud run deploy --source .` keeps
 the service's environment, so a plain release does not change the flag.
+
+### The same free audit in Claude's connector (`WA_FREE_AUDITS=claude`)
+
+The same audit, limits and engine guard for an account connected through
+Claude's connector, set only on `website-auditor-mcp-claude`. The API's flag is
+`FREE_CLAUDE_AUDITS`, which its `deploy.yml` deploys `on` unless the repository
+variable says otherwise. That is safe before this server has the flag: the
+Claude service without it gates the tools as before, and the ChatGPT service
+takes only a `chatgpt` grant (`free_audits.channel`), so a Claude connection
+reaching it is not offered one. Turn on, once this server's release with
+`claude` support is deployed there:
+
+```sh
+gcloud run services update website-auditor-mcp-claude --region us-central1 --update-env-vars WA_FREE_AUDITS=claude
+```
+
+Turn off: `WA_FREE_AUDITS=off` there, or the API's repository variable
+`FREE_CLAUDE_AUDITS=off` and a deploy (either one alone ends it).
