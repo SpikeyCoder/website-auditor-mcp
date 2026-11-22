@@ -102,3 +102,40 @@ export class WaApiError extends Error {
     this.upgradeUrl = opts.upgradeUrl;
   }
 }
+
+/**
+ * The API's note on the daily allowance ("was not consumed", or "could not be refunded ... still counts
+ * toward it"), if the message carries one. It says what a caller needs before retrying, and nothing about plans.
+ */
+export function allowanceNote(message: string): string | undefined {
+  return /Your daily allowance[^.]*(?:\.[^.]*?counts toward it)?\./.exec(message)?.[0];
+}
+
+/**
+ * An ISO date or instant (UTC, `Z`) the API sent, or undefined. A monthly cap's reset is said to a reader as a
+ * date, so it is checked once, here, and trusted after.
+ */
+export function validInstant(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z)?$/.test(raw)) return undefined;
+  const ms = Date.parse(raw);
+  // Date.parse rolls an impossible day over (2026-02-30 is March 2): the date read back must be the one sent.
+  return Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== raw.slice(0, 10) ? undefined : raw;
+}
+
+/** The longest a monthly count's reset can be ahead: a month, with a day's slack. */
+const MAX_MONTHLY_RESET_AHEAD_MS = 32 * 86_400_000;
+/**
+ * How far past a reset may be and still be said: this host's clock and the API's can differ a little.
+ * A reset outside the window falls back to "the start of next month", which is never an overstatement of a
+ * month-long count; a bounded slack is the chosen trade between that and naming a date that has just passed.
+ */
+const MONTHLY_RESET_CLOCK_SLACK_MS = 3_600_000;
+
+/** A monthly cap's reset: a valid instant that is not already long past and is within a month, else undefined. */
+export function validMonthlyReset(raw: unknown, nowMs: number = Date.now()): string | undefined {
+  const at = validInstant(raw);
+  if (!at) return undefined;
+  // A bare date is the whole of that UTC day: it is not past until the day is.
+  const ahead = Date.parse(at) + (at.length === 10 ? 86_400_000 : 0) - nowMs;
+  return ahead > -MONTHLY_RESET_CLOCK_SLACK_MS && ahead <= MAX_MONTHLY_RESET_AHEAD_MS ? at : undefined;
+}

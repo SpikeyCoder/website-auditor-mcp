@@ -293,7 +293,7 @@ export function buildInstructions(
             "So the plan sentence above, and what those tools' descriptions say they require, do not settle whether an account can audit: run_audit's own answer says so. " +
             "A PRO_REQUIRED whose details.reason is free_audit_limit, whatever its details.limit, is this account's own limit, " +
             "not a missing plan, so its message is the whole answer and the plan terms above do not apply to it; " +
-            "with details.limit cadence it clears in a minute. " +
+            "with details.limit cadence it clears in a minute, and with details.limit monthly_cap at the date its message names, or the start of next month. " +
             "Any other PRO_REQUIRED is answered as above.",
         ]
       : []),

@@ -7,7 +7,8 @@ import type { WaApiClientLike } from "../api/client.js";
 import type { SubscriptionProvider, TierResolution } from "../auth/entitlements.js";
 import type { AuditCache } from "../auth/auditCache.js";
 import type { ErrorCode } from "../api/errors.js";
-import { WaApiError, isKeyRejection, FREE_AUDIT_LIMIT_REASON } from "../api/errors.js";
+import { WaApiError, isKeyRejection, FREE_AUDIT_LIMIT_REASON, validMonthlyReset, allowanceNote as allowanceNoteOf } from "../api/errors.js";
+import { isDirectoryChannel } from "../config.js";
 import { isPro } from "../auth/entitlements.js";
 import { upgradeLink, tagSource, tagSite, siteHostname, PRICE, plansAreDescribedAt } from "./upgrade.js";
 import { oauthEnabled, wwwAuthenticateChallenge } from "../auth/oauth.js";
@@ -233,21 +234,80 @@ function planNotIncludedMessage(config: WaConfig, site?: string): string {
     `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
 }
 
+/** The free audits an account gets a UTC month (website-auditor-api's FREE_MONTHLY_AUDITS): keep them in step. */
+const FREE_MONTHLY_AUDITS = 3;
+/** The audits a day Pro includes (the portal's Pro card says the same): keep them in step. */
+const PRO_DAILY_AUDITS = 10;
+
+function freeLimitKind(details: unknown): "cadence" | "daily_cap" | "monthly_cap" {
+  const limit = (details as { limit?: unknown } | undefined)?.limit;
+  return limit === "cadence" || limit === "monthly_cap" ? limit : "daily_cap";
+}
+
+function freeLimitResetsAt(details: unknown): string | undefined {
+  // (The client has checked it; a WaApiError built elsewhere is checked here, the same way.)
+  return validMonthlyReset((details as { resets_at?: unknown } | undefined)?.resets_at);
+}
+
 /**
- * A free audit refused for its account's limit: the same neutral plan reply
- * and the same plans link as any plan boundary (info style, the page OpenAI
- * already reviewed; the portal on the Claude connector), worded for what is
- * true of an audit: the audits this account's current plan includes are used
- * for now.
+ * A free audit refused for its account's limit. The daily cap and the rhythm
+ * check get the neutral plan reply and the same plans link as any plan
+ * boundary (info style, the page OpenAI already reviewed; the portal on the
+ * Claude connector), worded for what is true of an audit: the audits this
+ * account's current plan includes are used for now. The monthly cap names its
+ * reset date, and then splits by channel: a directory-listed host
+ * (isDirectoryChannel) says only where plans are described; any other channel
+ * states the Pro offer and its link. That branch is also defensive: today only
+ * the two hosted services run free audits, and both are directory hosts.
  */
-function freeAuditLimitMessage(config: WaConfig, site?: string, cadence = false): string {
-  if (cadence) {
+function freeAuditLimitMessage(
+  config: WaConfig,
+  site?: string,
+  limit: "cadence" | "daily_cap" | "monthly_cap" = "daily_cap",
+  resetsAt?: string,
+  upgradeUrl?: string,
+): string {
+  if (limit === "cadence") {
     return `This account's current Website Auditor plan limits how quickly audits can run; try again in a minute. ` +
       `${plansAreDescribedAt(config, site)}.`;
+  }
+  if (limit === "monthly_cap") {
+    const used = `The ${FREE_MONTHLY_AUDITS} free audits included this month are used; ` +
+      `they reset ${resetsAt ? `on ${formatUtcDate(resetsAt)} (UTC)` : "at the start of next month (UTC)"}.`;
+    // A directory-listed host (ChatGPT's info style, Claude's neutral copy) says what is true and where
+    // plans are described, and nothing more: both directories forbid in-app promotion.
+    if (isDirectoryChannel(config)) {
+      return `${used} ${plansAreDescribedAt(config, site)}. ` +
+        `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
+    }
+    // Everywhere else the offer is stated, with the link the caller can follow.
+    const link = upgradeUrl ? tagSite(tagSource(upgradeUrl), site, config) : upgradeLink(config, site);
+    return `${used} Website Auditor Pro includes ${PRO_DAILY_AUDITS} audits a day (${PRICE}). Upgrade to Pro: ${link} . ` + // (the space keeps the link a token of its own, as in the AUTH_REQUIRED text)
+      `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
   }
   return `The audits included in this account's current Website Auditor plan are used for now. ` +
     `${plansAreDescribedAt(config, site)}. ` +
     `In the meantime get_sample_audit works without a plan and shows the exact output format.`;
+}
+
+/**
+ * The link without its Pro paywall request (plan=pro), unless the operator's own configured link asks
+ * for it (then it is theirs, not the API's), or as it was if it is not a URL.
+ */
+function withoutProPlan(url: string, configured: string): string {
+  try {
+    const u = new URL(url);
+    if (u.searchParams.get("plan") !== "pro" || new URL(configured).searchParams.get("plan") === "pro") return url;
+    u.searchParams.delete("plan");
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+/** "December 1, 2026" for an ISO instant, read in UTC. */
+function formatUtcDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { timeZone: "UTC", year: "numeric", month: "long", day: "numeric" });
 }
 
 /**
@@ -377,31 +437,46 @@ export function fromApiError(
     // whenever one would have (attachUpgrade or an API-provided URL) — it just
     // points at the informational page (upgradeLink is style-aware).
     const wouldCarryLink = e.upgradeUrl !== undefined || attachUpgrade;
+    const freeLimit = (e.details as { reason?: unknown } | undefined)?.reason === FREE_AUDIT_LIMIT_REASON;
+    const limitKind = freeLimit ? freeLimitKind(e.details) : undefined;
+    // A directory-listed host never carries the Pro paywall link (plan=pro), however the error was built.
+    const offered = e.upgradeUrl !== undefined && limitKind === "monthly_cap" && isDirectoryChannel(config)
+      ? withoutProPlan(e.upgradeUrl, config.upgradeUrl)
+      : e.upgradeUrl;
     const target =
       config.upsellStyle === "info"
         ? wouldCarryLink
           ? upgradeLink(config, site)
           : undefined
-        : (e.upgradeUrl ?? (attachUpgrade ? config.upgradeUrl : undefined));
+        : (offered ?? (attachUpgrade ? config.upgradeUrl : undefined));
     // The upstream message is replaced under info style for the same reason
     // the link is: the API's 403 texts name the trial.
     // The API's note on the daily allowance ("was not consumed", or "could
     // not be refunded … still counts toward it") is kept: it is what a caller
     // needs before retrying, and it says nothing about plans.
-    const allowanceNote = /Your daily allowance[^.]*(?:\.[^.]*?counts toward it)?\./.exec(e.message)?.[0];
-    const freeLimit = (e.details as { reason?: unknown } | undefined)?.reason === FREE_AUDIT_LIMIT_REASON;
-    // A free audit's own limit is worded the same on every service (the Claude
-    // connector's included): "used for now", or "wait a minute" for the rhythm
-    // check, which the API's one sentence cannot tell apart.
+    const allowanceNote = allowanceNoteOf(e.message);
+    // Only the monthly cap has a reset: read once, the message and `details` say the same.
+    const resetsAt = limitKind === "monthly_cap" ? freeLimitResetsAt(e.details) : undefined;
+    // A free audit's own limit is worded here, not by the API's sentence (which
+    // cannot tell the limits apart): "used for now", "wait a minute" for the
+    // rhythm check, and for the monthly cap its reset date (and, off the two
+    // directory hosts, the Pro offer: freeAuditLimitMessage).
     const withNote = (m: string) => m + (allowanceNote ? ` ${allowanceNote}` : "");
     const message = e.code === "PRO_REQUIRED" && freeLimit
-      ? withNote(freeAuditLimitMessage(config, site, (e.details as { limit?: unknown }).limit === "cadence"))
+      ? withNote(freeAuditLimitMessage(config, site, limitKind, resetsAt, e.upgradeUrl))
       : config.upsellStyle === "info" && e.code === "PRO_REQUIRED"
         ? withNote(planNotIncludedMessage(config, site))
         : e.message;
+    // The reset the message states and the one in `details` are the same: an unusable one, or one on a
+    // limit that has none, is dropped from both.
+    let details = e.details;
+    if (freeLimit && details && typeof details === "object" && "resets_at" in details && !resetsAt) {
+      const { resets_at: _dropped, ...rest } = details as Record<string, unknown>;
+      details = rest;
+    }
     return err(e.code, message, {
       upgrade_url: target === undefined ? undefined : tagSite(tagSource(target), site, config),
-      details: e.details,
+      details,
     });
   }
   return err("UPSTREAM_ERROR", e instanceof Error ? e.message : "Unexpected error.");
