@@ -272,6 +272,18 @@ export function normalizeEnvValue(raw: string | undefined): string | undefined {
 }
 
 /**
+ * Whether this surface is a directory-listed host (the hosted ChatGPT server,
+ * `upsellStyle: "info"`, or the hosted Claude connector, `toolCopy: "neutral"`).
+ * Both directories forbid in-app promotion: what they show of a plan boundary is
+ * the need for a plan and where plans are described (plansAreDescribedAt), with
+ * no price, no trial and no call to upgrade. Every other surface (npm/stdio, a
+ * self-hosted server) may state the offer.
+ */
+export function isDirectoryChannel(config: Pick<WaConfig, "upsellStyle" | "toolCopy">): boolean {
+  return config.upsellStyle === "info" || config.toolCopy === "neutral";
+}
+
+/**
  * A port from configuration, or a loud failure naming the bad value.
  *
  * Three failure modes, all of which reached production shapes:

@@ -121,6 +121,13 @@ describe("the account's limit on the Claude service", () => {
   });
 });
 
+describe("the Claude service's instructions on the monthly cap", () => {
+  it("say a monthly_cap limit clears at the date its message names", () => {
+    const text = buildInstructions("https://x/", "link", "http", true, "neutral", true);
+    expect(text).toContain("details.limit monthly_cap at the date its message names, or the start of next month");
+  });
+});
+
 describe("what the Claude service publishes with the flag on", () => {
   it("changes no tool description: the reviewed neutral copy stands", () => {
     for (const s of SERVED_TOOLS) expect(descriptionFor(s, "link", "neutral", true)).toBe(descriptionFor(s, "link", "neutral"));

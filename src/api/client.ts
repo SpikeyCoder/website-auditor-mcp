@@ -25,7 +25,7 @@
  *   - compareCompetitors → no dedicated comparison endpoint (the compare_competitors
  *                          tool instead fans out real runAudit calls today)
  */
-import type { WaConfig } from "../config.js";
+import { isDirectoryChannel, type WaConfig } from "../config.js";
 import { PAID_PLANS, type PaidPlan } from "./plans.js";
 import type {
   AiVisibilitySnapshot,
@@ -52,7 +52,7 @@ import type {
   FixCheckResult,
 } from "./types.js";
 import type { ErrorCode } from "./errors.js";
-import { WaApiError, keyRejectionFromReason, FREE_AUDIT_LIMIT_REASON } from "./errors.js";
+import { WaApiError, keyRejectionFromReason, FREE_AUDIT_LIMIT_REASON, validInstant, allowanceNote } from "./errors.js";
 import { versionHeader } from "../version.js";
 import {
   isRecord,
@@ -893,6 +893,9 @@ export class WaApiClient implements WaApiClientLike {
       reason?: unknown;
       /** FREE_AUDIT_LIMIT: a free ChatGPT audit past its per-account limit. */
       code?: unknown;
+      /** FREE_AUDIT_LIMIT monthly_cap: when the count starts again (ISO), and the Pro offer. */
+      resets_at?: unknown;
+      upgrade?: unknown;
       /** EXTRA_AUDIT_RUNS_*: the Agency month's count, with the day it resets. */
       extra_audit_runs?: unknown;
     };
@@ -922,12 +925,28 @@ export class WaApiClient implements WaApiClientLike {
         // A free ChatGPT account's own limit (per-account caps, the same rules
         // as the website's anonymous audit). It is a plan boundary, so it is
         // PRO_REQUIRED, which fromApiError answers with the neutral plan reply
-        // and the plans link; `details.reason` tells it from "no plan".
+        // and the plans link; `details.reason` tells it from "no plan". The
+        // monthly cap adds its reset date there, and, off the two directory
+        // hosts only (isDirectoryChannel), the Pro offer and its link.
         if (b.code === "FREE_AUDIT_LIMIT") {
-          return new WaApiError("PRO_REQUIRED", message, {
+          const limit = b.reason === "cadence" ? "cadence" : b.reason === "monthly_cap" ? "monthly_cap" : "daily_cap";
+          // Only that it is a real date: whether it is a plausible reset is judged once, where it is said (fromApiError).
+          const resetsAt = limit === "monthly_cap" ? validInstant(b.resets_at) : undefined;
+          // The API's sentence for the monthly cap carries the Pro offer: a directory-listed host keeps its
+          // own neutral words (fromApiError words the reply; this is for any other reader of the message).
+          // (Its allowance note, when the API appended one, stays: fromApiError reads it from the message.)
+          const note = allowanceNote(message);
+          const said = limit === "monthly_cap" && isDirectoryChannel(this.cfg)
+            ? `The free audits included this month are used.${note ? ` ${note}` : ""}`
+            : message;
+          return new WaApiError("PRO_REQUIRED", said, {
             status,
-            upgradeUrl,
-            details: { reason: FREE_AUDIT_LIMIT_REASON, limit: b.reason === "cadence" ? "cadence" : "daily_cap" },
+            // The monthly cap's own Pro link (?plan=pro) goes only where an offer may be made; a
+            // directory-listed host keeps the plain link, which it words as information.
+            upgradeUrl: limit === "monthly_cap" && !isDirectoryChannel(this.cfg)
+              ? (portalUpgradeUrl(b.upgrade, this.cfg) ?? upgradeUrl)
+              : upgradeUrl,
+            details: { reason: FREE_AUDIT_LIMIT_REASON, limit, ...(resetsAt ? { resets_at: resetsAt } : {}) },
           });
         }
         // An Agency or Enterprise account's extra audit runs: a re-run of a site
@@ -945,11 +964,7 @@ export class WaApiClient implements WaApiClientLike {
             : undefined;
           // Said only when it is a real date. Date.parse alone rolls 2026-02-30
           // over to March 2, so the day must also survive a round trip.
-          const sent = typeof raw?.resets_at === "string" ? raw.resets_at : undefined;
-          const resetsAt = sent !== undefined && /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z)?$/.test(sent) &&
-            !Number.isNaN(Date.parse(sent)) && new Date(Date.parse(sent)).toISOString().slice(0, 10) === sent.slice(0, 10)
-            ? sent
-            : undefined;
+          const resetsAt = validInstant(raw?.resets_at);
           // An impossible reset is not repeated in details either: the model reads both.
           let details: Record<string, unknown> | undefined = raw;
           if (raw && resetsAt === undefined && "resets_at" in raw) {
@@ -1396,4 +1411,25 @@ export function parseRateLimit(headers: Headers): RateLimit | undefined {
   const reset = headers.get("x-ratelimit-reset");
   if (limit === null && remaining === null && reset === null) return undefined;
   return { limit: toIntOrNull(limit), remaining: toIntOrNull(remaining), reset };
+}
+
+/**
+ * The API's `upgrade.url` for a free account's monthly cap: used only when it is an https link on the
+ * configured upgrade link's host (the portal); the link used is the configured one, with `plan=pro`.
+ * Both must be https: a plain-http configured portal (local or staging) gets the plain link, by design.
+ */
+function portalUpgradeUrl(raw: unknown, cfg: WaConfig): string | undefined {
+  const offer = raw && typeof raw === "object" ? (raw as { plan?: unknown; url?: unknown }) : undefined;
+  if (!offer || offer.plan !== "pro" || typeof offer.url !== "string") return undefined;
+  try {
+    const named = new URL(offer.url);
+    const base = new URL(cfg.upgradeUrl);
+    if (named.protocol !== "https:" || base.protocol !== "https:" || named.host !== base.host) return undefined;
+    // The configured link, asking for the Pro paywall (?plan=pro): nothing else of the API's URL is
+    // carried, so `source` stays this server's own (an operator's, or tagSource's `mcp`).
+    base.searchParams.set("plan", "pro");
+    return base.toString();
+  } catch {
+    return undefined;
+  }
 }
