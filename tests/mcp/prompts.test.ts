@@ -120,7 +120,7 @@ describe("discovery prompts", () => {
 
   it("tells the model to run the audit first, so a fresh domain is not a dead button", async () => {
     // get_gtm_plan READS the domain's most recent audit and refuses when there
-    // is none (getGtmPlan.ts: "No audit on record for X. Run run_audit first").
+    // is none (getGtmPlan.ts: NOT_FOUND, "No audit of X is on record yet. Run run_audit for X first, then ask again.").
     // Every other prompt drives a tool that stands alone; this one has an
     // ordering, and a render that omits it returns that refusal on the very
     // first click and reads as a broken button.
