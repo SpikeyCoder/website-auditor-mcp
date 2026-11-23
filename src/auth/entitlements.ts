@@ -13,7 +13,8 @@
  *   - key without `wa_`      → { invalid, verified, rejection: "malformed" }  (never calls the
  *       endpoint — the API rejects a bad prefix before it looks anything up, so the round trip
  *       is guaranteed waste and the cause is knowable here)
- *   - live active/trialing   → { pro, verified }
+ *   - live active/trialing   → { pro, verified }, plus trialing: true for status `trialing`
+ *       (from the live answer or an unexpired cache entry; never from an expired one)
  *   - live otherwise         → { free, verified }         (never subscribed / lapsed)
  *
  * Failure handling (deliberate — see the PRD gating requirements):
@@ -75,6 +76,12 @@ export interface TierResolution {
    * the audit route re-checks it. Absent: no.
    */
   freeAudit?: boolean;
+  /**
+   * The live subscription's status is `trialing` (GET /api/subscription
+   * `status`, which the tier derivation already reads). Absent: not in a trial,
+   * or not known (an outage answer from a cold cache never claims it).
+   */
+  trialing?: boolean;
 }
 
 export interface SubscriptionProvider {
@@ -95,6 +102,7 @@ export function isPro(tier: Tier): boolean {
 interface CacheEntry {
   tier: Tier;
   freeAudit?: boolean;
+  trialing?: boolean;
   expiresAt: number;
 }
 
@@ -159,17 +167,20 @@ export class DefaultSubscriptionProvider implements SubscriptionProvider {
     const now = this.now();
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > now) {
-      return { tier: cached.tier, verified: true, ...(cached.freeAudit ? { freeAudit: true } : {}) };
+      return { tier: cached.tier, verified: true, ...(cached.freeAudit ? { freeAudit: true } : {}), ...(cached.trialing ? { trialing: true } : {}) };
     }
 
     try {
       const sub = await this.client.getSubscription();
       const tier: Tier = sub.tier === "pro" ? "pro" : "free";
       const freeAudit = tier === "free" && sub.freeAudits === true;
-      this.cache.set(key, { tier, freeAudit, expiresAt: now + this.cfg.subscriptionCacheTtlMs });
-      return { tier, verified: true, ...(freeAudit ? { freeAudit: true } : {}) };
+      const trialing = tier === "pro" && sub.status === "trialing";
+      this.cache.set(key, { tier, freeAudit, trialing, expiresAt: now + this.cfg.subscriptionCacheTtlMs });
+      return { tier, verified: true, ...(freeAudit ? { freeAudit: true } : {}), ...(trialing ? { trialing: true } : {}) };
     } catch (e) {
       // Warm cache (even if expired): honor the last-known tier during an outage.
+      // The tier is honored from an expired entry (a hit that was still valid
+      // returned above); a trial is not, as it may have ended, so no `trialing`.
       if (cached) return { tier: cached.tier, verified: true, ...(cached.freeAudit ? { freeAudit: true } : {}) };
 
       // A definitive key rejection is NOT a transient outage, and it is NOT the

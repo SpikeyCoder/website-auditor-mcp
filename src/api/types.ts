@@ -312,6 +312,37 @@ export interface DashboardLink {
 }
 
 /**
+ * `weekly_changes`: what the weekly check found on the member's tracked sites,
+ * attached to the replies of the main tools while the account is in a trial
+ * (tools/weeklyChanges.ts).
+ */
+export interface WeeklyChanges {
+  /** The sentence or two to relay: what changed, or that nothing did, or that no site is tracked. */
+  summary: string;
+  /** Whether the account tracks at least one site. */
+  tracking: boolean;
+  /** When the next weekly check runs, or null when unknown. */
+  next_check_at: string | null;
+  /** True when `next_check_at` is already past: the check is overdue. */
+  next_check_due?: boolean;
+  /** At most three tracked sites. */
+  sites: WeeklySite[];
+}
+
+export interface WeeklySite {
+  domain: string;
+  latest_score: number | null;
+  /** The overall move since `since`; null when there is no like-for-like pair or different engines answered. */
+  score_delta: number | null;
+  /** Date of the earlier snapshot the move is measured from. */
+  since: string | null;
+  /** The engines that moved most, at most three. */
+  engines: { engine: string; label: string; delta: number }[];
+  /** The rest of what get_monitoring_status says about the site: caveats, notes, engine moves. */
+  detail?: string;
+}
+
+/**
  * One neighborhood / location / service area the business was asked about FROM
  * (per-place results from the engine). `named` of `sample` answers named it there; a place
  * with no answers is `not_measured` (or `not_measured_this_week`) with `named: null` and
@@ -339,6 +370,8 @@ export interface AiVisibilityPlace {
 }
 
 export interface AiVisibility {
+  /** Trial accounts only: what the weekly check found on their tracked sites. */
+  weekly_changes?: WeeklyChanges;
   /** Pro only, and only on a get_ai_visibility reply: the member's dashboard. */
   dashboard?: DashboardLink;
   score: number;
@@ -422,6 +455,8 @@ export interface AuditIssue {
 }
 
 export interface AuditSummary {
+  /** Trial accounts only: what the weekly check found on their tracked sites. */
+  weekly_changes?: WeeklyChanges;
   /** Pro only: the member's dashboard. */
   dashboard?: DashboardLink;
   /** Free audits only: one sentence of next_steps, as get_ai_visibility's summary carries it. */
@@ -755,6 +790,8 @@ export interface Recommendation {
 
 /** `get_recommendations` — ranked next steps from the domain's latest audit. */
 export interface Recommendations {
+  /** Trial accounts only: what the weekly check found on their tracked sites. */
+  weekly_changes?: WeeklyChanges;
   /** Pro only: the member's dashboard. */
   dashboard?: DashboardLink;
   /** The audit the steps come from. */
@@ -791,6 +828,8 @@ export interface SchemaResult {
 export interface ReportLinks {
   report_url: string;
   badge_html: string;
+  /** Trial accounts only: what the weekly check found on their tracked sites. */
+  weekly_changes?: WeeklyChanges;
 }
 
 // ── Growth plan (POST /api/growth-plan) ────────────────────────────────

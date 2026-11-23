@@ -14,6 +14,9 @@
 import type { AiVisibility } from "../api/types.js";
 import { toAiVisibility, computeTrend, detectUnreachable, measuredRun } from "../api/mappers.js";
 import { freeNextSteps, nextStepsSentence, uncheckedEnginesNote } from "./nextSteps.js";
+import { normalizeDomain } from "../api/domain.js";
+import { WaApiError } from "../api/errors.js";
+import { startWeeklyChanges, invalidateWeeklyChanges, NO_WEEKLY, type PendingWeekly } from "./weeklyChanges.js";
 import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
 import { gateAuditTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
@@ -56,6 +59,40 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
   const { gate, free } = await gateAuditTool(deps, args.domain);
   if (gate) return gate;
 
+  // An unusable domain is refused here, as the client would: no read, and no
+  // audit attempted, so nothing to invalidate either.
+  try {
+    normalizeDomain(args.domain);
+  } catch (e) {
+    return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
+  }
+
+  // Started beside the audit, so the block costs no extra wait; the audited
+  // site is left out of it, since this reply already shows that audit.
+  const weeklyRead = free ? NO_WEEKLY : startWeeklyChanges(deps, { exclude: args.domain });
+
+  // Invalidated only after that read has been awaited and used, in this
+  // finally: the audit stored a snapshot, so nothing read before it may stay
+  // cached. During an outage that costs one read per audit; accepted.
+  const run = { sent: false };
+  try {
+    return await getAiVisibilityChecked(args, deps, free, weeklyRead, run);
+  } finally {
+    // A success has already awaited and used the read. On any other outcome it
+    // is not awaited: invalidating cancels its store, and the reply need not wait.
+    // Only an audit that was sent stored anything: a refusal before sending leaves the cache alone.
+    // A client-side timeout may store later, so a read in that gap can be up to five minutes stale.
+    if (run.sent) invalidateWeeklyChanges(deps);
+  }
+}
+
+async function getAiVisibilityChecked(
+  args: GetAiVisibilityArgs,
+  deps: ToolDeps,
+  free: boolean,
+  weeklyRead: PendingWeekly,
+  run: { sent: boolean },
+): Promise<ToolResult<AiVisibility>> {
   let response;
   try {
     response = await deps.client.runAudit({
@@ -64,8 +101,12 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
       businessCity: args.business_location,
     });
   } catch (e) {
+    // A refusal (quota, key, rate limit, invalid input) stored nothing; a timeout or
+    // network failure may have landed after the audit was sent.
+    if (!(e instanceof WaApiError) || e.code === "TIMEOUT" || e.code === "UPSTREAM_ERROR") run.sent = true;
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
   }
+  run.sent = true;
 
   if (detectUnreachable(response.report)) {
     return err(
@@ -87,6 +128,6 @@ export async function getAiVisibility(args: GetAiVisibilityArgs, deps: ToolDeps)
     return ok({ ...free_result, summary: `${result.summary} ${nextStepsSentence(next_steps)}`, next_steps });
   }
   await attachTrend(result, args.domain, response.runId, deps);
-  const link = await dashboardLink(deps, "get_ai_visibility", args.domain);
-  return ok({ ...result, summary: withDashboardNote(result.summary, link), ...dashboardField(link) });
+  const [link, weekly] = await Promise.all([dashboardLink(deps, "get_ai_visibility", args.domain), weeklyRead.result()]);
+  return ok({ ...result, summary: withDashboardNote(result.summary, link), ...dashboardField(link), ...weekly });
 }

@@ -8,6 +8,7 @@
  * shape.
  */
 import type { ReportLinks } from "../api/types.js";
+import { startWeeklyChanges } from "./weeklyChanges.js";
 import { gateAuditTool, fromApiError, isNoAuditOnRecord, noAuditYet, ok, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetReportArgs {
@@ -20,9 +21,12 @@ export async function getReport(args: GetReportArgs, deps: ToolDeps): Promise<To
   const { gate } = await gateAuditTool(deps, args.domain);
   if (gate) return gate;
 
+  // The read may go unused (a failed report read); it is cached for five minutes.
+  // Started beside the report read, so a trial account's block costs no extra wait.
+  const weekly = startWeeklyChanges(deps);
   try {
     const report = await deps.client.getReport({ domain: args.domain });
-    return ok(report);
+    return ok({ ...report, ...(await weekly.result()) });
   } catch (e) {
     // The API's 404 "No audit on record": nothing to report yet, not a failure.
     if (isNoAuditOnRecord(e)) return noAuditYet(deps, args.domain);

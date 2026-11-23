@@ -15,6 +15,7 @@
  * pre-flight (gateKeyedTool) refuses only a missing or rejected key.
  */
 import type { Recommendations } from "../api/types.js";
+import { startWeeklyChanges } from "./weeklyChanges.js";
 import { dashboardLink, dashboardField } from "./dashboardLink.js";
 import { gateKeyedTool, fromApiError, isNoAuditOnRecord, noAuditYet, ok, type ToolDeps, type ToolResult } from "./context.js";
 
@@ -29,13 +30,20 @@ export async function getRecommendations(
   const gate = await gateKeyedTool(deps, undefined, args.domain);
   if (gate) return gate;
 
+  // Started beside the read; dropped when the API serves the free list. The read
+  // may go unused; it is cached for five minutes.
+  const weeklyRead = startWeeklyChanges(deps);
   try {
     const recommendations = await deps.client.getRecommendations({ domain: args.domain });
     // Gated by key only: the API serves a key without Pro the free list, and
     // that caller gets no link. `dashboardLink` checks the tier itself. The
     // reply has no `summary`, so the note stays in `dashboard.note`.
-    const link = recommendations.tier === "free" ? null : await dashboardLink(deps, "get_recommendations", args.domain);
-    return ok({ ...recommendations, ...dashboardField(link) });
+    const free = recommendations.tier === "free";
+    const [link, weekly] = await Promise.all([
+      free ? null : dashboardLink(deps, "get_recommendations", args.domain),
+      free ? {} : weeklyRead.result(),
+    ]);
+    return ok({ ...recommendations, ...dashboardField(link), ...weekly });
   } catch (e) {
     // The API's 404 "No audit on record": nothing to report yet, not a failure.
     if (isNoAuditOnRecord(e)) return noAuditYet(deps, args.domain);

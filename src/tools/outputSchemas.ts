@@ -282,6 +282,24 @@ const dashboardLinkField = z.object({
   note: z.string().describe("One line naming what the page shows; the same text is in summary where a reply has one."),
 }).optional();
 
+// ─── weekly changes (trial accounts) ───────────────────────────────────────
+
+/** `weekly_changes`, on five tools' success replies (tools/weeklyChanges.ts). Optional: only some accounts get it. */
+const weeklyChangesField = z.object({
+  summary: z.string().describe("How the tracked sites' scores moved, each change given since a date, or that nothing moved, or that no site is tracked. A short headline per site."),
+  tracking: z.boolean().describe("Whether the account tracks at least one site."),
+  next_check_at: z.string().nullable().describe("When the next weekly check runs; null when unknown. May be in the past when a check is overdue (then `next_check_due` is true)."),
+  next_check_due: z.boolean().optional().describe("True when next_check_at is already past."),
+  sites: z.array(z.object({
+    domain: z.string(),
+    latest_score: z.number().nullable(),
+    score_delta: z.number().nullable().describe("The overall move since `since`; null with no like-for-like pair or when different assistants answered."),
+    since: z.string().nullable().describe("Date of the earlier snapshot the move is measured from."),
+    engines: z.array(z.object({ engine: z.string().describe("The assistant's key."), label: z.string().describe("Its display name."), delta: z.number() })).describe("The assistants that moved most, at most three."),
+    detail: z.string().optional().describe("The rest of what the monitoring status says about this site: caveats, notes, assistant moves."),
+  })).describe("At most three tracked sites."),
+}).optional().describe("Present on some accounts: how the tracked sites' scores moved, each since a date.");
+
 // ─── per-tool output schemas ───────────────────────────────────────────────
 
 const nextStepsField = z.array(z.object({
@@ -291,6 +309,7 @@ const nextStepsField = z.array(z.object({
   "Free audits only: what this result found that another tool can act on, as plain facts with the tool's name.");
 
 export const getAiVisibilityOutput: ZodRawShape = {
+  weekly_changes: weeklyChangesField,
   next_steps: nextStepsField,
   dashboard: dashboardLinkField,
   score: z.number().describe("Overall AI-visibility score, 0–100."),
@@ -341,6 +360,7 @@ export const getAiVisibilityOutput: ZodRawShape = {
 };
 
 export const runAuditOutput: ZodRawShape = {
+  weekly_changes: weeklyChangesField,
   summary: z.string().optional().describe("Free audits only: next_steps in one sentence."),
   next_steps: nextStepsField,
   dashboard: dashboardLinkField,
@@ -501,6 +521,7 @@ export const getBenchmarkOutput: ZodRawShape = {
 };
 
 export const getRecommendationsOutput: ZodRawShape = {
+  weekly_changes: weeklyChangesField,
   dashboard: dashboardLinkField,
   run_id: z.string().nullable().optional().describe("The audit the steps come from."),
   tier: z.enum(["free", "pro"]).optional().describe(
@@ -536,6 +557,7 @@ export const generateSchemaOutput: ZodRawShape = {
 };
 
 export const getReportOutput: ZodRawShape = {
+  weekly_changes: weeklyChangesField,
   report_url: z.string(),
   badge_html: z.string(),
 };
@@ -627,6 +649,7 @@ export const getSampleAuditOutput: ZodRawShape = {
 };
 
 export const checkUpgradeStatusOutput: ZodRawShape = {
+  weekly_changes: weeklyChangesField,
   tier: z.string().describe('"none" | "free" | "pro". Every paid plan, Agency and Enterprise included, is "pro" here; `plan` names it.'),
   plan: z.enum(PAID_PLANS).optional().describe("Which paid plan the live subscription is for; absent when there is none, or the API did not say."),
   status: z.string().describe("Raw subscription status: active, trialing, canceled, none, …"),

@@ -150,7 +150,7 @@ export interface WaApiClientLike {
   /** Stop monitoring a domain (Pro). Idempotent. */
   untrackSite(params: { domain: string }): Promise<UntrackResult>;
   /** Per-domain monitoring status (latest score, runs, recent change) (Pro). */
-  getMonitoringStatus(): Promise<MonitoringStatus>;
+  getMonitoringStatus(opts?: MonitoringReadOptions): Promise<MonitoringStatus>;
   /** Benchmark a domain's AI visibility vs its industry/geo peers (Pro). */
   getBenchmark(params: BenchmarkParams): Promise<Benchmark>;
   /** Ranked next steps from a domain's latest audit (any key; Pro gets more). */
@@ -221,6 +221,14 @@ function setIfProvided(url: URL, key: string, value: string | undefined): void {
  * MCP and the API agree on who is Pro — active/trialing => pro, else free.
  */
 export const ACTIVE_SUBSCRIPTION_STATUSES: readonly string[] = ["active", "trialing"];
+
+/** Per-call options for the monitoring read. */
+export interface MonitoringReadOptions {
+  /** Abort the request after this long (default: the client's own timeout). */
+  timeoutMs?: number;
+  /** Fail, rather than default to no sites, when the answer has no sites array. */
+  requireSites?: boolean;
+}
 
 export class WaApiClient implements WaApiClientLike {
   private readonly cfg: WaConfig;
@@ -482,9 +490,15 @@ export class WaApiClient implements WaApiClientLike {
     return result;
   }
 
-  async getMonitoringStatus(): Promise<MonitoringStatus> {
+  async getMonitoringStatus(opts: MonitoringReadOptions = {}): Promise<MonitoringStatus> {
     const url = new URL(`${this.cfg.apiBaseUrl}/api/monitoring-status`);
-    const body = (await this.requestJson("GET", url)) as Partial<MonitoringStatus>;
+    const body = (await this.requestJson("GET", url, undefined, { timeoutMs: opts.timeoutMs, holdBody: opts.timeoutMs !== undefined })) as Partial<MonitoringStatus>;
+    // A body with no sites array is not "no sites": a caller that must tell the two apart asks.
+    // (website-auditor-api's GET /api/monitoring-status always sends `sites` as an array,
+    // empty for an account with none, so a missing one is a malformed answer.)
+    if (opts.requireSites && !Array.isArray(body?.sites)) {
+      throw new WaApiError("UPSTREAM_ERROR", "The monitoring status answer carried no sites list.", { details: body });
+    }
     return {
       limit: body.limit ?? 0,
       used: body.used ?? 0,
@@ -735,7 +749,7 @@ export class WaApiClient implements WaApiClientLike {
     method: string,
     url: URL,
     jsonBody?: unknown,
-    opts: { timeoutMs?: number; gatewayTimeoutFloor?: boolean; fix?: boolean; lookFirst?: string } = {},
+    opts: { timeoutMs?: number; holdBody?: boolean; gatewayTimeoutFloor?: boolean; fix?: boolean; lookFirst?: string } = {},
   ): Promise<unknown> {
     const timeoutMs = opts.timeoutMs ?? this.cfg.requestTimeoutMs;
     const headers: Record<string, string> = { Accept: "application/json", ...versionHeader() };
@@ -770,14 +784,16 @@ export class WaApiClient implements WaApiClientLike {
     // On the fix routes the deadline holds over the body too: headers that
     // arrive and a body that stalls are a timeout, not a hang. Elsewhere a
     // body that never came still reads as {} (track_site's 200 is a success).
+    // `holdBody` asks the same of a caller with its own short deadline.
+    const hold = opts.fix === true || opts.holdBody === true;
     let body: unknown;
-    if (!opts.fix) clearTimeout(timer);
+    if (!hold) clearTimeout(timer);
     try {
       body = await this.parseJson(resp);
     } finally {
       clearTimeout(timer);
     }
-    if (opts.fix && body === undefined && controller.signal.aborted) {
+    if (hold && body === undefined && controller.signal.aborted) {
       // A body read in full is kept even as the timer fires. Its status in details, not on the error (callers branch on a
       // status, as get_gtm_plan does on a 404): a refusal (4xx) whose body
       // stalled recorded nothing.

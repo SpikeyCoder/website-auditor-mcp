@@ -391,3 +391,33 @@ describe("instructions: the dashboard link", () => {
     }
   });
 });
+
+describe("instructions: the tracked-sites block (weekly_changes)", () => {
+  const block = (t: string) => t.split("\n\n").find((p) => p.startsWith("TRACKED SITES."));
+  const neutralBuilds = [
+    ["neutral (Claude)", buildInstructions(SIGNUP, "link", "http", true, "neutral")],
+    ["neutral + info", buildInstructions(SIGNUP, "info", "http", true, "neutral")],
+  ] as const;
+  const otherBuilds = [
+    ["default", buildInstructions(SIGNUP)],
+    ["info", buildInstructions(SIGNUP, "info")],
+    ["hosted", buildInstructions(SIGNUP, "link", "http")],
+  ] as const;
+
+  it.each([...neutralBuilds, ...otherBuilds])("%s: present, with no price, trial or plan wording", (_l, t) => {
+    expect(block(t)).toBeDefined();
+    expect(block(t)).not.toMatch(/\$|price|pricing|trial|upgrade|subscri|free|plan\b|payment|pro\b/i);
+  });
+
+  it.each(neutralBuilds)("%s: describes the field and gives the model no directive and no tool name", (_l, t) => {
+    const para = block(t)!;
+    expect(para).not.toMatch(/\b(relay|mention|tell|offer|always|must|should|do not|once|call|run|use|invoke)\b/i);
+    expect(para).not.toMatch(/get_|track_site|run_audit/);
+    expect(para).toMatch(/states this/);
+  });
+
+  it.each(otherBuilds)("%s: says to relay the summary, once", (_l, t) => {
+    expect(block(t)).toMatch(/relay `weekly_changes\.summary`/);
+    expect(block(t)).toMatch(/Do not repeat it/);
+  });
+});
