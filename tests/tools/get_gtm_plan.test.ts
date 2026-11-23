@@ -223,6 +223,22 @@ describe("get_gtm_plan: the wire the proxy actually accepts", () => {
     expect(res.error.message).not.toMatch(/GET \/api\/audit/);
   });
 
+  it("names the host for a URL-form domain, and survives a failing second tier lookup", async () => {
+    const fn = vi.fn(async () => {
+      throw new WaApiError("UPSTREAM_ERROR", "No audit on record for that run.", { status: 404 });
+    });
+    const deps = makeDeps({ tier: "pro", client: { getGtmPlan: fn } });
+    // The gate resolves once; the lookup inside noAuditYet then rejects.
+    const resolve = vi.fn()
+      .mockResolvedValueOnce({ tier: "pro", verified: true })
+      .mockRejectedValue(new Error("lookup failed"));
+    deps.subscriptions = { resolve } as unknown as typeof deps.subscriptions;
+    const res = await getGtmPlan({ domain: "https://www.Acme.com/pricing" }, deps);
+    if (res.ok) throw new Error("expected an error");
+    expect(res.error.code).toBe("NOT_FOUND");
+    expect(res.error.message).toBe("No audit of acme.com is on record yet. Run run_audit for acme.com first, then ask again.");
+  });
+
   it("a free account is stopped at the gate, before the API is asked", async () => {
     const fn = vi.fn();
     const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "free", client: { getGtmPlan: fn } }));

@@ -209,9 +209,10 @@ export async function getGtmPlan(
     // audits in a loop. That is the safe direction for the check to fail in.
     if (e instanceof WaApiError && e.status === 404) {
       // NOT_FOUND, as get_report and get_recommendations answer it: the input is
-      // fine, there is just no audit yet. gateProTool has already admitted a
-      // verified Pro caller, so this is noAuditYet's "run run_audit" wording; its
-      // non-Pro wordings can only appear if the tier changes mid-request.
+      // fine, there is just no audit yet. gateProTool admits only callers
+      // that noAuditYet tells to run run_audit (verified Pro, or an unverifiable
+      // tier); its non-Pro wordings can only appear if the tier changes
+      // mid-request.
       if (isNoAuditOnRecord(e)) return noAuditYet(deps, args.domain);
       // Not the ownership refusal, so the audit is not the problem and
       // run_audit is not the remedy. Say only what is known — the upstream
