@@ -32,7 +32,7 @@ import type { GtmChatMessage, GtmPlanResult } from "../api/types.js";
 import { normalizeDomain } from "../api/domain.js";
 import { WaApiError } from "../api/errors.js";
 import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
-import { gateProTool, fromApiError, isNoAuditOnRecord, ok, err, type ToolDeps, type ToolResult } from "./context.js";
+import { gateProTool, fromApiError, isNoAuditOnRecord, noAuditYet, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface GetGtmPlanArgs {
   domain: string;
@@ -182,8 +182,9 @@ export async function getGtmPlan(
   } catch (e) {
     // The proxy answers 404 for "no audit on record for this domain" with a
     // REST remedy ("run one first via GET /api/audit") that an MCP caller
-    // cannot follow — and it arrives as a bare upstream error. Name the tool
-    // that actually fixes it. Unchanged by the move to /api/growth-plan: the
+    // cannot follow — and it arrives as a bare upstream error. It is answered
+    // as NOT_FOUND (noAuditYet, as get_report does), which names the tool that
+    // actually fixes it. Unchanged by the move to /api/growth-plan: the
     // ownership lookup runs before the counter on both names, so a domain the
     // caller never audited still costs nothing and still reads as a 404.
     //
@@ -207,12 +208,12 @@ export async function getGtmPlan(
     // they cannot use, which is unhelpful but no longer sends them to spend
     // audits in a loop. That is the safe direction for the check to fail in.
     if (e instanceof WaApiError && e.status === 404) {
-      if (isNoAuditOnRecord(e)) {
-        return err(
-          "INVALID_INPUT",
-          `No audit on record for ${domain}. Run run_audit for ${domain} first, then ask for the plan again.`,
-        );
-      }
+      // NOT_FOUND, as get_report and get_recommendations answer it: the input is
+      // fine, there is just no audit yet. gateProTool admits only callers
+      // that noAuditYet tells to run run_audit (verified Pro, or an unverifiable
+      // tier); its non-Pro wordings can only appear if the tier changes
+      // mid-request.
+      if (isNoAuditOnRecord(e)) return noAuditYet(deps, args.domain);
       // Not the ownership refusal, so the audit is not the problem and
       // run_audit is not the remedy. Say only what is known — the upstream
       // text is the only evidence of which 404 this was — and name the one

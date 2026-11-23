@@ -311,12 +311,12 @@ function formatUtcDate(iso: string): string {
 }
 
 /**
- * The API's 404 for "no audit of this site on record" (GET /api/recommendations
- * and GET /api/report), as the caller should read it: NOT_FOUND, not a service
- * failure. Matched on the API's sentence as well as the status, for the reason
- * get_gtm_plan does: a 404 can also mean an unmounted route or an edge in
- * front of the API, and sending that caller to run_audit spends an audit and
- * changes nothing.
+ * The API's 404 for "no audit of this site on record" (GET /api/recommendations,
+ * GET /api/report and the growth-plan route behind get_gtm_plan), as the caller
+ * should read it: NOT_FOUND, not a service failure. Matched on the API's
+ * sentence as well as the status, because a 404 can also mean an unmounted
+ * route or an edge in front of the API, and sending that caller to run_audit
+ * spends an audit and changes nothing (see the long note in getGtmPlan.ts).
  */
 export function isNoAuditOnRecord(e: unknown): boolean {
   return e instanceof WaApiError && e.status === 404 && /no audit on record/i.test(e.message);

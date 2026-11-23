@@ -209,7 +209,7 @@ describe("get_gtm_plan: the wire the proxy actually accepts", () => {
     expect(sent[1]!.content.length).toBe(8192);
   });
 
-  it("a domain with no audit on record points at run_audit, not a REST route", async () => {
+  it("a domain with no audit on record is NOT_FOUND and points at run_audit, not a REST route", async () => {
     const fn = vi.fn(async () => {
       throw new WaApiError("UPSTREAM_ERROR", "No audit on record for that run. Run one first via GET /api/audit.", {
         status: 404,
@@ -218,8 +218,33 @@ describe("get_gtm_plan: the wire the proxy actually accepts", () => {
     const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "pro", client: { getGtmPlan: fn } }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.message).toMatch(/run_audit/);
+    expect(res.error.code).toBe("NOT_FOUND");
+    expect(res.error.message).toBe("No audit of acme.com is on record yet. Run run_audit for acme.com first, then ask again.");
     expect(res.error.message).not.toMatch(/GET \/api\/audit/);
+  });
+
+  it("names the host for a URL-form domain, and survives a failing second tier lookup", async () => {
+    const fn = vi.fn(async () => {
+      throw new WaApiError("UPSTREAM_ERROR", "No audit on record for that run.", { status: 404 });
+    });
+    const deps = makeDeps({ tier: "pro", client: { getGtmPlan: fn } });
+    // The gate resolves once; the lookup inside noAuditYet then rejects.
+    const resolve = vi.fn()
+      .mockResolvedValueOnce({ tier: "pro", verified: true })
+      .mockRejectedValue(new Error("lookup failed"));
+    deps.subscriptions = { resolve } as unknown as typeof deps.subscriptions;
+    const res = await getGtmPlan({ domain: "https://www.Acme.com/pricing" }, deps);
+    if (res.ok) throw new Error("expected an error");
+    expect(res.error.code).toBe("NOT_FOUND");
+    expect(res.error.message).toBe("No audit of acme.com is on record yet. Run run_audit for acme.com first, then ask again.");
+  });
+
+  it("a free account is stopped at the gate, before the API is asked", async () => {
+    const fn = vi.fn();
+    const res = await getGtmPlan({ domain: "acme.com" }, makeDeps({ tier: "free", client: { getGtmPlan: fn } }));
+    if (res.ok) throw new Error("expected an error");
+    expect(res.error.code).toBe("PRO_REQUIRED");
+    expect(fn).not.toHaveBeenCalled();
   });
 
   // A 404 is not one answer. The proxy's ownership refusal is the one the
