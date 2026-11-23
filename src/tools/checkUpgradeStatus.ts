@@ -14,11 +14,13 @@
  * too: a customer who used a trial in the last 12 months is billed
  * immediately, so the copy says "may", and checkout tells the truth.
  */
+import type { WeeklyChanges } from "../api/types.js";
 import type { PaidPlan } from "../api/plans.js";
 import { API_KEY_PREFIX, MALFORMED_KEY_MESSAGE } from "../auth/entitlements.js";
 import { WaApiError } from "../api/errors.js";
 import { ALREADY_CONNECTED_NOTE, fromApiError, isFreeAuditCaller, keySetupNote, ok, UNVERIFIED_MESSAGE, type ToolDeps, type ToolResult } from "./context.js";
 import { oauthEnabled } from "../auth/oauth.js";
+import { startWeeklyChanges, NO_WEEKLY } from "./weeklyChanges.js";
 import { PRICE, upgradeLink, plansAreDescribedAt } from "./upgrade.js";
 
 /** How a paid plan reads in a sentence. */
@@ -40,6 +42,8 @@ export interface UpgradeStatus {
   upgrade_url: string;
   /** Human-readable summary of the standing and the next step, if any. */
   message: string;
+  /** Trial accounts only: what the weekly check found on their tracked sites. */
+  weekly_changes?: WeeklyChanges;
 }
 
 export async function checkUpgradeStatus(_args: Record<string, never>, deps: ToolDeps): Promise<ToolResult<UpgradeStatus>> {
@@ -136,6 +140,10 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     return fromApiError(e, deps.config, deps.transport, deps.authVia);
   }
 
+  // Started once getSubscription has said whether this is a trial (so no second
+  // subscription read), and awaited at the return.
+  const weeklyRead = sub.tier === "pro" ? startWeeklyChanges(deps, { trialing: sub.status === "trialing" }) : NO_WEEKLY;
+
   const periodEnd = sub.current_period_end ?? null;
   const canceling = sub.cancel_at_period_end === true;
 
@@ -199,6 +207,7 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
       `a free trial is only available if your last one began more than 12 months ago — otherwise billing starts immediately).`;
   }
 
+  const weekly = await weeklyRead.result();
   return ok({
     tier: sub.tier,
     ...(sub.tier === "pro" && sub.plan ? { plan: sub.plan } : {}),
@@ -207,5 +216,6 @@ export async function checkUpgradeStatus(_args: Record<string, never>, deps: Too
     cancel_at_period_end: canceling,
     upgrade_url: upgradeUrl,
     message,
+    ...weekly,
   });
 }

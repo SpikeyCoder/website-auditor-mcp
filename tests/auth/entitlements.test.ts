@@ -61,8 +61,27 @@ describe("DefaultSubscriptionProvider.resolve — live subscription lookup", () 
     expect(await p.resolve("wa_key")).toEqual({ tier: "pro", verified: true });
   });
 
-  it("maps a trialing subscription to verified Pro", async () => {
+  it("maps a trialing subscription to verified Pro, and says it is a trial", async () => {
     const src = source(async () => ({ tier: "pro", status: "trialing" }));
+    const p = new DefaultSubscriptionProvider(cfg({ apiKey: "wa_key" }), src);
+    expect(await p.resolve("wa_key")).toEqual({ tier: "pro", verified: true, trialing: true });
+    // And from the cache.
+    expect(await p.resolve("wa_key")).toEqual({ tier: "pro", verified: true, trialing: true });
+  });
+
+  it("an outage after the entry expired keeps the tier but no longer claims the trial", async () => {
+    let fail = false;
+    const src = source(async () => { if (fail) throw new Error("down"); return { tier: "pro", status: "trialing" }; });
+    const clock = fakeClock();
+    const p = new DefaultSubscriptionProvider(cfg({ apiKey: "wa_key" }), src, clock);
+    expect(await p.resolve("wa_key")).toMatchObject({ tier: "pro", trialing: true });
+    fail = true;
+    clock.advance(61_000);
+    expect(await p.resolve("wa_key")).toEqual({ tier: "pro", verified: true });
+  });
+
+  it("an active subscription is not a trial", async () => {
+    const src = source(async () => ({ tier: "pro", status: "active" }));
     const p = new DefaultSubscriptionProvider(cfg({ apiKey: "wa_key" }), src);
     expect(await p.resolve("wa_key")).toEqual({ tier: "pro", verified: true });
   });

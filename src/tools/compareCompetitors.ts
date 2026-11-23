@@ -43,6 +43,7 @@ import { toAiVisibility, detectUnreachable, toComparisonRecommendationGap, compa
 import { normalizeDomain } from "../api/domain.js";
 import { WaApiError, isKeyRejection } from "../api/errors.js";
 import { dashboardLink, dashboardField, withDashboardNote } from "./dashboardLink.js";
+import { invalidateWeeklyChanges } from "./weeklyChanges.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface CompareCompetitorsArgs {
@@ -74,6 +75,8 @@ interface QuotaState {
   remaining: number | null;
   reset: string | null;
   auditsUsed: number;
+  /** Audits sent that may have stored a snapshot: answered, or lost to a timeout or network error; not a refusal. */
+  auditsSent: number;
   cachedReused: number;
   /**
    * Audits sent and not yet answered. The API reserves a slot for each one as
@@ -113,6 +116,23 @@ export async function compareCompetitors(
   args: CompareCompetitorsArgs,
   deps: ToolDeps,
 ): Promise<ToolResult<Comparison>> {
+  // The comparison reports no weekly block (its ranking already shows fresh
+  // scores). Audits it ran stored snapshots, so what a weekly read cached before
+  // them must not stay: dropped only when an audit was sent (sent, not answered), not for a
+  // refused or invalid call or a fully cached comparison.
+  const run: { quota?: QuotaState } = {};
+  try {
+    return await compareCompetitorsChecked(args, deps, run);
+  } finally {
+    if (run.quota && run.quota.auditsSent > 0) invalidateWeeklyChanges(deps);
+  }
+}
+
+async function compareCompetitorsChecked(
+  args: CompareCompetitorsArgs,
+  deps: ToolDeps,
+  run: { quota?: QuotaState },
+): Promise<ToolResult<Comparison>> {
   const deadline = Date.now() + TOOL_CALL_BUDGET_MS;
   const gate = await gateProTool(deps, args.domain);
   if (gate) return gate;
@@ -147,8 +167,9 @@ export async function compareCompetitors(
   }
 
   const quota: QuotaState = {
-    limit: null, remaining: null, reset: null, auditsUsed: 0, cachedReused: 0, inFlight: 0,
+    limit: null, remaining: null, reset: null, auditsUsed: 0, auditsSent: 0, cachedReused: 0, inFlight: 0,
   };
+  run.quota = quota;
 
   // Pre-flight: read remaining quota without spending an audit, if possible.
   const preflight = await safeRemaining(deps);
@@ -360,8 +381,11 @@ async function auditDomain(
   }
 
   quota.inFlight += 1;
+  // Once per audit, whichever way it ends: set after the call returns or fails in a way that may have landed.
+  let sent = false;
   try {
     const res = await deps.client.runAudit({ domain: host, businessCity });
+    sent = true;
     quota.auditsUsed += 1;
     if (res.rateLimit) {
       // The LOWEST remaining seen, not the last one to arrive. Each header is
@@ -384,6 +408,9 @@ async function auditDomain(
     deps.cache.set(cacheKey, av);
     return { kind: "scored", av, fromCache: false };
   } catch (e) {
+    // Sent, for the weekly cache: only an audit that may have landed (a timeout,
+    // a network failure, anything not an API refusal). A refusal stored nothing.
+    if (!(e instanceof WaApiError) || e.code === "TIMEOUT" || e.code === "UPSTREAM_ERROR") sent = true;
     if (e instanceof WaApiError && e.code === "OVER_QUOTA") {
       quota.remaining = 0;
       applyQuotaDetails(quota, e.details);
@@ -391,6 +418,7 @@ async function auditDomain(
     }
     return { kind: "error", error: e };
   } finally {
+    if (sent) quota.auditsSent += 1;
     quota.inFlight -= 1;
   }
 }

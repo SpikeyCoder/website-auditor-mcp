@@ -18,6 +18,7 @@
  *   - weekly cadence only in v1 (INVALID_INPUT for anything else)
  */
 import { dashboardLink, dashboardField, withDashboardNote, type DashboardLink } from "./dashboardLink.js";
+import { invalidateWeeklyChanges } from "./weeklyChanges.js";
 import { gateProTool, fromApiError, ok, err, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface TrackSiteArgs {
@@ -65,6 +66,8 @@ export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<To
       });
     } catch (e) {
       return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
+    } finally {
+      invalidateWeeklyChanges(deps, { discard: true });
     }
   }
 
@@ -89,5 +92,7 @@ export async function trackSite(args: TrackSiteArgs, deps: ToolDeps): Promise<To
     });
   } catch (e) {
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
+  } finally {
+    invalidateWeeklyChanges(deps, { discard: true });
   }
 }

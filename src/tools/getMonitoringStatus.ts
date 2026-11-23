@@ -28,6 +28,23 @@ export interface MonitoringStatusSite {
   summary: string;
 }
 
+/**
+ * A described site and its parts, so a second tool can use the pieces without
+ * parsing prose. `site` is what get_monitoring_status publishes (summary =
+ * headline, then the older-score caveat, then `rest`); the parts are not published.
+ */
+export interface SiteParts {
+  site: MonitoringStatusSite;
+  /** The first sentence: the score and its change since a date, or why there is no score. */
+  headline: string;
+  /** "That score is from X; the scheduled run on Y has stored no measured snapshot.", or "". */
+  olderCaveat: string;
+  /** Any sentence after the headline in an unscored site's summary. */
+  rest: string;
+  /** The score is older than the last run: not a settled "no change". */
+  stale: boolean;
+}
+
 export interface GetMonitoringStatusResult {
   /** Pro only: the member's dashboard. */
   dashboard?: DashboardLink;
@@ -140,6 +157,86 @@ function assess(
   return { change: null, label: "baseline; no change yet" };
 }
 
+/**
+ * One tracked site as get_monitoring_status words it: its score, the change and
+ * why there is none, the note, and the caveats (a score older than the last
+ * run, audited-but-unmeasured, not audited yet). `weekly_changes` (weeklyChanges.ts)
+ * uses this too, so the two never word a site differently.
+ */
+export function describeSite(s: MonitoringSite): SiteParts {
+  // `s.latest ? s.latest.score : null` was not enough: a latest snapshot
+  // that carries no score yields UNDEFINED, not null, and the two are not
+  // interchangeable here. The summary says in words why a score is null,
+  // so undefined slipped past it into "AI visibility undefined/100", and
+  // the declared output schema — which types this as a number-or-null —
+  // rejected the whole successful call.
+  const latestScore = typeof s.latest?.score === "number" ? s.latest.score : null;
+  const base = {
+    domain: s.domain,
+    cadence: s.cadence,
+    active: s.active,
+    latest_score: latestScore,
+    last_audited_at: s.last_audited_at,
+    next_run_at: s.next_run_at,
+  };
+  if (!s.latest || latestScore === null) {
+    // AUDITED IS NOT "NOT AUDITED". A domain with no latest score may have
+    // been audited all the same: its snapshots all measured nothing of the
+    // business (weekly re-audits of a name invented from the hostname), or
+    // an older API sent a latest snapshot without a score. Calling either
+    // never audited sat beside the date of its last audit. Nor is every
+    // claimed run an audit: the scheduler stamps last_audited_at when it
+    // claims the domain, before the audit runs, fails, or is skipped (a
+    // login-gated per-account page, which enrollment now refuses, or a claim
+    // it could not confirm), so that case names the run, not an audit.
+    // It says when a run stores no snapshot instead of guessing whether this
+    // one is still going: nothing bounds how long a run takes after its stamp
+    // (the batch size can be raised, and a batch goes on after its request
+    // ends at 300 s), so a window for "may still be running" is wrong for
+    // some batch, and one sentence has to hold at any age.
+    const n = s.snapshots_count ?? 0;
+    let headline: string;
+    let rest = "";
+    if (s.latest) {
+      headline = `${s.domain}: its latest snapshot, on ${day(s.latest.captured_at)}, has no score.`;
+    } else if (n > 0) {
+      headline = `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score.`;
+    } else if (s.last_audited_at) {
+      headline = `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot, so there is no score.`;
+      rest = "A run stores none while it is still going, if it fails, or if it is skipped.";
+    } else {
+      headline = `${s.domain}: not audited yet — the first scheduled run will set a baseline.`;
+    }
+    return {
+      site: { ...base, change: null, summary: rest ? `${headline} ${rest}` : headline },
+      headline, olderCaveat: "", rest, stale: false,
+    };
+  }
+  const { change, label, note } = assess(s.latest, latestScore, s);
+  // A SCORE OLDER THAN THE LAST RUN. The scheduler stamps last_audited_at
+  // when it claims a run, before that run can store a snapshot, and a
+  // measured weekly re-audit always joins the series, so a latest score
+  // captured before the stamp means that run has stored no measured
+  // snapshot: it is still going, failed, was skipped, or measured nothing of
+  // the business. The score stays, with its date and that run named, rather
+  // than read as current.
+  const claimed = Date.parse(s.last_audited_at ?? "");
+  const captured = Date.parse(s.latest.captured_at);
+  const older = Number.isFinite(claimed) && Number.isFinite(captured) && claimed > captured
+    ? `That score is from ${day(s.latest.captured_at)}; the scheduled run on ${day(s.last_audited_at)} has stored no measured snapshot.`
+    : "";
+  const headline = `${s.domain}: AI visibility ${latestScore}/100 (${label}).`;
+  return {
+    site: {
+      ...base,
+      change,
+      ...(note ? { note } : {}),
+      summary: older ? `${headline} ${older}` : headline,
+    },
+    headline, olderCaveat: older, rest: "", stale: older !== "",
+  };
+}
+
 export async function getMonitoringStatus(
   _args: Record<string, never>,
   deps: ToolDeps,
@@ -149,70 +246,7 @@ export async function getMonitoringStatus(
 
   try {
     const status = await deps.client.getMonitoringStatus();
-    const sites: MonitoringStatusSite[] = status.sites.map((s) => {
-      // `s.latest ? s.latest.score : null` was not enough: a latest snapshot
-      // that carries no score yields UNDEFINED, not null, and the two are not
-      // interchangeable here. The summary says in words why a score is null,
-      // so undefined slipped past it into "AI visibility undefined/100", and
-      // the declared output schema — which types this as a number-or-null —
-      // rejected the whole successful call.
-      const latestScore = typeof s.latest?.score === "number" ? s.latest.score : null;
-      const base = {
-        domain: s.domain,
-        cadence: s.cadence,
-        active: s.active,
-        latest_score: latestScore,
-        last_audited_at: s.last_audited_at,
-        next_run_at: s.next_run_at,
-      };
-      if (!s.latest || latestScore === null) {
-        // AUDITED IS NOT "NOT AUDITED". A domain with no latest score may have
-        // been audited all the same: its snapshots all measured nothing of the
-        // business (weekly re-audits of a name invented from the hostname), or
-        // an older API sent a latest snapshot without a score. Calling either
-        // never audited sat beside the date of its last audit. Nor is every
-        // claimed run an audit: the scheduler stamps last_audited_at when it
-        // claims the domain, before the audit runs, fails, or is skipped (a
-        // login-gated per-account page, which enrollment now refuses, or a claim
-        // it could not confirm), so that case names the run, not an audit.
-        // It says when a run stores no snapshot instead of guessing whether this
-        // one is still going: nothing bounds how long a run takes after its stamp
-        // (the batch size can be raised, and a batch goes on after its request
-        // ends at 300 s), so a window for "may still be running" is wrong for
-        // some batch, and one sentence has to hold at any age.
-        const n = s.snapshots_count ?? 0;
-        let summary: string;
-        if (s.latest) {
-          summary = `${s.domain}: its latest snapshot, on ${day(s.latest.captured_at)}, has no score.`;
-        } else if (n > 0) {
-          summary = `${s.domain}: audited, but ${n === 1 ? "its one snapshot did not measure" : `none of its ${n} snapshots measured`} the business, so there is no score.`;
-        } else if (s.last_audited_at) {
-          summary = `${s.domain}: its scheduled run on ${day(s.last_audited_at)} has stored no snapshot, so there is no score. A run stores none while it is still going, if it fails, or if it is skipped.`;
-        } else {
-          summary = `${s.domain}: not audited yet — the first scheduled run will set a baseline.`;
-        }
-        return { ...base, change: null, summary };
-      }
-      const { change, label, note } = assess(s.latest, latestScore, s);
-      // A SCORE OLDER THAN THE LAST RUN. The scheduler stamps last_audited_at
-      // when it claims a run, before that run can store a snapshot, and a
-      // measured weekly re-audit always joins the series, so a latest score
-      // captured before the stamp means that run has stored no measured
-      // snapshot: it is still going, failed, was skipped, or measured nothing of
-      // the business. The score stays, with its date and that run named, rather
-      // than read as current.
-      const claimed = Date.parse(s.last_audited_at ?? "");
-      const captured = Date.parse(s.latest.captured_at);
-      const older = Number.isFinite(claimed) && Number.isFinite(captured) && claimed > captured
-        ? ` That score is from ${day(s.latest.captured_at)}; the scheduled run on ${day(s.last_audited_at)} has stored no measured snapshot.`
-        : "";
-      return {
-        ...base,
-        change,
-        ...(note ? { note } : {}),
-        summary: `${s.domain}: AI visibility ${latestScore}/100 (${label}).${older}`,
-      };
-    });
+    const sites: MonitoringStatusSite[] = status.sites.map((x) => describeSite(x).site);
 
     const summary =
       status.used === 0

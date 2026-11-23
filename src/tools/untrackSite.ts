@@ -5,6 +5,7 @@
  * stopping a domain that isn't tracked is a success, not an error. Confirms the
  * remaining slot count so the caller (agent or human) knows the freed capacity.
  */
+import { invalidateWeeklyChanges } from "./weeklyChanges.js";
 import { gateProTool, fromApiError, ok, type ToolDeps, type ToolResult } from "./context.js";
 
 export interface UntrackSiteArgs {
@@ -45,5 +46,7 @@ export async function untrackSite(args: UntrackSiteArgs, deps: ToolDeps): Promis
     });
   } catch (e) {
     return fromApiError(e, deps.config, deps.transport, deps.authVia, args.domain);
+  } finally {
+    invalidateWeeklyChanges(deps, { discard: true });
   }
 }

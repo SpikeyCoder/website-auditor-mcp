@@ -260,6 +260,19 @@ export function buildInstructions(
       "track, the note says so. It is the member's own page, so share `dashboard.url` and its note with " +
       "them when your answer is about their tracked site, once per conversation is enough.";
 
+  // `weekly_changes` (tools/weeklyChanges.ts): facts about the member's own
+  // sites, said the same in both variants; no price, plan or trial words.
+  const weeklyGuidance = neutral
+    // Described, not directed (Anthropic's review rejects instructions).
+    ? "TRACKED SITES. A reply can carry `weekly_changes`: how the member's tracked sites' scores " +
+      "moved, each change given since a date, whether anything moved, and when the next weekly check " +
+      "runs. `weekly_changes.summary` states this in a sentence or two, or says no site is tracked."
+    : "TRACKED SITES. A reply can carry `weekly_changes`: how the member's tracked sites' scores " +
+      "moved, each change given since a date, whether anything moved, and when the next weekly check runs. When it is " +
+      "present, relay `weekly_changes.summary` in a sentence or two after answering what was asked. " +
+      "When it says no site is tracked, mention that once, as a fact. Do not repeat it on every reply " +
+      "in the same conversation unless it changed.";
+
   return [
     "Website Auditor — check whether AI assistants actually recommend a business. " +
       "It puts the questions a real customer would ask to " +
@@ -276,6 +289,8 @@ export function buildInstructions(
       "marked competitor show whose own pages are being read instead; treat them as context, not " +
       "somewhere to get listed. When `sources` is absent, say the audit recorded no citation " +
       "evidence — never that nothing cites the business.",
+
+    weeklyGuidance,
 
     planGuidance,
 

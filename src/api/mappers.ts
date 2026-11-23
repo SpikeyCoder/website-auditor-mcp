@@ -70,7 +70,7 @@ export function detectUnreachable(report: AuditReport): boolean {
 
 /** Lowercase payload key -> the display name upstream uses. One map, because
  *  a second spelling of this is how a raw key like "grok" reaches prose. */
-const ENGINE_LABELS: Record<string, string> = Object.fromEntries(ENGINES.map((e) => [e.key, e.report]));
+export const ENGINE_LABELS: Record<string, string> = Object.fromEntries(ENGINES.map((e) => [e.key, e.report]));
 
 /** "A", "A and B", "A, B and C" — for engine names in prose. */
 function listOf(names: string[]): string {
